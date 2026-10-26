@@ -113,7 +113,7 @@ func alipayLoop(ctx context.Context) {
 				}
 				result, err := service.ScanAlipay(ctx)
 				if err != nil {
-					log.Printf("[hstore] 支付宝查账失败: %v", err)
+					log.Printf("[hstore] 支付宝查账失败: %s", shortLog(err.Error()))
 					return
 				}
 				if result.Status == "ok" && (result.Entries > 0 || result.Settled > 0) {
@@ -183,6 +183,14 @@ func withStatic(api http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(index)
 	})
+}
+
+// shortLog 限制日志长度，避免异常响应体把 Docker json-file 日志和磁盘 IO 放大。
+func shortLog(value string) string {
+	if len(value) <= 300 {
+		return value
+	}
+	return value[:300] + "…"
 }
 
 func getenv(key, def string) string {

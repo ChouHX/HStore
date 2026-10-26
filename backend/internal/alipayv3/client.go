@@ -97,10 +97,14 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	if e.Code != "" {
-		return fmt.Sprintf("支付宝接口错误 HTTP %d [%s]：%s", e.Status, e.Code, e.Message)
+	message := e.Message
+	if len(message) > 500 {
+		message = message[:500] + "…"
 	}
-	return fmt.Sprintf("支付宝接口错误 HTTP %d：%s", e.Status, e.Message)
+	if e.Code != "" {
+		return fmt.Sprintf("支付宝接口错误 HTTP %d [%s]：%s", e.Status, e.Code, message)
+	}
+	return fmt.Sprintf("支付宝接口错误 HTTP %d：%s", e.Status, message)
 }
 
 // NewClient 创建客户端并校验 RSA 密钥。
