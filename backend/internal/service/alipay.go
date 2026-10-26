@@ -186,6 +186,15 @@ func AlipayPublicConfig() map[string]any {
 
 // CreateAlipayOrder 创建经营码充值订单。
 func CreateAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error) {
+	return createAlipayOrder(user, cny, false)
+}
+
+// CreateGuestAlipayOrder 为游客购买创建精确金额订单，不做 1–99 分加价。
+func CreateGuestAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error) {
+	return createAlipayOrder(user, cny, true)
+}
+
+func createAlipayOrder(user *model.User, cny float64, exactAmount bool) (*model.AlipayOrder, error) {
 	cfg := store.GetAlipaySecretConfig()
 	if !cfg.Enabled {
 		return nil, errors.New("支付宝充值未开启")
@@ -204,11 +213,13 @@ func CreateAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error
 		return nil, errors.New("充值金额过小")
 	}
 	amountCny := float64(requested) / 100
-	if amountCny < cfg.MinCny {
-		return nil, fmt.Errorf("单笔充值不能低于 ¥%s", store.TrimFloat(cfg.MinCny))
-	}
-	if amountCny > cfg.MaxCny {
-		return nil, fmt.Errorf("单笔充值不能高于 ¥%s", store.TrimFloat(cfg.MaxCny))
+	if !exactAmount {
+		if amountCny < cfg.MinCny {
+			return nil, fmt.Errorf("单笔充值不能低于 ¥%s", store.TrimFloat(cfg.MinCny))
+		}
+		if amountCny > cfg.MaxCny {
+			return nil, fmt.Errorf("单笔充值不能高于 ¥%s", store.TrimFloat(cfg.MaxCny))
+		}
 	}
 	if _, _, err := alipayClient(); err != nil {
 		return nil, err
@@ -218,11 +229,17 @@ func CreateAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error
 		ttlSeconds = 300
 	}
 	cooldownSeconds := cfg.CooldownSeconds
+	if exactAmount {
+		// 商品直购使用精确售价，结束后立即释放金额；不额外加价。
+		cooldownSeconds = 0
+	}
 	if cooldownSeconds < 0 {
 		cooldownSeconds = 0
 	}
-	offsetMax := cfg.AmountOffsetMaxCents
-	if offsetMax <= 0 {
+	offsetMax := int64(cfg.AmountOffsetMaxCents)
+	if exactAmount {
+		offsetMax = 0
+	} else if offsetMax <= 0 {
 		offsetMax = 1
 	}
 	store.ExpireAlipayOrders()
@@ -234,7 +251,7 @@ func CreateAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error
 		store.HashAlipayToken(token),
 		cfg.CollectionCode,
 		requested,
-		int64(offsetMax),
+		offsetMax,
 		int64(ttlSeconds)*1000,
 		int64(cooldownSeconds)*1000,
 	)
@@ -343,6 +360,7 @@ func QuickCheckAlipayOrder(ctx context.Context, id int) (*model.AlipayOrder, err
 	}
 	// scanAlipayWindow 已处理新流水；这里补一次待分配流水，覆盖极短窗口的边界。
 	ReconcilePendingAlipay(50)
+	FulfillPendingGuestPurchases(10)
 	return store.GetAlipayOrder(id), nil
 }
 
@@ -429,6 +447,7 @@ func scanAlipayLocked(ctx context.Context) (*AlipayScanResult, error) {
 	result.Settled += settled
 	result.Unmatched += unmatched
 	result.Ambiguous += ambiguous
+	FulfillPendingGuestPurchases(20)
 	result.Cursor = end
 	store.MarkAlipayScanAttempt("", result.TraceID, true, end)
 	return result, nil
@@ -534,6 +553,9 @@ func ManualMatchAlipay(orderID int, ledgerID int64) (*model.AlipayOrder, string,
 			store.TrimFloat(float64(entry.AmountCents)/100), store.TrimFloat(float64(order.PayableCents)/100))
 	}
 	updated, err := store.ManualMatchAlipay(orderID, ledgerID)
+	if err == nil {
+		_ = FulfillGuestPurchaseByPayment("alipay", orderID)
+	}
 	return updated, warning, err
 }
 

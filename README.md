@@ -1,7 +1,7 @@
 # 发卡商城
 
 **Vite + React 19 + Go + SQLite + Arco Design** 的发卡系统，对接「天启云商 商家客户 API 3.0」，
-覆盖商品同步、动态定价、用户资产、支付宝经营码 / USDT 充值、兑换码（面值码 / 商品码）、取件、会员等级与下单闭环。
+覆盖商品同步、动态定价、用户资产、游客直购、支付宝经营码 / USDT 充值、兑换码（面值码 / 商品码）、取件、会员等级与下单闭环。
 
 前端只负责页面渲染，所有业务逻辑都在 Go 后端；`vite build` 的产物通过 `go:embed` 打进二进制，
 **生产环境只需部署一个可执行文件**。
@@ -180,7 +180,16 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u ChouHX --password-stdin
 - 后台可手动「检查订单」或「模拟到账（测试）」；订单过期自动释放地址并标记 expired；
 - 入账复用不可篡改账本（`ledger`，类型 recharge，单号 `crypto-<id>`）。
 
-### 7. 支付宝经营码充值（原生）
+### 7. 游客直接购买（支付宝 / USDT）
+- 未注册用户可在商品弹窗直接选择支付宝或 USDT 支付，无需登录；
+- 支付宝按商品精确售价支付，**不做 1–99 分加价**；USDT 按汇率换算并生成唯一到账金额；
+- 创建游客订单时生成隔离的临时账户和订单凭证 token，支付到账后自动向上游下单发货；
+- 游客订单不写入正式用户列表，也不计入用户数量统计；
+- 支付成功后卡密直接显示在当前弹窗，凭证保存在浏览器，30 分钟内重新打开同一商品可继续查看；
+- 游客订单后台可见，销售统计计入「用户/游客」真实订单；
+- 统一后台轮询会在支付确认后自动处理履约，游客页面轮询也会即时查账。
+
+### 8. 支付宝经营码充值（原生）
 - 管理后台「支付设置 → 支付宝经营码」维护 App ID、应用私钥、支付宝公钥、经营码链接、金额区间与查账参数；
 - 用户按 **CNY** 下单后打开本项目的 `/pay/<token>` 收银台，页面展示经营码二维码与**唯一应付金额**；
 - 后端按支付宝 OpenAPI v3 规范做 **RSA-SHA256 应用签名**，校验响应签名后调用账务明细查询；
@@ -196,12 +205,12 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u ChouHX --password-stdin
 应用私钥 + 支付宝公钥）。经营码是静态码，系统仍按金额与时间推断归属，不是支付宝官方逐单支付凭证，
 极晚付款或金额错付需要人工核对。
 
-### 8. 会员等级
+### 9. 会员等级
 - 后台自定义等级（名称/门槛/折扣率）已并入「用户与资产」页面，通过「会员等级」按钮在弹窗中管理（新增/编辑/删除）；
 - 自动升级以「累计实际已消费」为准，订单结算完成才累加；
 - 人工指定 + 锁定等级，锁定后不再自动变更。
 
-### 9. 上游对接与 WAF（纯 Go）
+### 10. 上游对接与 WAF（纯 Go）
 - 上游域名前挂了阿里云 ESA/WAF，未带 Cookie 时返回一段 JS 挑战页。`internal/upstream/waf.go`
   用 **goja** 在进程内执行挑战脚本（垫了 `document` / `location` / `navigator` / `storage` /
   `atob` / `setTimeout` 等最小 DOM 环境），直接从脚本写回的 `document.cookie` 里取出放行 Cookie；
@@ -246,8 +255,8 @@ backend/                         Go 后端（模块 hstore/backend）
   internal/store/                products / pricing / users / orders / redeem / crypto / alipay
   internal/upstream/             天启客户端、goja 执行 WAF 挑战、Bybit
   internal/alipayv3/             支付宝 OpenAPI v3 签名、账单查询、响应验签
-  internal/service/              共用下单、兑换、取件、支付宝查账与匹配、演示数据
-  internal/httpapi/              全部 API 路由与处理器
+  internal/service/              共用下单、游客直购、兑换、取件、支付宝查账与匹配、演示数据
+  internal/httpapi/              全部 API 路由与处理器（含游客直购）
   internal/mail/                 IMAP / Graph 取件引擎（移植自 Redeem 项目）
   web/embed.go                   go:embed 前端产物
   web/dist/                      vite build 输出（assets 已 gitignore）
@@ -275,7 +284,7 @@ Arco Design 与 React 19 存在两处不兼容，项目通过 `scripts/patch-arc
 
 `categories` `products` `orders` `cards` `users` `ledger` `audit_logs`
 `pricing_rules` `levels` `redeem_codes` `redeem_failures` `sync_meta`
-`bybit_pool` `crypto_orders` `alipay_orders` `alipay_amount_slots` `alipay_ledger_entries` `alipay_scan_state` `announcements`
+`bybit_pool` `crypto_orders` `alipay_orders` `alipay_amount_slots` `alipay_ledger_entries` `alipay_scan_state` `guest_purchases` `announcements`
 
 ## 已验证
 

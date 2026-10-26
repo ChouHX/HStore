@@ -349,6 +349,32 @@ CREATE TABLE IF NOT EXISTS alipay_scan_state (
 
 INSERT OR IGNORE INTO alipay_scan_state(id) VALUES(1);
 
+
+CREATE TABLE IF NOT EXISTS guest_purchases (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  token            TEXT NOT NULL UNIQUE,
+  uid              INTEGER NOT NULL,
+  guest_user       INTEGER NOT NULL DEFAULT 1,
+  channel          TEXT NOT NULL,
+  payment_order_id INTEGER NOT NULL,
+  goods_id         INTEGER NOT NULL,
+  goods_name       TEXT NOT NULL DEFAULT '',
+  goods_count      INTEGER NOT NULL DEFAULT 1,
+  attach_json      TEXT NOT NULL DEFAULT '[]',
+  amount_cny       REAL NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'waiting',
+  upstream_order_no TEXT NOT NULL DEFAULT '',
+  outer_number     TEXT NOT NULL UNIQUE,
+  last_error       TEXT NOT NULL DEFAULT '',
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL,
+  paid_at          INTEGER,
+  fulfilled_at     INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_guest_purchases_status ON guest_purchases(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_guest_purchases_payment ON guest_purchases(channel, payment_order_id);
+
 CREATE TABLE IF NOT EXISTS announcements (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   type       TEXT NOT NULL DEFAULT 'normal',

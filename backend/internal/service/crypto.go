@@ -71,6 +71,15 @@ func RefreshPoolAddresses() RefreshResult {
 
 // CreateCryptoOrder 用户按 CNY 充值，自选链路。
 func CreateCryptoOrder(uid int, cnyInput float64, chainInput string) (*model.CryptoOrder, error) {
+	return createCryptoOrder(uid, cnyInput, chainInput, true)
+}
+
+// CreateGuestCryptoOrder 为游客直接购买商品创建 USDT 支付订单，不受充值最小金额限制。
+func CreateGuestCryptoOrder(uid int, cnyInput float64, chainInput string) (*model.CryptoOrder, error) {
+	return createCryptoOrder(uid, cnyInput, chainInput, false)
+}
+
+func createCryptoOrder(uid int, cnyInput float64, chainInput string, enforceMin bool) (*model.CryptoOrder, error) {
 	cfg := store.GetCryptoConfig()
 	if !cfg.Enabled {
 		return nil, errors.New("USDT 充值功能未开启")
@@ -90,8 +99,11 @@ func CreateCryptoOrder(uid int, cnyInput float64, chainInput string) (*model.Cry
 		return nil, errors.New("请输入充值金额")
 	}
 	requested := cnyInput / cfg.Rate
-	if requested < cfg.MinUsdt {
+	if enforceMin && requested < cfg.MinUsdt {
 		return nil, fmt.Errorf("最小充值 %s USDT（约 ¥%.2f）", store.TrimFloat(cfg.MinUsdt), cfg.MinUsdt*cfg.Rate)
+	}
+	if !enforceMin && requested < 0.005 {
+		return nil, errors.New("商品金额过低，暂不支持 USDT 支付")
 	}
 	if requested > 100000 {
 		return nil, errors.New("单笔充值金额过大")
@@ -108,6 +120,13 @@ func CreateCryptoOrder(uid int, cnyInput float64, chainInput string) (*model.Cry
 	}
 
 	base := math.Round(requested*100) / 100
+	if !enforceMin {
+		// 游客直购必须保证到账金额不少于商品售价，向上取整到分。
+		base = math.Ceil(requested*100) / 100
+		if base < 0.01 {
+			base = 0.01
+		}
+	}
 	expected, ok := store.UniqueExpectedAmount(base)
 	if !ok {
 		return nil, errors.New("生成唯一支付金额失败，请重试")
@@ -131,7 +150,14 @@ func CreateCryptoOrder(uid int, cnyInput float64, chainInput string) (*model.Cry
 func CheckCryptoOrder(id int) *model.CryptoOrder {
 	store.ExpireCryptoOrders()
 	order := store.GetCryptoOrder(id)
-	if order == nil || order.Status != "waiting" {
+	if order == nil {
+		return nil
+	}
+	if order.Status == "paid" {
+		_ = FulfillGuestPurchaseByPayment("usdt", order.ID)
+		return order
+	}
+	if order.Status != "waiting" {
 		return order
 	}
 	if !upstream.IsBybitConfigured() {
@@ -160,7 +186,11 @@ func CheckCryptoOrder(id int) *model.CryptoOrder {
 		if store.TxidUsed(r.TxID, order.ID) {
 			continue
 		}
-		return store.SettleCryptoOrder(order, r.TxID, r.Amount, "USDT 充值到账（"+order.ChainLabel+"）")
+		settled := store.SettleCryptoOrder(order, r.TxID, r.Amount, "USDT 充值到账（"+order.ChainLabel+"）")
+		if settled != nil && settled.Status == "paid" {
+			_ = FulfillGuestPurchaseByPayment("usdt", settled.ID)
+		}
+		return settled
 	}
 	return order
 }

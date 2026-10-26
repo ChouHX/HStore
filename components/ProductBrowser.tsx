@@ -281,10 +281,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     setPage(1);
   }
   function handleBuy(p: Product) {
-    if (!user) {
-      navigate("/login");
-      return;
-    }
     setPurchaseProduct(p);
   }
 
@@ -524,6 +520,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         product={purchaseProduct}
         open={purchaseProduct !== null}
         discount={discount}
+        user={user}
         onOpenChange={(o) => {
           if (!o) setPurchaseProduct(null);
         }}

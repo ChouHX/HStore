@@ -13,14 +13,15 @@ import (
 
 // PlaceOrderOptions 是统一下单入参。
 type PlaceOrderOptions struct {
-	User     *model.User
-	GoodsID  int
-	Count    int
-	Source   string // admin | user
-	Payment  string // balance | code
-	Attach   []map[string]string
-	Remark   string
-	OuterNum string
+	User      *model.User
+	GoodsID   int
+	Count     int
+	Source    string // admin | user
+	Payment   string // balance | code
+	Attach    []map[string]string
+	Remark    string
+	OuterNum  string
+	SaleMoney *float64 // 游客直购等场景固定成交金额，避免支付后改价
 }
 
 // PlaceOrderResult 是下单结果。
@@ -64,7 +65,7 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	if source == "user" && product.Enabled != 1 {
 		return PlaceOrderResult{Message: "商品已下架", Status: 400}
 	}
-	if source == "user" && user.Status != "active" {
+	if (source == "user" || source == "guest") && user.Status != "active" {
 		return PlaceOrderResult{Message: "账号已被冻结", Status: 400}
 	}
 
@@ -97,11 +98,14 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	}
 
 	discount := 1.0
-	if source == "user" {
+	if source == "user" || source == "guest" {
 		discount = store.GetLevelDiscount(user.LevelID)
 	}
 	unitPrice := round4(product.FinalPrice * discount)
 	saleMoney := round4(unitPrice * float64(count))
+	if opts.SaleMoney != nil {
+		saleMoney = round4(*opts.SaleMoney)
+	}
 	if payment == "code" {
 		saleMoney = 0
 	}
@@ -112,7 +116,7 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	costMoney := round4(costPrice * float64(count))
 
 	deducted := false
-	if payment == "balance" && source == "user" {
+	if payment == "balance" && (source == "user" || source == "guest") {
 		ok, msg, _, _ := store.Consume(user.UID, saleMoney, "")
 		if !ok {
 			return PlaceOrderResult{Message: msg, Status: 400}
@@ -168,7 +172,7 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	}
 
 	// 结算：只有真实扣款的自助订单才累计消费并触发自动升级
-	if payment == "balance" && source == "user" && len(result.Cards) > 0 {
+	if payment == "balance" && (source == "user" || source == "guest") && len(result.Cards) > 0 {
 		store.SettleConsumption(user.UID, saleMoney, result.OrderNumber)
 		store.MarkSettled(result.OrderNumber)
 	}

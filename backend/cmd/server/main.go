@@ -108,6 +108,7 @@ func alipayLoop(ctx context.Context) {
 					}
 				}()
 				service.ExpireAlipayOrders()
+				service.FulfillPendingGuestPurchases(20)
 				if !service.AlipayScanDue() {
 					return
 				}

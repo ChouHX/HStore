@@ -29,12 +29,12 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	_ = d.QueryRow(`SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN status='active' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status='frozen' THEN 1 ELSE 0 END),0),
-		COALESCE(ROUND(SUM(balance),2),0) FROM users`).Scan(&uTotal, &uActive, &uFrozen, &uBalance)
+		COALESCE(ROUND(SUM(balance),2),0) FROM users WHERE role <> 'guest'`).Scan(&uTotal, &uActive, &uFrozen, &uBalance)
 	var oTotal int
 	var oSale, oCost float64
 	_ = d.QueryRow(`SELECT COUNT(*),
-		COALESCE(ROUND(SUM(CASE WHEN source='user' THEN sale_money ELSE 0 END),2),0),
-		COALESCE(ROUND(SUM(CASE WHEN source='user' THEN cost_money ELSE 0 END),2),0) FROM orders`).Scan(&oTotal, &oSale, &oCost)
+		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN sale_money ELSE 0 END),2),0),
+		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN cost_money ELSE 0 END),2),0) FROM orders`).Scan(&oTotal, &oSale, &oCost)
 	var batches, codes, used int
 	_ = d.QueryRow(`SELECT (SELECT COUNT(*) FROM redeem_batches),
 		(SELECT COUNT(*) FROM redeem_codes),
@@ -80,7 +80,7 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		}
 		recent = append(recent, recentRecharge{
 			Key: "alipay-" + itoa(o.ID), ID: o.ID, OrderNo: o.OrderNo,
-			Channel: "alipay", ChannelLabel: "支付宝", Username: o.Username,
+			Channel: "alipay", ChannelLabel: "支付宝", Username: displayRechargeUsername(o.Username),
 			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
 		})
 	}
@@ -98,7 +98,7 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		}
 		recent = append(recent, recentRecharge{
 			Key: "usdt-" + itoa(o.ID), ID: o.ID, OrderNo: "USDT-" + itoa(o.ID),
-			Channel: "usdt", ChannelLabel: "USDT", Username: username,
+			Channel: "usdt", ChannelLabel: "USDT", Username: displayRechargeUsername(username),
 			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
 		})
 	}
@@ -206,6 +206,13 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 	default:
 		fail(w, http.StatusBadRequest, "未知操作")
 	}
+}
+
+func displayRechargeUsername(name string) string {
+	if strings.HasPrefix(name, "guest_") {
+		return "游客"
+	}
+	return name
 }
 
 func joinIDs(ids []int) string {

@@ -78,3 +78,40 @@ func clientIP(r *http.Request) string {
 	}
 	return host
 }
+
+// 游客下单限流：防止匿名脚本批量创建临时用户和支付订单。
+const guestCreateWindow = time.Minute
+const guestCreateMaxPerIP = 8
+
+var (
+	guestMu      sync.Mutex
+	guestBuckets = map[string]*ipBucket{}
+	guestCalls   int
+)
+
+func allowGuestCreate(ip string) bool {
+	if ip == "" {
+		ip = "-"
+	}
+	now := time.Now()
+	guestMu.Lock()
+	defer guestMu.Unlock()
+	guestCalls++
+	if guestCalls%pickupSweepEach == 0 {
+		for k, b := range guestBuckets {
+			if now.After(b.reset) {
+				delete(guestBuckets, k)
+			}
+		}
+	}
+	b := guestBuckets[ip]
+	if b == nil || now.After(b.reset) {
+		guestBuckets[ip] = &ipBucket{used: 1, reset: now.Add(guestCreateWindow)}
+		return true
+	}
+	if b.used >= guestCreateMaxPerIP {
+		return false
+	}
+	b.used++
+	return true
+}

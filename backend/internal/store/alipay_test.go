@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -8,6 +9,17 @@ import (
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/model"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "hstore-store-test-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("FAKA_DB_PATH", filepath.Join(dir, "store-test.db"))
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func TestAlipayOrderFlow(t *testing.T) {
 	t.Setenv("FAKA_DB_PATH", filepath.Join(t.TempDir(), "alipay-test.db"))
@@ -110,5 +122,50 @@ func TestAlipayOrderFlow(t *testing.T) {
 	}
 	if settled.PaymentStatus != "CONFIRMED" || settled.PaymentBasis != "MANUAL" {
 		t.Fatalf("manual settle failed: %+v", settled)
+	}
+}
+
+func TestGuestUserAndPurchase(t *testing.T) {
+	// 复用 TestAlipayOrderFlow 打开的测试数据库（顺序执行时已初始化）。
+	if _, err := db.Open(); err != nil {
+		t.Fatal(err)
+	}
+	user, err := CreateGuestUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user == nil || user.Role != "guest" {
+		t.Fatalf("unexpected guest user: %+v", user)
+	}
+	users := ListUsers(UserFilter{}, 100, 0)
+	for _, u := range users {
+		if u.Role == "guest" {
+			t.Fatalf("guest leaked into admin user list: %+v", u)
+		}
+	}
+	token := "guest-test-token"
+	outer := "GUEST-OUTER-1"
+	id, err := InsertGuestPurchase(model.GuestPurchase{
+		Token: token, UID: user.UID, GuestUser: 1, Channel: "alipay", PaymentOrderID: 1,
+		GoodsID: 1, GoodsName: "测试商品", GoodsCount: 1, AttachJSON: "[]",
+		AmountCny: 1, Status: "waiting", OuterNumber: outer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gp := GetGuestPurchaseByToken(token)
+	if gp == nil || gp.ID != id || gp.GoodsName != "测试商品" {
+		t.Fatalf("guest purchase not stored: %+v", gp)
+	}
+	if !ClaimGuestPurchase(id) {
+		t.Fatal("claim guest purchase failed")
+	}
+	if ClaimGuestPurchase(id) {
+		t.Fatal("guest purchase claimed twice")
+	}
+	MarkGuestPurchaseFulfilled(id, "UPSTREAM-1", nil)
+	gp = GetGuestPurchase(id)
+	if gp == nil || gp.Status != "fulfilled" || gp.UpstreamOrderNo != "UPSTREAM-1" {
+		t.Fatalf("guest purchase not fulfilled: %+v", gp)
 	}
 }

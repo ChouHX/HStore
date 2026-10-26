@@ -45,6 +45,10 @@ func (a *API) routes() {
 	a.mux.HandleFunc("DELETE /api/crypto/order", a.handleCryptoCancel)
 	a.mux.HandleFunc("GET /api/crypto/cron", a.handleCryptoCron)
 
+	// 游客直接购买商品
+	a.mux.HandleFunc("POST /api/guest/order", a.handleGuestOrderCreate)
+	a.mux.HandleFunc("GET /api/guest/order", a.handleGuestOrderGet)
+
 	// 支付宝经营码充值
 	a.mux.HandleFunc("GET /api/alipay/config", a.handleAlipayConfig)
 	a.mux.HandleFunc("POST /api/alipay/order", a.handleAlipayCreate)

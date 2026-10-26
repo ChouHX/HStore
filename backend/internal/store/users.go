@@ -71,6 +71,9 @@ type UserFilter struct {
 func buildUserWhere(f UserFilter) (string, []any) {
 	var where []string
 	var args []any
+	if f.Role != "guest" {
+		where = append(where, "u.role <> 'guest'")
+	}
 	if f.Keyword != "" {
 		where = append(where, "(u.username LIKE ? OR u.nickname LIKE ? OR u.phone LIKE ? OR u.email LIKE ? OR CAST(u.uid AS TEXT) = ?)")
 		args = append(args, "%"+f.Keyword+"%", "%"+f.Keyword+"%", "%"+f.Keyword+"%", "%"+f.Keyword+"%", f.Keyword)

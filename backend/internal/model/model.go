@@ -302,6 +302,29 @@ type CryptoOrder struct {
 	PaidAt        *int64   `json:"paidAt"`
 }
 
+// GuestPurchase 是游客直接购买商品的支付与履约记录。
+type GuestPurchase struct {
+	ID              int     `json:"id"`
+	Token           string  `json:"token"`
+	UID             int     `json:"uid"`
+	GuestUser       int     `json:"guestUser"`
+	Channel         string  `json:"channel"`
+	PaymentOrderID  int     `json:"paymentOrderId"`
+	GoodsID         int     `json:"goodsId"`
+	GoodsName       string  `json:"goodsName"`
+	GoodsCount      int     `json:"goodsCount"`
+	AttachJSON      string  `json:"attachJson"`
+	AmountCny       float64 `json:"amountCny"`
+	Status          string  `json:"status"`
+	UpstreamOrderNo string  `json:"upstreamOrderNo"`
+	OuterNumber     string  `json:"outerNumber"`
+	LastError       string  `json:"lastError"`
+	CreatedAt       int64   `json:"createdAt"`
+	UpdatedAt       int64   `json:"updatedAt"`
+	PaidAt          *int64  `json:"paidAt"`
+	FulfilledAt     *int64  `json:"fulfilledAt"`
+}
+
 // ===== 支付宝经营码充值 =====
 
 type AlipayOrder struct {

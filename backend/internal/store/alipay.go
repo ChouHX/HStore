@@ -365,9 +365,10 @@ func ListAlipayOrders(uid, limit int) []model.AlipayOrder {
 // CreateAlipayOrder 在事务内选择唯一应付金额、写入订单并占用金额槽。
 func CreateAlipayOrder(uid int, orderNo, checkoutHash, collectionCode string, requestedCents int64, offsetMax, ttlMs, cooldownMs int64) (*model.AlipayOrder, error) {
 	if requestedCents < 1 {
-		return nil, errors.New("充值金额过小")
+		return nil, errors.New("支付金额过小")
 	}
-	if offsetMax < 1 {
+	exactAmount := offsetMax <= 0
+	if !exactAmount && offsetMax < 1 {
 		offsetMax = 1
 	}
 	d := db.Must()
@@ -379,7 +380,13 @@ func CreateAlipayOrder(uid int, orderNo, checkoutHash, collectionCode string, re
 	nowMs := now()
 	var payable int64
 	found := false
-	for offset := int64(1); offset <= offsetMax; offset++ {
+	maxOffset := offsetMax
+	startOffset := int64(1)
+	if exactAmount {
+		maxOffset = 0
+		startOffset = 0
+	}
+	for offset := startOffset; offset <= maxOffset; offset++ {
 		candidate := requestedCents + offset
 		var one int
 		err := tx.QueryRow(`SELECT 1 FROM alipay_amount_slots WHERE payable_cents=?

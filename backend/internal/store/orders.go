@@ -58,7 +58,7 @@ func GetOrder(orderNumber string) *model.LocalOrder {
 	var uid sql.NullInt64
 	e := d.QueryRow(`SELECT o.order_number, o.outer_number, o.goods_id, o.goods_name, o.count, o.money,
 		o.status, COALESCE(o.result,''), COALESCE(o.platform,'other'), o.created_at, o.updated_at, o.user_uid,
-		COALESCE(u.username,''), COALESCE(o.sale_money,0), COALESCE(o.cost_money,0),
+		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), COALESCE(o.sale_money,0), COALESCE(o.cost_money,0),
 		COALESCE(o.source,''), COALESCE(o.settled,0)
 		FROM orders o LEFT JOIN users u ON u.uid = o.user_uid WHERE o.order_number = ?`, orderNumber).
 		Scan(&o.OrderNumber, &o.OuterNumber, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
@@ -127,7 +127,7 @@ func ListOrders(f OrderFilter) []model.LocalOrder {
 	}
 	rows, e := d.Query(`SELECT o.order_number, o.outer_number, o.goods_id, o.goods_name, o.count, o.money,
 		o.status, o.result, o.platform, o.created_at, o.updated_at, o.user_uid,
-		COALESCE(u.username,''), o.sale_money, o.cost_money, o.source, o.settled
+		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), o.sale_money, o.cost_money, o.source, o.settled
 		FROM orders o LEFT JOIN users u ON u.uid = o.user_uid `+where+`
 		ORDER BY o.created_at DESC LIMIT ? OFFSET ?`, append(args, limit, f.Offset)...)
 	if e != nil {
