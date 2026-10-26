@@ -468,6 +468,9 @@ func newBrowserEnv(vm *goja.Runtime, jar *cookieJar, root string) func() {
 	}
 	clearTimer := func(goja.FunctionCall) goja.Value { return undefined }
 
+	// 老 WAF 脚本仍使用已废弃的 Date.prototype.toGMTString。
+	_, _ = vm.RunString(`if (typeof Date.prototype.toGMTString !== "function") { Date.prototype.toGMTString = Date.prototype.toUTCString; }`)
+
 	// 全局对象就是 window。
 	_ = vm.Set("document", doc)
 	_ = vm.Set("location", loc)
@@ -598,6 +601,63 @@ func newBrowserEnv(vm *goja.Runtime, jar *cookieJar, root string) func() {
 	}
 }
 
+// sanitizeChallengeScript 去掉常见 WAF 脚本里的反调试死循环。
+//
+// 天启当前返回的阿里云挑战脚本会检测 Function.prototype.toString/Node 环境，
+// 不满足时进入 while(true)。Node/V8 正常，但 goja 会永久卡住。挑战本身只需要
+// 后面的 arg1 置换和 XOR，因此移除反调试 IIFE 和 a0j 内的 new k(...) 调用。
+func sanitizeChallengeScript(script string) string {
+	startMarker := "(function(){l(this,function(){"
+	for {
+		start := strings.Index(script, startMarker)
+		if start < 0 {
+			break
+		}
+		end := findMatchingParen(script, start)
+		if end <= start {
+			break
+		}
+		script = script[:start] + script[end:]
+	}
+	script = strings.ReplaceAll(script, "new k(a0j)['dQvDam'](),", "")
+	return script
+}
+
+func findMatchingParen(script string, start int) int {
+	depth := 0
+	var quote byte
+	escaped := false
+	for i := start; i < len(script); i++ {
+		ch := script[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch ch {
+		case '\'', '"', '`':
+			quote = ch
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return -1
+}
+
 // RefreshWafCookie 执行站点 JS 挑战，拿到放行 Cookie（无需浏览器）。
 func RefreshWafCookie(baseURL string) (result wafResult) {
 	defer func() {
@@ -662,6 +722,7 @@ func RefreshWafCookie(baseURL string) (result wafResult) {
 	firstErr := ""
 	interrupted := false
 	for _, script := range scripts {
+		script = sanitizeChallengeScript(script)
 		if _, err := vm.RunString(script); err != nil {
 			if firstErr == "" {
 				firstErr = err.Error()

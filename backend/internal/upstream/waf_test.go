@@ -103,6 +103,7 @@ func TestRefreshWafCookieExecutesChallenge(t *testing.T) {
 		_, _ = w.Write([]byte(`<html><body><script>
 			var arg1 = 'challenge';
 			document.cookie = "acw_sc__v2=ok; path=/; max-age=3600";
+			document.cookie = "gmtexp=" + new Date(Date.now() + 3600000).toGMTString();
 			setTimeout(function(){ document.cookie = "after=1"; }, 100);
 			window.onload = function(){ document.cookie = "loaded=1"; };
 		</script></body></html>`))
@@ -113,9 +114,23 @@ func TestRefreshWafCookieExecutesChallenge(t *testing.T) {
 	if !res.OK {
 		t.Fatalf("refresh failed: %+v", res)
 	}
-	for _, want := range []string{"acw_tc=initial", "acw_sc__v2=ok", "after=1", "loaded=1"} {
+	for _, want := range []string{"acw_tc=initial", "acw_sc__v2=ok", "after=1", "loaded=1", "gmtexp="} {
 		if !strings.Contains(res.Cookie, want) {
 			t.Fatalf("cookie %q missing %q", res.Cookie, want)
 		}
+	}
+}
+
+func TestSanitizeAntiDebug(t *testing.T) {
+	script := `(function(){l(this,function(){var B=new RegExp('x');B.test('y');})();}());var arg1='abc';new k(a0j)['dQvDam'](),document.cookie='ok=1';`
+	sanitized := sanitizeChallengeScript(script)
+	if strings.Contains(sanitized, "l(this,function") {
+		t.Fatalf("anti-debug IIFE not removed: %s", sanitized)
+	}
+	if strings.Contains(sanitized, "dQvDam") {
+		t.Fatalf("anti-debug call not removed: %s", sanitized)
+	}
+	if !strings.Contains(sanitized, "var arg1='abc'") || !strings.Contains(sanitized, "document.cookie='ok=1'") {
+		t.Fatalf("challenge logic was removed: %s", sanitized)
 	}
 }
