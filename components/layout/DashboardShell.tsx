@@ -15,6 +15,7 @@ import {
   IconList,
   IconMenu,
   IconPoweroff,
+  IconLock,
   IconSafe,
   IconSettings,
   IconStorage,
@@ -25,6 +26,7 @@ import {
 import { Link } from "react-router-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { SITE_NAME } from "@/lib/site";
 import type { User } from "@/lib/types";
 import { invalidateSession } from "@/src/hooks/useSession";
 
@@ -60,6 +62,7 @@ const ICONS: Record<string, React.ReactNode> = {
   orders: <IconList />,
   pickup: <IconEmail />,
   ledger: <IconBook />,
+  security: <IconLock />,
 };
 
 export function DashboardShell({ user, nav, children }: Props) {
@@ -116,10 +119,10 @@ export function DashboardShell({ user, nav, children }: Props) {
       {/* 桌面侧边栏 */}
       <Sider className="app-sider" width={208} style={{ background: "#fff" }}>
         <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 8 }}>
-          <img src="/favicon.svg" alt="HShop" style={{ width: 30, height: 30, borderRadius: 8 }} />
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 600 }}>{isAdmin ? "发卡后台" : "个人中心"}</div>
-            <div style={{ fontSize: 12, color: "#86909c" }}>HShop</div>
+          <img src="/favicon.svg" alt={SITE_NAME} style={{ width: 30, height: 30, borderRadius: 8 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{SITE_NAME}</div>
+            <div style={{ fontSize: 12, color: "#86909c" }}>{isAdmin ? "管理后台" : "个人中心"}</div>
           </div>
         </div>
         {navMenu()}
@@ -139,7 +142,10 @@ export function DashboardShell({ user, nav, children }: Props) {
         title={
           <span style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8 }}>
             <img src="/favicon.svg" alt="" style={{ width: 24, height: 24, borderRadius: 6 }} />
-            {isAdmin ? "发卡后台" : "个人中心"}
+            {SITE_NAME}
+            <span style={{ fontSize: 12, fontWeight: 400, color: "#86909c" }}>
+              {isAdmin ? "管理后台" : "个人中心"}
+            </span>
           </span>
         }
         visible={mobileOpen}
@@ -174,7 +180,7 @@ export function DashboardShell({ user, nav, children }: Props) {
               <Button size="small" shape="circle" icon={<IconMenu />} onClick={() => setMobileOpen(true)} />
             </span>
             <span className="md:hidden">
-              <img src="/favicon.svg" alt="HShop" style={{ width: 24, height: 24, borderRadius: 6 }} />
+              <img src="/favicon.svg" alt={SITE_NAME} style={{ width: 24, height: 24, borderRadius: 6 }} />
             </span>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{active?.label}</div>
           </div>

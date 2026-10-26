@@ -1,3 +1,6 @@
+/** 站点品牌名：侧边栏、页头、公开页统一用这个。 */
+export const SITE_NAME = "HShop";
+
 export interface Banner {
   title: string;
   subtitle: string;

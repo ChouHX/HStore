@@ -12,11 +12,21 @@ import (
 func alipaySnapshot() map[string]any {
 	cfg := store.GetAlipayConfig()
 	pending := store.ListAlipayPendingLedger(100)
+	orders := store.ListAlipayOrders(0, 200)
+	// 游客购物也会建支付宝订单，这里按 guest_purchases 反查区分「充值 / 购物」
+	purchases := store.GuestPaymentIDs("alipay")
+	for i := range orders {
+		if purchases[orders[i].ID] {
+			orders[i].Kind = "purchase"
+		} else {
+			orders[i].Kind = "recharge"
+		}
+	}
 	return map[string]any{
 		"config":        cfg,
 		"configured":    cfg.Configured,
 		"scanState":     store.GetAlipayScanState(),
-		"orders":        store.ListAlipayOrders(0, 200),
+		"orders":        orders,
 		"pendingLedger": pending,
 		"recentLedger":  store.ListAlipayLedger(100, ""),
 		"openOrders":    store.CountOpenAlipayOrders(),

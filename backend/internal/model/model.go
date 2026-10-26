@@ -301,6 +301,8 @@ type CryptoOrder struct {
 	ExpiresAt     int64    `json:"expiresAt"`
 	CreatedAt     int64    `json:"createdAt"`
 	PaidAt        *int64   `json:"paidAt"`
+	// Kind 区分用途：recharge=余额充值，purchase=游客购物
+	Kind string `json:"kind"`
 }
 
 // GuestPurchase 是游客直接购买商品的支付与履约记录。
@@ -352,10 +354,12 @@ type AlipayOrder struct {
 	CreatedAt      int64    `json:"createdAt"`
 	UpdatedAt      int64    `json:"updatedAt"`
 	PaidAt         *int64   `json:"paidAt"`
-	LastError      string   `json:"lastError"`
-	CheckoutToken  string   `json:"-"`
-	CheckoutHash   string   `json:"-"`
-	CollectionCode string   `json:"-"`
+	// Kind 区分用途：recharge=余额充值，purchase=游客购物（由 guest_purchases 反查得到）
+	Kind           string `json:"kind"`
+	LastError      string `json:"lastError"`
+	CheckoutToken  string `json:"-"`
+	CheckoutHash   string `json:"-"`
+	CollectionCode string `json:"-"`
 }
 
 type AlipayLedgerEntry struct {

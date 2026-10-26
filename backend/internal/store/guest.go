@@ -180,3 +180,22 @@ func MarkGuestPurchaseFailed(id int, message string) {
 	_, _ = db.Must().Exec(`UPDATE guest_purchases SET status='failed', last_error=?, updated_at=?
 		WHERE id=? AND status='fulfilling'`, message, now(), id)
 }
+
+// GuestPaymentIDs 返回某个支付渠道下「游客购物」的支付订单 ID 集合，
+// 用来把支付订单区分成充值 / 购物两类。
+func GuestPaymentIDs(channel string) map[int]bool {
+	out := map[int]bool{}
+	rows, err := db.Must().Query(
+		"SELECT payment_order_id FROM guest_purchases WHERE channel = ? AND payment_order_id > 0", channel)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			out[id] = true
+		}
+	}
+	return out
+}

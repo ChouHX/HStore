@@ -1,4 +1,4 @@
-import { Button, Card, Input, Message, Select, Space, Table, Tag } from "@arco-design/web-react";
+import { Button, Card, Descriptions, Input, Message, Modal, Select, Space, Table, Tag } from "@arco-design/web-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatPrice } from "@/lib/format";
 
@@ -15,26 +15,34 @@ interface AlipayOrder {
   credited: number | null;
   status: string;
   checkoutUrl: string;
+  expiresAt: number;
   createdAt: number;
   paidAt: number | null;
+  kind?: string;
+  lastError?: string;
 }
 
 interface CryptoOrder {
   id: number;
   uid: number;
   chain: string;
+  address: string;
   requestedCny: number;
   usdtAmount: string;
   creditCny: number;
   status: string;
   txid: string | null;
+  receivedUsdt: string | null;
+  expiresAt: number;
   createdAt: number;
   paidAt: number | null;
+  kind?: string;
 }
 
 /** 合并后的一行：支付宝与 USDT 共用同一套列。 */
 interface Row {
   key: string;
+  kind: "recharge" | "purchase";
   channel: "alipay" | "usdt";
   id: number;
   uid: number;
@@ -51,6 +59,7 @@ interface Row {
   createdAt: number;
   paidAt: number | null;
   checkoutUrl: string;
+  raw: AlipayOrder | CryptoOrder;
 }
 
 const STATUS: Record<string, { color: string; text: string }> = {
@@ -60,6 +69,11 @@ const STATUS: Record<string, { color: string; text: string }> = {
   closed: { color: "gray", text: "已关闭" },
   cancelled: { color: "red", text: "已取消" },
   disputed: { color: "red", text: "支付争议" },
+};
+
+const KIND: Record<string, { color: string; text: string }> = {
+  recharge: { color: "arcoblue", text: "充值" },
+  purchase: { color: "green", text: "购物" },
 };
 
 const STATUS_OPTIONS = [
@@ -76,21 +90,32 @@ function cents(v: number | null | undefined) {
   return v === null || v === undefined ? "-" : `¥${formatPrice(v / 100)}`;
 }
 
-function time(ms: number | null) {
+function time(ms: number | null | undefined) {
   return ms ? new Date(ms).toLocaleString("zh-CN") : "-";
+}
+
+/** 超长内容截断，鼠标悬停看全量，避免表格换行。 */
+function Ellipsis({ text, width = 110 }: { text: string; width?: number }) {
+  return (
+    <div className="truncate" style={{ maxWidth: width }} title={text}>
+      {text}
+    </div>
+  );
 }
 
 /**
  * 支付订单管理：支付宝经营码订单与 USDT 链上订单合并成一张表，
- * 用渠道 / 状态 / 关键字筛选。
+ * 用类型 / 渠道 / 状态 / 关键字筛选。
  */
 export function PaymentOrdersSection() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [kind, setKind] = useState("all");
   const [channel, setChannel] = useState("all");
   const [status, setStatus] = useState("all");
   const [keyword, setKeyword] = useState("");
+  const [detail, setDetail] = useState<Row | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,6 +129,7 @@ export function PaymentOrdersSection() {
       for (const o of (a?.ok ? (a.orders as AlipayOrder[]) : []) ?? []) {
         merged.push({
           key: `alipay-${o.id}`,
+          kind: o.kind === "purchase" ? "purchase" : "recharge",
           channel: "alipay",
           id: o.id,
           uid: o.uid,
@@ -120,12 +146,14 @@ export function PaymentOrdersSection() {
           createdAt: o.createdAt,
           paidAt: o.paidAt,
           checkoutUrl: o.checkoutUrl,
+          raw: o,
         });
       }
 
       for (const o of (c?.ok ? (c.orders as CryptoOrder[]) : []) ?? []) {
         merged.push({
           key: `usdt-${o.id}`,
+          kind: o.kind === "purchase" ? "purchase" : "recharge",
           channel: "usdt",
           id: o.id,
           uid: o.uid,
@@ -133,7 +161,7 @@ export function PaymentOrdersSection() {
           orderNo: `#${o.id}`,
           payText: `${o.usdtAmount} USDT`,
           paySub: `申请 ¥${formatPrice(o.requestedCny)} · ${o.chain}`,
-          receiveText: "-",
+          receiveText: o.receivedUsdt ? `${o.receivedUsdt} USDT` : "-",
           creditedText: `¥${formatPrice(o.creditCny)}`,
           status: o.status,
           statusText: STATUS[o.status]?.text ?? o.status,
@@ -142,6 +170,7 @@ export function PaymentOrdersSection() {
           createdAt: o.createdAt,
           paidAt: o.paidAt,
           checkoutUrl: "",
+          raw: o,
         });
       }
 
@@ -177,6 +206,7 @@ export function PaymentOrdersSection() {
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return rows.filter((r) => {
+      if (kind !== "all" && r.kind !== kind) return false;
       if (channel !== "all" && r.channel !== channel) return false;
       if (status !== "all" && r.status !== status) return false;
       if (!kw) return true;
@@ -187,23 +217,32 @@ export function PaymentOrdersSection() {
         r.extraValue.toLowerCase().includes(kw)
       );
     });
-  }, [rows, channel, status, keyword]);
+  }, [rows, kind, channel, status, keyword]);
 
   const counts = useMemo(() => {
-    let alipay = 0;
-    let usdt = 0;
+    const c = { recharge: 0, purchase: 0, alipay: 0, usdt: 0 };
     for (const r of rows) {
-      if (r.channel === "alipay") alipay++;
-      else usdt++;
+      c[r.kind]++;
+      c[r.channel]++;
     }
-    return { alipay, usdt };
+    return c;
   }, [rows]);
 
   const columns = [
     {
+      title: "类型",
+      dataIndex: "kind",
+      width: 80,
+      render: (_: unknown, r: Row) => (
+        <Tag size="small" color={KIND[r.kind]?.color}>
+          {KIND[r.kind]?.text}
+        </Tag>
+      ),
+    },
+    {
       title: "渠道",
       dataIndex: "channel",
-      width: 90,
+      width: 86,
       render: (_: unknown, r: Row) => (
         <Tag size="small" color={r.channel === "alipay" ? "arcoblue" : "purple"}>
           {r.channel === "alipay" ? "支付宝" : "USDT"}
@@ -213,19 +252,19 @@ export function PaymentOrdersSection() {
     {
       title: "订单号",
       dataIndex: "orderNo",
-      width: 210,
-      render: (_: unknown, r: Row) => <span className="font-mono text-[11px]">{r.orderNo}</span>,
+      width: 200,
+      render: (_: unknown, r: Row) => <Ellipsis text={r.orderNo} width={190} />,
     },
     {
       title: "用户",
       dataIndex: "uid",
       width: 110,
-      render: (_: unknown, r: Row) => r.username || `UID ${r.uid}`,
+      render: (_: unknown, r: Row) => <Ellipsis text={r.username || `UID ${r.uid}`} width={96} />,
     },
     {
       title: "应付",
       dataIndex: "payText",
-      width: 150,
+      width: 140,
       render: (_: unknown, r: Row) => (
         <div className="text-[12px]">
           <div className="text-[#f53f3f]">{r.payText}</div>
@@ -257,10 +296,11 @@ export function PaymentOrdersSection() {
     {
       title: "匹配 / TXID",
       dataIndex: "extraValue",
+      width: 150,
       render: (_: unknown, r: Row) => (
         <div className="text-[11px] text-[#4e5969]">
           <div className="text-[#86909c]">{r.extraLabel}</div>
-          <div className="line-clamp-1 max-w-[220px] break-all font-mono">{r.extraValue}</div>
+          <Ellipsis text={r.extraValue} width={140} />
         </div>
       ),
     },
@@ -278,9 +318,12 @@ export function PaymentOrdersSection() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 180,
+      width: 210,
       render: (_: unknown, r: Row) => (
         <Space>
+          <Button size="small" onClick={() => setDetail(r)}>
+            详情
+          </Button>
           {r.channel === "alipay" && r.checkoutUrl && (
             <Button size="small" href={r.checkoutUrl} target="_blank" rel="noreferrer">
               收银台
@@ -320,14 +363,22 @@ export function PaymentOrdersSection() {
     },
   ];
 
+  const alipayDetail = detail?.channel === "alipay" ? (detail.raw as AlipayOrder) : null;
+  const usdtDetail = detail?.channel === "usdt" ? (detail.raw as CryptoOrder) : null;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 rounded border border-[#e5e6eb] bg-white p-2">
         <Button size="small" loading={loading} onClick={load}>
           刷新
         </Button>
+        <Select value={kind} onChange={setKind} style={{ width: 130 }} size="small">
+          <Select.Option value="all">全部类型（{rows.length}）</Select.Option>
+          <Select.Option value="recharge">充值（{counts.recharge}）</Select.Option>
+          <Select.Option value="purchase">购物（{counts.purchase}）</Select.Option>
+        </Select>
         <Select value={channel} onChange={setChannel} style={{ width: 130 }} size="small">
-          <Select.Option value="all">全部渠道（{rows.length}）</Select.Option>
+          <Select.Option value="all">全部渠道</Select.Option>
           <Select.Option value="alipay">支付宝（{counts.alipay}）</Select.Option>
           <Select.Option value="usdt">USDT（{counts.usdt}）</Select.Option>
         </Select>
@@ -343,26 +394,89 @@ export function PaymentOrdersSection() {
           size="small"
           value={keyword}
           placeholder="订单号 / UID / 用户名 / TXID"
-          style={{ width: 260 }}
+          style={{ width: 240 }}
           onChange={setKeyword}
         />
         <span className="ml-auto text-[11px] text-[#86909c]">
-          支付宝与 USDT 订单合并展示；渠道配置在「支付设置」。
+          充值 = 余额充值单；购物 = 游客直购单。渠道配置在「支付设置」。
         </span>
       </div>
 
       <Card bordered={false} bodyStyle={{ padding: 12 }}>
         <Table
           // 筛选变化时重建表格，回到第 1 页，避免停在不存在的页码上
-          key={`${channel}-${status}-${keyword}`}
+          key={`${kind}-${channel}-${status}-${keyword}`}
           rowKey="key"
           columns={columns}
           data={filtered}
           loading={loading}
           pagination={{ pageSize: 10, showTotal: true, sizeCanChange: true }}
-          scroll={{ x: 1300 }}
+          scroll={{ x: 1420 }}
         />
       </Card>
+
+      <Modal
+        title={detail ? `${KIND[detail.kind].text}订单详情 · ${detail.channel === "alipay" ? "支付宝" : "USDT"}` : ""}
+        visible={detail !== null}
+        onCancel={() => setDetail(null)}
+        footer={<Button onClick={() => setDetail(null)}>关闭</Button>}
+        style={{ width: 640 }}
+        unmountOnExit
+      >
+        {detail && (
+          <Descriptions
+            column={1}
+            colon="："
+            labelStyle={{ width: 120, color: "#86909c" }}
+            data={[
+              { label: "类型", value: KIND[detail.kind].text },
+              { label: "渠道", value: detail.channel === "alipay" ? "支付宝经营码" : "USDT 链上转账" },
+              { label: "订单号", value: <span className="font-mono">{detail.orderNo}</span> },
+              { label: "用户", value: detail.username || `UID ${detail.uid}` },
+              {
+                label: "金额",
+                value: (
+                  <span>
+                    {detail.payText}
+                    <span className="ml-2 text-[12px] text-[#86909c]">{detail.paySub}</span>
+                  </span>
+                ),
+              },
+              { label: "实收 / 入账", value: `${detail.receiveText} / ${detail.creditedText}` },
+              { label: "状态", value: <Tag size="small" color={STATUS[detail.status]?.color}>{detail.statusText}</Tag> },
+              ...(alipayDetail
+                ? [
+                    { label: "支付宝订单号", value: <span className="font-mono">{alipayDetail.alipayOrderNo || "-"}</span> },
+                    { label: "匹配方式", value: alipayDetail.paymentBasis || "-" },
+                    {
+                      label: "收银台",
+                      value: alipayDetail.checkoutUrl ? (
+                        <a href={alipayDetail.checkoutUrl} target="_blank" rel="noreferrer" className="break-all">
+                          {alipayDetail.checkoutUrl}
+                        </a>
+                      ) : (
+                        "-"
+                      ),
+                    },
+                  ]
+                : []),
+              ...(usdtDetail
+                ? [
+                    { label: "链", value: usdtDetail.chain },
+                    { label: "收款地址", value: <span className="break-all font-mono">{usdtDetail.address}</span> },
+                    { label: "TXID", value: <span className="break-all font-mono">{usdtDetail.txid || "-"}</span> },
+                  ]
+                : []),
+              { label: "创建时间", value: time(detail.createdAt) },
+              { label: "确认时间", value: time(detail.paidAt) },
+              {
+                label: "过期时间",
+                value: time(alipayDetail ? alipayDetail.expiresAt : usdtDetail?.expiresAt),
+              },
+            ]}
+          />
+        )}
+      </Modal>
     </div>
   );
 }

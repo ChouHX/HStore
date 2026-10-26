@@ -16,6 +16,15 @@ func cryptoSnapshot() map[string]any {
 	if apiKey != "" {
 		apiKey = store.MaskSecret(apiKey)
 	}
+	orders := store.ListCryptoOrders(0, 100)
+	purchases := store.GuestPaymentIDs("usdt")
+	for i := range orders {
+		if purchases[orders[i].ID] {
+			orders[i].Kind = "purchase"
+		} else {
+			orders[i].Kind = "recharge"
+		}
+	}
 	return map[string]any{
 		"ok":           true,
 		"config":       cfg,
@@ -25,7 +34,7 @@ func cryptoSnapshot() map[string]any {
 		"hasApiSecret": bk.APISecret != "",
 		"chains":       store.CryptoChains,
 		"pool":         store.ListPool(),
-		"orders":       store.ListCryptoOrders(0, 100),
+		"orders":       orders,
 	}
 }
 
