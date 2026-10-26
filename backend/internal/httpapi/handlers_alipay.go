@@ -45,7 +45,11 @@ func (a *API) handleAlipayCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	ok(w, map[string]any{"order": order})
+	resp := map[string]any{"order": order}
+	if checkout, checkoutErr := service.GetAlipayCheckout(order.CheckoutToken); checkoutErr == nil {
+		resp["checkout"] = checkout
+	}
+	ok(w, resp)
 }
 
 func (a *API) handleAlipayList(w http.ResponseWriter, r *http.Request) {

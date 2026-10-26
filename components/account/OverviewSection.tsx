@@ -3,7 +3,7 @@ import { formatPrice } from "@/lib/format";
 
 import { Button, Card, Grid, Message, Progress, Space, Statistic, Tag } from "@arco-design/web-react";
 import { Link, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RechargeSection } from "@/components/account/RechargeSection";
 import type { Level, User } from "@/lib/types";
 
@@ -19,6 +19,15 @@ export function OverviewSection() {
   const [data, setData] = useState<Data | null>(null);
   const loc = useLocation();
 
+  const loadData = useCallback(() => {
+    return fetch("/api/me")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.ok) setData({ user: j.user, levels: j.levels, orderCount: j.orderCount });
+      })
+      .catch(() => Message.error("加载失败"));
+  }, []);
+
   useEffect(() => {
     if (!data) return;
     const params = new URLSearchParams(loc.search);
@@ -30,13 +39,8 @@ export function OverviewSection() {
   }, [data, loc.search]);
 
   useEffect(() => {
-    fetch("/api/me")
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.ok) setData({ user: j.user, levels: j.levels, orderCount: j.orderCount });
-      })
-      .catch(() => Message.error("加载失败"));
-  }, []);
+    loadData();
+  }, [loadData]);
 
   if (!data) return <div className="py-16 text-center text-[13px] text-[#86909c]">加载中…</div>;
 
@@ -100,7 +104,7 @@ export function OverviewSection() {
         </Space>
       </Card>
 
-      <RechargeSection embedded />
+      <RechargeSection onRecharged={loadData} />
     </div>
   );
 }
