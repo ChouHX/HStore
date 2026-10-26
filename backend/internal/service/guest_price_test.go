@@ -24,3 +24,23 @@ func TestCeilToCents(t *testing.T) {
 		}
 	}
 }
+
+func TestMinUsdtCountForGuest(t *testing.T) {
+	cases := []struct {
+		unit, rate float64
+		want       int
+	}{
+		{6, 7.2, 2},       // 谷歌邮箱 ¥6：1 件只有 0.83 USDT → 至少 2 件
+		{0.064, 7.2, 113}, // ¥0.064 的邮箱：需要 113 件才够 1 USDT
+		{8, 7.2, 1},       // 单价已超过 1 USDT
+		{7.2, 7.2, 1},     // 恰好 1 USDT
+		{7.21, 7.2, 1},
+		{0, 7.2, 1}, // 单价异常时不拦
+		{6, 0, 1},   // 汇率缺失时不拦
+	}
+	for _, c := range cases {
+		if got := MinUsdtCountForGuest(c.unit, c.rate); got != c.want {
+			t.Errorf("MinUsdtCountForGuest(%v, %v) = %d, want %d", c.unit, c.rate, got, c.want)
+		}
+	}
+}

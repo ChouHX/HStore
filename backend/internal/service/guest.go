@@ -130,6 +130,19 @@ func ceilToCents(amount float64) int64 {
 	return cents
 }
 
+// MinUsdtCountForGuest 返回 USDT 直购至少需要买几件，才能凑够 1 USDT。
+// 例如单价 ¥6、汇率 7.2 → 需要 2 件（¥12 ≈ 1.67 USDT）。
+func MinUsdtCountForGuest(unitPrice, rate float64) int {
+	if unitPrice <= 0 || rate <= 0 {
+		return 1
+	}
+	n := int(math.Ceil(rate / unitPrice))
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
 // CreateGuestPurchase 创建游客直购订单；支付宝使用商品精确金额，不加价。
 func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel, chain, contact string) (*model.GuestPurchase, *model.AlipayOrder, *model.CryptoOrder, error) {
 	channel = strings.ToLower(strings.TrimSpace(channel))
@@ -143,6 +156,26 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 	product, detail, amount, err := guestProduct(goodsID, count)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if channel == "usdt" {
+		// USDT 单笔到账太少无法核对（还要加唯一尾数），自动把数量提到至少 1 USDT。
+		cfg := store.GetCryptoConfig()
+		minCount := MinUsdtCountForGuest(product.FinalPrice, cfg.Rate)
+		if minCount > count {
+			maxQ := detail.MaxQuantity
+			if maxQ < 1 {
+				maxQ = 999999
+			}
+			if minCount > maxQ {
+				return nil, nil, nil, fmt.Errorf(
+					"USDT 支付至少需要 %d 件（约 1 USDT），超过单笔限购 %d 件，请改用支付宝", minCount, maxQ)
+			}
+			if detail.StockCount > 0 && minCount > detail.StockCount {
+				return nil, nil, nil, fmt.Errorf("USDT 支付至少需要 %d 件（约 1 USDT），当前库存不足", minCount)
+			}
+			count = minCount
+			amount = round4(product.FinalPrice * float64(count))
+		}
 	}
 	if channel == "alipay" {
 		// 支付宝只能支付到「分」，不足 1 分向上取整：0.064 → 0.07

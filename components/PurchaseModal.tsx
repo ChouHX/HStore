@@ -319,6 +319,21 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   const alipayTotal = ceilToCents(total);
   const payable = isGuest && guestChannel === "alipay" ? alipayTotal : total;
 
+  // USDT 单笔至少 1 USDT：单价太低时自动把数量提上去（与后端 MinUsdtCountForGuest 一致）
+  const usdtRate = guestCfg.crypto?.rate ?? 0;
+  const usdtMinCount =
+    isGuest && usdtRate > 0 && unitPrice > 0 ? Math.max(1, Math.ceil(usdtRate / unitPrice)) : 1;
+  const minCount =
+    isGuest && guestChannel === "usdt"
+      ? Math.max(detail?.minQuantity || 1, usdtMinCount)
+      : detail?.minQuantity || 1;
+
+  // 切到 USDT（或数量被改小）时，自动把数量抬到「至少 1 USDT」的下限
+  useEffect(() => {
+    if (!isGuest || guestChannel !== "usdt") return;
+    setCount((c) => (c < usdtMinCount ? usdtMinCount : c));
+  }, [isGuest, guestChannel, usdtMinCount]);
+
   function saveGuestToken(token: string, goodsId: number) {
     try {
       localStorage.setItem(guestStorageKey(goodsId), JSON.stringify({ token, goodsId, at: Date.now() }));
@@ -745,7 +760,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               )}
               {guestChannel === "usdt" && guestCfg.crypto?.rate ? (
                 <div className="text-[11px] text-[#86909c]">
-                  按汇率换算约 {((total || 0) / guestCfg.crypto.rate).toFixed(4)} USDT，实际金额以下单页面为准。
+                  USDT 单笔至少 1 USDT，本商品至少买 {usdtMinCount} 件
+                  {usdtMinCount > 1 ? <span className="text-[#d25f00]">（已自动调整数量）</span> : null}；
+                  当前约 {((total || 0) / guestCfg.crypto.rate).toFixed(4)} USDT，实际金额以下单页面为准。
                 </div>
               ) : null}
             </div>
@@ -756,8 +773,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               购买数量
               <InputNumber
                 value={count}
-                onChange={(v) => setCount(Math.max(1, Number(v) || 1))}
-                min={detail.minQuantity || 1}
+                onChange={(v) => setCount(Math.max(minCount, Number(v) || 1))}
+                min={minCount}
                 max={detail.maxQuantity || 999999}
                 style={{ width: 120 }}
               />
