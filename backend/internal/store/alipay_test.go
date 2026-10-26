@@ -29,7 +29,8 @@ func TestAlipayOrderFlow(t *testing.T) {
 	nowMs := time.Now().UnixMilli()
 
 	// 1) 唯一金额 + 自动匹配入账
-	order, err := CreateAlipayOrder(2, NewAlipayOrderNo(), HashAlipayToken("token-1"), "https://qr.alipay.com/test", 1000, 99, 5*60*1000, 10*60*1000)
+	// 首次启动只建管理员（uid=1），测试直接用这个账号
+	order, err := CreateAlipayOrder(1, NewAlipayOrderNo(), HashAlipayToken("token-1"), "https://qr.alipay.com/test", 1000, 99, 5*60*1000, 10*60*1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +63,9 @@ func TestAlipayOrderFlow(t *testing.T) {
 	if paid == nil || paid.PaymentStatus != "CONFIRMED" || paid.Credited == nil || *paid.Credited != 10 {
 		t.Fatalf("order not settled: %+v", paid)
 	}
-	user := GetUser(2)
-	if user == nil || user.Balance < 110 {
-		t.Fatalf("balance = %v, want >= 110", user)
+	user := GetUser(1)
+	if user == nil || user.Balance < 10 {
+		t.Fatalf("balance = %v, want >= 10", user)
 	}
 	entry := GetAlipayLedgerEntry(entryID)
 	if entry == nil || entry.State != "ALLOCATED" || entry.OrderID == nil || *entry.OrderID != order.ID {
@@ -75,7 +76,7 @@ func TestAlipayOrderFlow(t *testing.T) {
 	}
 
 	// 2) 订单结束后的付款不自动匹配
-	lateOrder, err := CreateAlipayOrder(2, NewAlipayOrderNo(), HashAlipayToken("token-2"), "https://qr.alipay.com/test", 2000, 99, 60*1000, 60*1000)
+	lateOrder, err := CreateAlipayOrder(1, NewAlipayOrderNo(), HashAlipayToken("token-2"), "https://qr.alipay.com/test", 2000, 99, 60*1000, 60*1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +101,7 @@ func TestAlipayOrderFlow(t *testing.T) {
 	}
 
 	// 3) 管理员手工关联，允许金额不一致
-	manualOrder, err := CreateAlipayOrder(2, NewAlipayOrderNo(), HashAlipayToken("token-3"), "https://qr.alipay.com/test", 3000, 99, 60*1000, 60*1000)
+	manualOrder, err := CreateAlipayOrder(1, NewAlipayOrderNo(), HashAlipayToken("token-3"), "https://qr.alipay.com/test", 3000, 99, 60*1000, 60*1000)
 	if err != nil {
 		t.Fatal(err)
 	}
