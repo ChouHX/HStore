@@ -1,0 +1,16 @@
+.git
+.github
+node_modules
+.next
+dist
+build
+data
+backend/data
+backend/bin
+backend/web/dist
+*.log
+.env
+.env.*
+*.bak
+*.tsbuildinfo
+.DS_Store

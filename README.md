@@ -68,6 +68,45 @@ npm run build:all
 | `admin` | `admin123` | 管理员 | `/admin/overview` |
 | `demo` | `demo123` | 普通用户 | 商城 `/` + 个人中心 `/account` |
 
+### Docker 一键部署（GHCR）
+
+推送到 `main` 后，GitHub Actions 会执行测试并构建多架构镜像，推送到：
+
+```text
+ghcr.io/chouhx/hstore:latest
+ghcr.io/chouhx/hstore:main
+ghcr.io/chouhx/hstore:sha-<commit>
+```
+
+服务器只需 Docker 与 Compose v2：
+
+```bash
+# 首次启动
+docker compose pull
+docker compose up -d
+
+# 后续更新
+docker compose pull
+docker compose up -d
+```
+
+默认映射 `3001:3001`，数据保存在 `hstore-data` 卷（容器内 `/data/faka.db`）。
+修改端口：`HSTORE_PORT=8080 docker compose up -d`。
+固定版本：`HSTORE_IMAGE=ghcr.io/chouhx/hstore:sha-xxxxxxx docker compose up -d`。
+
+查看日志与健康状态：
+
+```bash
+docker compose logs -f app
+docker compose ps
+```
+
+如果 GHCR 包被设为私有，先登录再拉取：
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u ChouHX --password-stdin
+```
+
 ## 界面
 
 - **商城 `/`**：简洁顶栏（头像下拉点击展开；移动端新增「公告」按钮）+ **Hero 区（轮播图；公告卡片桌面显示，移动端收进公告抽屉）** + **板块以无边框列表展示**（图片/名称/件数，名称自动去掉括号说明、不截断，点击切换）+ **商品分类（桌面为左侧边栏、移动端为抽屉，抽屉标题带板块名，均带分类图片）** + **Header 全局搜索（跨板块）**/排序 + 商品网格（**商品按需加载（接口分页）、有货优先、默认按名称排序、价格去除多余 0**）；
@@ -210,6 +249,9 @@ backend/                         Go 后端（模块 hstore/backend）
   web/dist/                      vite build 输出（assets 已 gitignore）
   bin/                           编译产物（已 gitignore）
 
+Dockerfile                       多阶段构建（Node 构建前端 + Go 编译 + Alpine 运行）
+docker-compose.yml               直接拉取 GHCR 镜像的一键启动配置
+.github/workflows/ci.yml         Web / Go 校验 + 多架构镜像构建与推送
 scripts/
   dev-all.mjs                    一键启动前后端（dev.cmd / dev.sh 的入口）
   build-api.mjs                  跨平台编译 Go 后端

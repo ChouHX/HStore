@@ -1,0 +1,31 @@
+name: hstore
+
+services:
+  app:
+    image: ${HSTORE_IMAGE:-ghcr.io/chouhx/hstore:latest}
+    container_name: hstore
+    restart: unless-stopped
+    ports:
+      - "${HSTORE_PORT:-3001}:3001"
+    environment:
+      PORT: "3001"
+      FAKA_ADDR: "0.0.0.0"
+      FAKA_DB_PATH: "/data/faka.db"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - hstore-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  hstore-data:
+    name: hstore-data
