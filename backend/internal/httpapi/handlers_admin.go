@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -54,12 +55,61 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
+	type recentRecharge struct {
+		ID           int     `json:"id"`
+		Channel      string  `json:"channel"`
+		ChannelLabel string  `json:"channelLabel"`
+		Username     string  `json:"username"`
+		AmountCny    float64 `json:"amountCny"`
+		Status       string  `json:"status"`
+		CreatedAt    int64   `json:"createdAt"`
+		PaidAt       *int64  `json:"paidAt"`
+	}
+	store.ExpireAlipayOrders()
+	store.ExpireCryptoOrders()
+	recent := make([]recentRecharge, 0, 20)
+	for _, o := range store.ListAlipayOrders(0, 30) {
+		if o.Status != "paid" && o.Status != "waiting" {
+			continue
+		}
+		amount := o.RequestedCny
+		if o.Credited != nil {
+			amount = *o.Credited
+		}
+		recent = append(recent, recentRecharge{
+			ID: o.ID, Channel: "alipay", ChannelLabel: "支付宝", Username: o.Username,
+			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
+		})
+	}
+	for _, o := range store.ListCryptoOrders(0, 30) {
+		if o.Status != "paid" && o.Status != "waiting" {
+			continue
+		}
+		amount := o.CreditCny
+		if o.Credited != nil {
+			amount = *o.Credited
+		}
+		username := ""
+		if u := store.GetUser(o.UID); u != nil {
+			username = u.Username
+		}
+		recent = append(recent, recentRecharge{
+			ID: o.ID, Channel: "usdt", ChannelLabel: "USDT", Username: username,
+			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
+		})
+	}
+	sort.SliceStable(recent, func(i, j int) bool { return recent[i].CreatedAt > recent[j].CreatedAt })
+	if len(recent) > 8 {
+		recent = recent[:8]
+	}
+
 	ok(w, map[string]any{
-		"products":   map[string]any{"total": pTotal, "enabled": pEnabled, "disabled": pDisabled},
-		"users":      map[string]any{"total": uTotal, "active": uActive, "frozen": uFrozen, "balance": uBalance},
-		"orders":     map[string]any{"total": oTotal, "sale": oSale, "cost": oCost},
-		"redeem":     map[string]any{"batches": batches, "codes": codes, "used": used},
-		"byPlatform": byPlatform,
+		"products":        map[string]any{"total": pTotal, "enabled": pEnabled, "disabled": pDisabled},
+		"users":           map[string]any{"total": uTotal, "active": uActive, "frozen": uFrozen, "balance": uBalance},
+		"orders":          map[string]any{"total": oTotal, "sale": oSale, "cost": oCost},
+		"redeem":          map[string]any{"batches": batches, "codes": codes, "used": used},
+		"byPlatform":      byPlatform,
+		"recentRecharges": recent,
 	})
 }
 

@@ -33,6 +33,7 @@ export function CatalogSection() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<(string | number)[]>([]);
   const [fullSyncing, setFullSyncing] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const loadTree = useCallback(async () => {
     setTreeLoading(true);
@@ -80,21 +81,48 @@ export function CatalogSection() {
   const pageSize = allCount > 0 && allPage > 0 ? Math.max(1, Math.ceil(allCount / allPage)) : 20;
 
   async function importSelected() {
-    if (!dirId) return;
+    if (!dirId || importing) return;
     const chosen = items.filter((i) => selected.map(String).includes(String(i.goodsId)));
     if (chosen.length === 0) {
       Message.warning("请选择要同步的商品");
       return;
     }
-    const j = await fetch("/api/admin/catalog/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dirId, items: chosen }),
-    }).then((r) => r.json());
-    if (j.ok) {
-      Message.success(`已同步 ${j.count} 个商品`);
-      loadProducts(dirId, page);
-    } else Message.error(j.message ?? "同步失败");
+    setImporting(true);
+    Message.loading({
+      id: "catalog-import",
+      duration: 0,
+      content: `正在同步 ${chosen.length} 个商品，请稍候…`,
+    });
+    try {
+      const j = await fetch("/api/admin/catalog/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dirId, items: chosen }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success({
+          id: "catalog-import",
+          duration: 3000,
+          content: `已同步 ${j.count} 个商品`,
+        });
+        await loadProducts(dirId, page);
+        loadTree();
+      } else {
+        Message.error({
+          id: "catalog-import",
+          duration: 4000,
+          content: j.message ?? "同步失败",
+        });
+      }
+    } catch {
+      Message.error({
+        id: "catalog-import",
+        duration: 4000,
+        content: "同步请求失败，请检查网络后重试",
+      });
+    } finally {
+      setImporting(false);
+    }
   }
 
 
@@ -231,8 +259,14 @@ export function CatalogSection() {
             )}
           </div>
           <Space>
-            <Button size="small" type="primary" disabled={!dirId || selected.length === 0} onClick={importSelected}>
-              同步选中（{selected.length}）
+            <Button
+              size="small"
+              type="primary"
+              loading={importing}
+              disabled={!dirId || selected.length === 0 || importing}
+              onClick={importSelected}
+            >
+              {importing ? "同步中…" : `同步选中（${selected.length}）`}
             </Button>
             <Button size="small" disabled={!dirId} onClick={() => dirId && loadProducts(dirId, page)}>
               刷新
@@ -252,9 +286,15 @@ export function CatalogSection() {
           「同步选中」把上游商品导入本地；导入后可在「商品与上下架」编辑信息、调价、上下架，或用「同步上游信息」刷新价格/库存。
         </div>
 
+        {importing && (
+          <div className="mb-2 rounded border border-[#bedaff] bg-[#e8f3ff] px-3 py-2 text-[12px] text-[#165dff]">
+            正在同步 {selected.length} 个商品，请勿关闭页面…
+          </div>
+        )}
+
         <Table
           rowKey="goodsId"
-          loading={loading}
+          loading={loading || importing}
           columns={columns}
           data={items}
           scroll={{ x: 850 }}
