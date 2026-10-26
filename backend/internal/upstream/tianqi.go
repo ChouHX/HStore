@@ -20,7 +20,7 @@ import (
 
 const apiVersion = "3.0"
 
-var httpClient = &http.Client{Timeout: 20 * time.Second}
+var httpClient = &http.Client{Timeout: 15 * time.Second}
 
 // Config 是上游调用所需的凭据。
 type Config struct {
@@ -274,12 +274,6 @@ func VoidCard(cardID string) (int, string, error) {
 }
 
 // 并发去重的 Cookie 刷新
-type wafResult struct {
-	OK      bool
-	Cookie  string
-	Message string
-}
-
 type wafCall struct {
 	done chan struct{}
 	res  wafResult

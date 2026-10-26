@@ -1,8 +1,13 @@
 package upstream
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/dop251/goja"
 )
 
 func TestRefreshWafCookieOnceRecoversPanic(t *testing.T) {
@@ -46,5 +51,71 @@ func TestRefreshWafCookieOnceDeduplicates(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("expected one refresh call, got %d", calls)
+	}
+}
+
+func TestBrowserEnvDocumentCookie(t *testing.T) {
+	vm := goja.New()
+	jar := newCookieJar()
+	jar.set("acw_tc=initial")
+	runCallbacks := newBrowserEnv(vm, jar, "https://tianqi996.com")
+	if _, err := vm.RunString(`
+		var el = document.createElement("div");
+		el.style.display = "none";
+		el.setAttribute("data-x", "1");
+		document.cookie = "acw_sc__v2=challenge; path=/; max-age=3600";
+		var ua = navigator.userAgent;
+		var ctx = document.createElement("canvas").getContext("2d");
+		ctx.fillRect(0, 0, 1, 1);
+		setTimeout(function(){ document.cookie = "delayed=1"; }, 1000);
+	`); err != nil {
+		t.Fatalf("script error: %v", err)
+	}
+	runCallbacks()
+	cookie := jar.String()
+	if !strings.Contains(cookie, "acw_sc__v2=challenge") || !strings.Contains(cookie, "delayed=1") {
+		t.Fatalf("cookie not captured: %s", cookie)
+	}
+	if strings.Contains(cookie, "path=") || strings.Contains(cookie, "max-age=") {
+		t.Fatalf("cookie attributes leaked: %s", cookie)
+	}
+}
+
+func TestBrowserEnvListener(t *testing.T) {
+	vm := goja.New()
+	jar := newCookieJar()
+	run := newBrowserEnv(vm, jar, "https://tianqi996.com")
+	if _, err := vm.RunString(`
+		window.addEventListener("load", function(){ document.cookie = "loaded=1"; });
+	`); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	if !strings.Contains(jar.String(), "loaded=1") {
+		t.Fatalf("load callback not executed: %s", jar.String())
+	}
+}
+
+func TestRefreshWafCookieExecutesChallenge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Set-Cookie", "acw_tc=initial; Path=/; HttpOnly")
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><body><script>
+			var arg1 = 'challenge';
+			document.cookie = "acw_sc__v2=ok; path=/; max-age=3600";
+			setTimeout(function(){ document.cookie = "after=1"; }, 100);
+			window.onload = function(){ document.cookie = "loaded=1"; };
+		</script></body></html>`))
+	}))
+	defer srv.Close()
+
+	res := RefreshWafCookie(srv.URL)
+	if !res.OK {
+		t.Fatalf("refresh failed: %+v", res)
+	}
+	for _, want := range []string{"acw_tc=initial", "acw_sc__v2=ok", "after=1", "loaded=1"} {
+		if !strings.Contains(res.Cookie, want) {
+			t.Fatalf("cookie %q missing %q", res.Cookie, want)
+		}
 	}
 }
