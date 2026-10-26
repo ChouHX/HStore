@@ -45,14 +45,13 @@ func (a *API) routes() {
 	a.mux.HandleFunc("DELETE /api/crypto/order", a.handleCryptoCancel)
 	a.mux.HandleFunc("GET /api/crypto/cron", a.handleCryptoCron)
 
-	// 支付宝（PerPay）充值
-	a.mux.HandleFunc("GET /api/perpay/config", a.handlePerPayConfig)
-	a.mux.HandleFunc("POST /api/perpay/order", a.handlePerPayCreate)
-	a.mux.HandleFunc("GET /api/perpay/orders", a.handlePerPayList)
-	a.mux.HandleFunc("GET /api/perpay/order", a.handlePerPayGet)
-	a.mux.HandleFunc("DELETE /api/perpay/order", a.handlePerPayClose)
-	a.mux.HandleFunc("POST /api/perpay/order/retry", a.handlePerPayRetry)
-	a.mux.HandleFunc("POST /api/webhooks/perpay", a.handlePerPayWebhook)
+	// 支付宝经营码充值
+	a.mux.HandleFunc("GET /api/alipay/config", a.handleAlipayConfig)
+	a.mux.HandleFunc("POST /api/alipay/order", a.handleAlipayCreate)
+	a.mux.HandleFunc("GET /api/alipay/orders", a.handleAlipayList)
+	a.mux.HandleFunc("GET /api/alipay/order", a.handleAlipayGet)
+	a.mux.HandleFunc("DELETE /api/alipay/order", a.handleAlipayClose)
+	a.mux.HandleFunc("GET /api/alipay/checkout/{token}", a.handleAlipayCheckout)
 
 	// 后台
 	a.mux.HandleFunc("GET /api/admin/stats", a.handleAdminStats)
@@ -82,8 +81,8 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/admin/settings/test", a.handleAdminSettingsTest)
 	a.mux.HandleFunc("GET /api/admin/crypto", a.handleAdminCrypto)
 	a.mux.HandleFunc("POST /api/admin/crypto", a.handleAdminCryptoPost)
-	a.mux.HandleFunc("GET /api/admin/perpay", a.handleAdminPerPay)
-	a.mux.HandleFunc("POST /api/admin/perpay", a.handleAdminPerPayPost)
+	a.mux.HandleFunc("GET /api/admin/alipay", a.handleAdminAlipay)
+	a.mux.HandleFunc("POST /api/admin/alipay", a.handleAdminAlipayPost)
 	a.mux.HandleFunc("POST /api/sync", a.handleSync)
 
 	// 健康检查

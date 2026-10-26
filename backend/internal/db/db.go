@@ -277,46 +277,77 @@ CREATE TABLE IF NOT EXISTS crypto_orders (
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_status ON crypto_orders(status);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_uid ON crypto_orders(uid);
 
-CREATE TABLE IF NOT EXISTS perpay_orders (
-  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-  uid                  INTEGER NOT NULL,
-  merchant_order_no    TEXT NOT NULL UNIQUE,
-  perpay_order_id      TEXT UNIQUE,
-  amount_cny           REAL NOT NULL DEFAULT 0,
-  amount_cents         INTEGER NOT NULL DEFAULT 0,
-  payable_cents        INTEGER,
-  received_cents       INTEGER,
-  status               TEXT NOT NULL DEFAULT 'creating',
-  payment_basis        TEXT NOT NULL DEFAULT '',
-  checkout_url         TEXT NOT NULL DEFAULT '',
-  checkout_status      TEXT NOT NULL DEFAULT '',
-  checkout_expires_at  INTEGER,
-  order_version        INTEGER NOT NULL DEFAULT 0,
-  last_error           TEXT NOT NULL DEFAULT '',
-  request_json         TEXT NOT NULL DEFAULT '',
-  credited             REAL,
-  created_at           INTEGER NOT NULL,
-  updated_at           INTEGER NOT NULL,
-  paid_at              INTEGER,
-  last_checked_at      INTEGER NOT NULL DEFAULT 0
+CREATE TABLE IF NOT EXISTS alipay_orders (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  uid                INTEGER NOT NULL,
+  order_no           TEXT NOT NULL UNIQUE,
+  checkout_hash      TEXT NOT NULL UNIQUE,
+  collection_code    TEXT NOT NULL DEFAULT '',
+  requested_cents    INTEGER NOT NULL,
+  payable_cents      INTEGER NOT NULL,
+  payment_status     TEXT NOT NULL DEFAULT 'UNPAID',
+  checkout_status    TEXT NOT NULL DEFAULT 'OPEN',
+  payment_basis      TEXT NOT NULL DEFAULT 'NONE',
+  received_cents     INTEGER,
+  alipay_order_no    TEXT NOT NULL DEFAULT '',
+  ledger_entry_id    INTEGER,
+  credited           REAL,
+  expires_at         INTEGER NOT NULL,
+  ended_at           INTEGER NOT NULL DEFAULT 0,
+  cooldown_until     INTEGER NOT NULL DEFAULT 0,
+  created_at         INTEGER NOT NULL,
+  updated_at         INTEGER NOT NULL,
+  paid_at            INTEGER,
+  last_error         TEXT NOT NULL DEFAULT ''
 );
 
-CREATE INDEX IF NOT EXISTS idx_perpay_orders_uid ON perpay_orders(uid, created_at);
-CREATE INDEX IF NOT EXISTS idx_perpay_orders_status ON perpay_orders(status);
+CREATE INDEX IF NOT EXISTS idx_alipay_orders_uid ON alipay_orders(uid, created_at);
+CREATE INDEX IF NOT EXISTS idx_alipay_orders_payable ON alipay_orders(payable_cents);
+CREATE INDEX IF NOT EXISTS idx_alipay_orders_status ON alipay_orders(payment_status, checkout_status);
 
-CREATE TABLE IF NOT EXISTS perpay_webhook_events (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id          TEXT NOT NULL UNIQUE,
-  event_type        TEXT NOT NULL DEFAULT '',
-  merchant_order_no TEXT NOT NULL DEFAULT '',
-  delivery_id       TEXT NOT NULL DEFAULT '',
-  body_digest       TEXT NOT NULL DEFAULT '',
-  order_version     INTEGER NOT NULL DEFAULT 0,
-  disposition       TEXT NOT NULL DEFAULT '',
-  received_at       INTEGER NOT NULL
+CREATE TABLE IF NOT EXISTS alipay_amount_slots (
+  payable_cents  INTEGER PRIMARY KEY,
+  order_id       INTEGER NOT NULL,
+  occupied_from  INTEGER NOT NULL,
+  released_at    INTEGER,
+  cooldown_until INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_perpay_webhook_merchant ON perpay_webhook_events(merchant_order_no);
+CREATE INDEX IF NOT EXISTS idx_alipay_slots_order ON alipay_amount_slots(order_id);
+
+CREATE TABLE IF NOT EXISTS alipay_ledger_entries (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  external_event_id     TEXT NOT NULL UNIQUE,
+  account_log_id        TEXT NOT NULL DEFAULT '',
+  occurred_at           INTEGER NOT NULL,
+  occurred_precision_ms INTEGER NOT NULL DEFAULT 1000,
+  amount_cents          INTEGER NOT NULL,
+  direction             TEXT NOT NULL,
+  alipay_order_no       TEXT NOT NULL DEFAULT '',
+  merchant_order_no     TEXT NOT NULL DEFAULT '',
+  trans_memo            TEXT NOT NULL DEFAULT '',
+  other_account         TEXT NOT NULL DEFAULT '',
+  state                 TEXT NOT NULL DEFAULT 'UNALLOCATED',
+  order_id              INTEGER,
+  raw_json              TEXT NOT NULL DEFAULT '',
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alipay_ledger_state ON alipay_ledger_entries(state, direction);
+CREATE INDEX IF NOT EXISTS idx_alipay_ledger_amount ON alipay_ledger_entries(amount_cents, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_alipay_ledger_order ON alipay_ledger_entries(order_id);
+
+CREATE TABLE IF NOT EXISTS alipay_scan_state (
+  id              INTEGER PRIMARY KEY CHECK (id = 1),
+  cursor_at       INTEGER NOT NULL DEFAULT 0,
+  last_attempt_at INTEGER NOT NULL DEFAULT 0,
+  last_success_at INTEGER NOT NULL DEFAULT 0,
+  last_error      TEXT NOT NULL DEFAULT '',
+  last_trace_id   TEXT NOT NULL DEFAULT ''
+);
+
+INSERT OR IGNORE INTO alipay_scan_state(id) VALUES(1);
 
 CREATE TABLE IF NOT EXISTS announcements (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -435,6 +466,15 @@ func migrate(db *sql.DB) error {
 	}); e != nil {
 		return e
 	}
+	if e := addColumns(db, "alipay_orders", [][2]string{
+		{"ended_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"collection_code", "TEXT NOT NULL DEFAULT ''"},
+	}); e != nil {
+		return e
+	}
+	if _, e := db.Exec("UPDATE alipay_orders SET ended_at = expires_at WHERE ended_at = 0"); e != nil {
+		return e
+	}
 
 	if e := addColumns(db, "redeem_codes", [][2]string{
 		{"start_at", "INTEGER"},
@@ -540,12 +580,18 @@ func seed(db *sql.DB) error {
 		{"bybit_min_usdt", "2"},
 		{"bybit_pool_uids", "598363709,598363661"},
 		{"bybit_enabled", "1"},
-		{"perpay_enabled", "0"},
-		{"perpay_min_cny", "10"},
-		{"perpay_max_cny", "5000"},
-		{"perpay_product_name", "账户余额充值"},
-		{"perpay_notify_enabled", "0"},
-		{"perpay_return_enabled", "1"},
+		{"alipay_enabled", "0"},
+		{"alipay_env", "production"},
+		{"alipay_min_cny", "1"},
+		{"alipay_max_cny", "5000"},
+		{"alipay_product_name", "账户余额充值"},
+		{"alipay_order_ttl_seconds", "300"},
+		{"alipay_amount_offset_max_cents", "99"},
+		{"alipay_cooldown_seconds", "600"},
+		{"alipay_active_scan_seconds", "8"},
+		{"alipay_normal_scan_seconds", "60"},
+		{"alipay_safety_lag_seconds", "10"},
+		{"alipay_lookback_seconds", "3600"},
 	}
 	for _, kv := range metaDefaults {
 		if kv[1] == "" {

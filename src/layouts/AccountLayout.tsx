@@ -16,7 +16,7 @@ export function AccountLayout() {
   const loc = useLocation();
 
   if (user === undefined) return <PageLoading />;
-  if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+  if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />;
 
   return (
     <DashboardShell user={user} nav={NAV}>

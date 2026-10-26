@@ -5,7 +5,7 @@ import { CatalogSection } from "@/components/admin/CatalogSection";
 import { CryptoSection } from "@/components/admin/CryptoSection";
 import { LogsSection } from "@/components/admin/LogsSection";
 import { OverviewSection as AdminOverview } from "@/components/admin/OverviewSection";
-import { PerPaySection } from "@/components/admin/PerPaySection";
+import { AlipaySection } from "@/components/admin/AlipaySection";
 import { PricingSection } from "@/components/admin/PricingSection";
 import { ProductsSection } from "@/components/admin/ProductsSection";
 import { RedeemSection } from "@/components/admin/RedeemSection";
@@ -18,6 +18,7 @@ import { RechargeSection } from "@/components/account/RechargeSection";
 import { AdminLayout } from "@/src/layouts/AdminLayout";
 import { AccountLayout } from "@/src/layouts/AccountLayout";
 import { HomePage } from "@/src/pages/HomePage";
+import { CheckoutPage } from "@/src/pages/CheckoutPage";
 import { LoginPage } from "@/src/pages/LoginPage";
 import { PickupPage } from "@/src/pages/PickupPage";
 
@@ -40,6 +41,7 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         {/* 取件是公开页面，不放在 /account 下，无需登录 */}
         <Route path="/pickup" element={<PickupPage />} />
+        <Route path="/pay/:token" element={<CheckoutPage />} />
 
         <Route path="/account" element={<AccountLayout />}>
           <Route index element={<Navigate to="/account/overview" replace />} />
@@ -60,7 +62,7 @@ export function App() {
           <Route path="redeem" element={<RedeemSection />} />
           <Route path="announcements" element={<AnnouncementsSection />} />
           <Route path="logs" element={<LogsSection />} />
-          <Route path="perpay" element={<PerPaySection />} />
+          <Route path="alipay" element={<AlipaySection />} />
           <Route path="recharge" element={<CryptoSection />} />
           <Route path="settings" element={<SettingsSection />} />
           {/* 旧路径兼容 */}

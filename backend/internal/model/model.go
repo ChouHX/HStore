@@ -302,44 +302,62 @@ type CryptoOrder struct {
 	PaidAt        *int64   `json:"paidAt"`
 }
 
-// ===== 支付宝（PerPay）充值 =====
+// ===== 支付宝经营码充值 =====
 
-type PerPayOrder struct {
-	ID                int      `json:"id"`
-	UID               int      `json:"uid"`
-	Username          string   `json:"username"`
-	MerchantOrderNo   string   `json:"merchantOrderNo"`
-	PerPayOrderID     *string  `json:"perpayOrderId"`
-	AmountCny         float64  `json:"amountCny"`
-	AmountCents       int64    `json:"amountCents"`
-	PayableCents      *int64   `json:"payableCents"`
-	ReceivedCents     *int64   `json:"receivedCents"`
-	Status            string   `json:"status"`
-	PaymentBasis      string   `json:"paymentBasis"`
-	CheckoutURL       string   `json:"checkoutUrl"`
-	CheckoutStatus    string   `json:"checkoutStatus"`
-	CheckoutExpiresAt *int64   `json:"checkoutExpiresAt"`
-	OrderVersion      int      `json:"orderVersion"`
-	LastError         string   `json:"lastError"`
-	Credited          *float64 `json:"credited"`
-	CreatedAt         int64    `json:"createdAt"`
-	UpdatedAt         int64    `json:"updatedAt"`
-	PaidAt            *int64   `json:"paidAt"`
-	LastCheckedAt     int64    `json:"lastCheckedAt"`
-	RequestJSON       string   `json:"-"`
+type AlipayOrder struct {
+	ID             int      `json:"id"`
+	UID            int      `json:"uid"`
+	Username       string   `json:"username"`
+	OrderNo        string   `json:"orderNo"`
+	RequestedCny   float64  `json:"requestedCny"`
+	RequestedCents int64    `json:"requestedCents"`
+	PayableCents   int64    `json:"payableCents"`
+	PaymentStatus  string   `json:"paymentStatus"`
+	CheckoutStatus string   `json:"checkoutStatus"`
+	PaymentBasis   string   `json:"paymentBasis"`
+	ReceivedCents  *int64   `json:"receivedCents"`
+	AlipayOrderNo  string   `json:"alipayOrderNo"`
+	LedgerEntryID  *int64   `json:"ledgerEntryId"`
+	Credited       *float64 `json:"credited"`
+	Status         string   `json:"status"`
+	CheckoutURL    string   `json:"checkoutUrl"`
+	ExpiresAt      int64    `json:"expiresAt"`
+	EndedAt        int64    `json:"endedAt"`
+	CooldownUntil  int64    `json:"cooldownUntil"`
+	CreatedAt      int64    `json:"createdAt"`
+	UpdatedAt      int64    `json:"updatedAt"`
+	PaidAt         *int64   `json:"paidAt"`
+	LastError      string   `json:"lastError"`
+	CheckoutToken  string   `json:"-"`
+	CheckoutHash   string   `json:"-"`
+	CollectionCode string   `json:"-"`
 }
 
-// PerPayWebhookEvent 是已验签并被幂等接收的 PerPay 通知。
-type PerPayWebhookEvent struct {
-	ID              int    `json:"id"`
-	EventID         string `json:"eventId"`
-	EventType       string `json:"eventType"`
-	MerchantOrderNo string `json:"merchantOrderNo"`
-	DeliveryID      string `json:"deliveryId"`
-	BodyDigest      string `json:"bodyDigest"`
-	OrderVersion    int    `json:"orderVersion"`
-	Disposition     string `json:"disposition"`
-	ReceivedAt      int64  `json:"receivedAt"`
+type AlipayLedgerEntry struct {
+	ID                int    `json:"id"`
+	ExternalEventID   string `json:"externalEventId"`
+	AccountLogID      string `json:"accountLogId"`
+	OccurredAt        int64  `json:"occurredAt"`
+	OccurredPrecision int64  `json:"occurredPrecision"`
+	AmountCents       int64  `json:"amountCents"`
+	Direction         string `json:"direction"`
+	AlipayOrderNo     string `json:"alipayOrderNo"`
+	MerchantOrderNo   string `json:"merchantOrderNo"`
+	TransMemo         string `json:"transMemo"`
+	OtherAccount      string `json:"otherAccount"`
+	State             string `json:"state"`
+	OrderID           *int   `json:"orderId"`
+	RawJSON           string `json:"rawJson,omitempty"`
+	CreatedAt         int64  `json:"createdAt"`
+	UpdatedAt         int64  `json:"updatedAt"`
+}
+
+type AlipayScanState struct {
+	CursorAt      int64  `json:"cursorAt"`
+	LastAttemptAt int64  `json:"lastAttemptAt"`
+	LastSuccessAt int64  `json:"lastSuccessAt"`
+	LastError     string `json:"lastError"`
+	LastTraceID   string `json:"lastTraceId"`
 }
 
 // MailboxItem 是「可取出邮箱」的卡券摘要（取件页列表用）。

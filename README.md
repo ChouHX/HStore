@@ -1,12 +1,12 @@
 # 发卡商城
 
 **Vite + React 19 + Go + SQLite + Arco Design** 的发卡系统，对接「天启云商 商家客户 API 3.0」，
-覆盖商品同步、动态定价、用户资产、支付宝（PerPay）/ USDT 充值、兑换码（面值码 / 商品码）、取件、会员等级与下单闭环。
+覆盖商品同步、动态定价、用户资产、支付宝经营码 / USDT 充值、兑换码（面值码 / 商品码）、取件、会员等级与下单闭环。
 
 前端只负责页面渲染，所有业务逻辑都在 Go 后端；`vite build` 的产物通过 `go:embed` 打进二进制，
 **生产环境只需部署一个可执行文件**。
 
-> **零配置文件**：项目没有 `.env`。上游 AppID / 密钥、定价规则、兑换码、Bybit、PerPay 等
+> **零配置文件**：项目没有 `.env`。上游 AppID / 密钥、定价规则、兑换码、Bybit、支付宝经营码等
 > 全部在「管理后台」维护（写入 SQLite 的 `sync_meta`）；
 > 会话签名密钥首次启动随机生成并落库；WAF 放行 Cookie 由 Go 用 goja 直接执行站点挑战脚本获取，
 > **不需要浏览器、不需要 Node、不需要人工填 Cookie**。
@@ -21,7 +21,7 @@
 | UI | **Arco Design**（`@arco-design/web-react`）+ Tailwind CSS 4（`@tailwindcss/vite`） |
 | 数据库 | SQLite（`modernc.org/sqlite`，WAL 模式） |
 | 部署 | 前端产物 `go:embed` 进二进制，单文件运行 |
-| 对接 | 天启云商开放平台 API 3.0（MD5 签名）、Bybit 子账户、PerPay 支付宝（HMAC-SHA256）、IMAP / Graph 邮箱取件 |
+| 对接 | 天启云商开放平台 API 3.0（MD5 签名）、支付宝 OpenAPI v3（RSA-SHA256）、Bybit 子账户、IMAP / Graph 邮箱取件 |
 
 ## 快速开始
 
@@ -180,19 +180,21 @@ echo "$GHCR_TOKEN" | docker login ghcr.io -u ChouHX --password-stdin
 - 后台可手动「检查订单」或「模拟到账（测试）」；订单过期自动释放地址并标记 expired；
 - 入账复用不可篡改账本（`ledger`，类型 recharge，单号 `crypto-<id>`）。
 
-### 7. 支付宝充值（PerPay）
-- 管理后台「支付宝支付」页维护 PerPay 地址、客户端 ID、API 密钥、通知密钥、本商城公开地址、金额区间与商品名；
-- 用户按 **CNY** 下单后跳转 PerPay 托管收银台扫码付款；收银台返回 `?perpay=商户订单号` 时自动查单；
-- 后端按 PerPay 规范做 **HMAC-SHA256 请求签名**（8 行签名原文、Unix 秒 + 32 字节 base64url nonce）；
-- 支付确认有两条路径：内置每 20 秒查单（`perPayLoop`），以及 `/api/webhooks/perpay` 签名回调；
-- 回调按原始请求体 **HMAC 验签**（Unix 毫秒时间戳、5 分钟偏差、事件 ID 去重），返回 PerPay 固定 ACK；
-- 只有服务端查单或验签通知为 `CONFIRMED` 才入账，且账本只写一次；已入账订单不会被乱序的 UNPAID 快照回退；
-- 支持关闭未支付收银台、管理员查单/重试/模拟到账，回调记录与订单状态可在后台查看；
-- 入账复用不可篡改账本（`ledger`，类型 recharge，单号 `perpay-<id>`）。
+### 7. 支付宝经营码充值（原生）
+- 管理后台「支付宝经营码」维护 App ID、应用私钥、支付宝公钥、经营码链接、金额区间与查账参数；
+- 用户按 **CNY** 下单后打开本项目的 `/pay/<token>` 收银台，页面展示经营码二维码与**唯一应付金额**；
+- 后端按支付宝 OpenAPI v3 规范做 **RSA-SHA256 应用签名**，校验响应签名后调用账务明细查询；
+- **金额分配**：在申请金额上增加 1–99 分尾数，并用金额槽保证同一时间不重复；订单结束后按冷却时间释放，降低迟付串单概率；
+- **自动确认**：按 `金额 + 付款时间落在订单有效窗口内` 匹配唯一待支付订单，匹配成功后只入账一次；
+- **查账频率自适应**：有待支付订单时使用活跃间隔（默认 8 秒），空闲时使用常规间隔（默认 60 秒），并保留安全延迟与 2 分钟重叠窗口；
+- **异常处理**：未匹配、金额不符或存在多候选的流水保留在管理后台「待匹配流水」，可人工关联订单；
+- 支持关闭未支付订单、手动立即查账、重新匹配、查看全部支付宝流水；
+- 入账复用不可篡改账本（`ledger`，类型 recharge，单号 `alipay-<id>`）。
 
-**PerPay 侧准备：** 部署 PerPay → 创建业务网站 → 生成 API 密钥；如需通知，生成通知密钥、开启通知，并把
-`notification_origin` 与 `return_origin` 都配置为本商城公开来源（例如 `https://shop.example.com`）。
-本项目的通知地址为 `https://shop.example.com/api/webhooks/perpay`。未启用通知也能靠轮询确认。
+**支付宝侧准备：** 在支付宝开放平台创建应用，开通「账务明细查询」权限，上传应用公钥，获取应用私钥与支付宝公钥；
+再把支付宝收钱码/经营码的 `https://qr.alipay.com/...` 链接填入后台。当前实现使用**公钥模式**（App ID +
+应用私钥 + 支付宝公钥）。经营码是静态码，系统仍按金额与时间推断归属，不是支付宝官方逐单支付凭证，
+极晚付款或金额错付需要人工核对。
 
 ### 8. 会员等级
 - 后台自定义等级（名称/门槛/折扣率）已并入「用户与资产」页面，通过「会员等级」按钮在弹窗中管理（新增/编辑/删除）；
@@ -222,6 +224,7 @@ src/
   pages/HomePage.tsx             商城（拉 /api/store/home）
   pages/LoginPage.tsx            登录（Arco Form）
   pages/PickupPage.tsx           取件（公开页，无需登录）
+  pages/CheckoutPage.tsx         支付宝经营码收银台（公开页）
   hooks/useSession.ts            /api/auth/me 缓存 + 失效
   components/PageLoading.tsx     全屏加载占位
   styles/globals.css             Tailwind + 全局样式
@@ -240,10 +243,10 @@ lib/
 backend/                         Go 后端（模块 hstore/backend）
   cmd/server/main.go             入口：PORT / FAKA_ADDR / FAKA_DB_PATH，内置加密轮询 + 静态托管
   internal/db/                   建表、迁移、seed、scrypt、会话签名
-  internal/store/                products / pricing / users / orders / redeem / crypto / perpay
+  internal/store/                products / pricing / users / orders / redeem / crypto / alipay
   internal/upstream/             天启客户端、goja 执行 WAF 挑战、Bybit
-  internal/perpay/               PerPay HMAC 客户端、订单接口、回调验签
-  internal/service/              共用下单、兑换、取件、PerPay 充值、演示数据
+  internal/alipayv3/             支付宝 OpenAPI v3 签名、账单查询、响应验签
+  internal/service/              共用下单、兑换、取件、支付宝查账与匹配、演示数据
   internal/httpapi/              全部 API 路由与处理器
   internal/mail/                 IMAP / Graph 取件引擎（移植自 Redeem 项目）
   web/embed.go                   go:embed 前端产物
@@ -272,7 +275,7 @@ Arco Design 与 React 19 存在两处不兼容，项目通过 `scripts/patch-arc
 
 `categories` `products` `orders` `cards` `users` `ledger` `audit_logs`
 `pricing_rules` `levels` `redeem_codes` `redeem_failures` `sync_meta`
-`bybit_pool` `crypto_orders` `perpay_orders` `perpay_webhook_events` `announcements`
+`bybit_pool` `crypto_orders` `alipay_orders` `alipay_amount_slots` `alipay_ledger_entries` `alipay_scan_state` `announcements`
 
 ## 已验证
 
@@ -286,7 +289,7 @@ Arco Design 与 React 19 存在两处不兼容，项目通过 `scripts/patch-arc
 - 加密充值：Bybit 只读 API 验证通过；2 个子账户 **TRC20 + BEP20** 地址均获取成功；
 - 地址池：2 笔并发下单成功、第 3 笔返回“通道繁忙”；模拟到账后自动释放槽位；
 - 唯一金额：`2.5062` / `3.0028` / `4.0089`，无重复；过期订单自动释放并标记 expired；
-- 支付宝（PerPay）：请求签名通过、查单确认入账、回调验签与重复事件 ACK、未支付关闭均验证；
+- 支付宝经营码：OpenAPI v3 签名/验签、经营码收银台、金额分配、查账匹配、人工关联、未支付关闭均验证；
 - CNY 下单：¥20(TRC20) → 应付 2.7852 USDT；¥30(BEP20) → 应付 4.1741 USDT；到账按汇率折算；
 - 链路自选：用户页选择 BEP20 后展示 `0x...` 地址与 BSC (BEP20) 网络；后台地址池同时显示 TRC20/BEP20 地址；
 - 入账：账本记录 `crypto-1/2/3`，余额按 `USDT × 汇率` 正确增加；

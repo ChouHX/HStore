@@ -33,6 +33,8 @@ func main() {
 	if _, err := db.Open(); err != nil {
 		log.Fatalf("[hstore] 打开数据库失败: %v", err)
 	}
+	// 提前初始化会话/收银台 token 密钥，避免首次在 SQLite 事务内回查配置。
+	_ = db.SessionSecret()
 	log.Printf("[hstore] 数据库: %s", db.DBPath())
 
 	addr := getenv("FAKA_ADDR", "127.0.0.1")
@@ -51,7 +53,7 @@ func main() {
 	defer stop()
 
 	go cryptoLoop(ctx)
-	go perPayLoop(ctx)
+	go alipayLoop(ctx)
 
 	go func() {
 		log.Printf("[hstore] 监听 http://%s", srv.Addr)
@@ -90,9 +92,9 @@ func cryptoLoop(ctx context.Context) {
 	}
 }
 
-// perPayLoop 每 20 秒查询一次 PerPay 等待中的订单，自动确认并过期。
-func perPayLoop(ctx context.Context) {
-	ticker := time.NewTicker(20 * time.Second)
+// alipayLoop 每 5 秒检查一次是否到查账时间，自动拉取支付宝账单并对账。
+func alipayLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -102,12 +104,20 @@ func perPayLoop(ctx context.Context) {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						log.Printf("[hstore] PerPay 轮询 panic: %v", r)
+						log.Printf("[hstore] 支付宝查账 panic: %v", r)
 					}
 				}()
-				checked, errs := service.CheckPerPayOrders(30)
-				if len(errs) > 0 {
-					log.Printf("[hstore] PerPay 查单检查 %d 笔，失败 %d 笔: %s", checked, len(errs), errs[0])
+				service.ExpireAlipayOrders()
+				if !service.AlipayScanDue() {
+					return
+				}
+				result, err := service.ScanAlipay(ctx)
+				if err != nil {
+					log.Printf("[hstore] 支付宝查账失败: %v", err)
+					return
+				}
+				if result.Status == "ok" && (result.Entries > 0 || result.Settled > 0) {
+					log.Printf("[hstore] 支付宝查账: 流水 %d 条，自动确认 %d 笔", result.Entries, result.Settled)
 				}
 			}()
 		}
