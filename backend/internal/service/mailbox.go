@@ -107,10 +107,9 @@ func splitCardFields(raw string) []string {
 }
 
 // MailboxCard 定位可访问的卡券。
-// uid <= 0 表示匿名取件（未登录）：只允许用兑换码，兑换码本身就是凭证；
-// 订单号可被枚举，匿名时必须登录后才能使用。
+// 兑换码本身就是凭证，不绑定用户；订单号必须登录且校验归属。
 func MailboxCard(uid int, code, orderNumber, cardID string, isAdmin bool) (model.Card, *model.LocalOrder, error) {
-	order, msg, ok := resolveOrder(uid, code, orderNumber, isAdmin)
+	order, _, msg, ok := resolveTarget(uid, code, orderNumber, isAdmin)
 	if !ok {
 		return model.Card{}, nil, errors.New(msg)
 	}
@@ -128,37 +127,68 @@ func MailboxCard(uid int, code, orderNumber, cardID string, isAdmin bool) (model
 	return model.Card{}, order, errNoCard
 }
 
-func resolveOrder(uid int, code, orderNumber string, isAdmin bool) (*model.LocalOrder, string, bool) {
-	anonymous := uid <= 0
-	code = strings.ToUpper(strings.TrimSpace(code))
+// looksLikeCode 判断输入是否像兑换码：16 位字母数字，分隔符可有可无。
+func looksLikeCode(v string) bool {
+	n := 0
+	for _, r := range v {
+		switch {
+		case r == '-':
+		case r >= '0' && r <= '9', r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z':
+			n++
+		default:
+			return false
+		}
+	}
+	return n == 16
+}
+
+// resolveTarget 按「兑换码」或「订单号」定位订单。两条路径的信任模型不同：
+//
+//   - 兑换码：码本身就是凭证。后台生成的兑换码不绑定用户，谁持有谁就能取件
+//     （与 Redeem 的卡密模型一致），因此不做任何归属校验，匿名也可用。
+//   - 订单号：来自上游、可被枚举，必须登录并校验订单归属。
+//
+// 输入先按兑换码查；查不到且已登录时再按订单号查一次——上游订单号格式不固定，
+// 可能长得和兑换码一样，不该让用户卡在前端的格式猜测上。
+func resolveTarget(uid int, code, orderNumber string, isAdmin bool) (*model.LocalOrder, bool, string, bool) {
+	code = strings.TrimSpace(code)
 	orderNumber = strings.TrimSpace(orderNumber)
-	target := orderNumber
-	if target == "" {
+
+	if orderNumber == "" {
 		if code == "" {
-			return nil, "请输入兑换码或订单号", false
+			return nil, false, "请输入兑换码或订单号", false
 		}
-		row := store.GetCodeByCode(code)
-		if row == nil {
-			return nil, "兑换码不存在", false
+		if row := store.GetCodeByCode(code); row != nil {
+			if row.OrderNumber == "" {
+				if row.Status == "redeeming" {
+					return nil, true, "兑换正在处理中，请稍后重试", false
+				}
+				return nil, true, "该兑换码尚未核销", false
+			}
+			order := store.GetOrder(row.OrderNumber)
+			if order == nil {
+				return nil, true, "订单不存在", false
+			}
+			return order, true, "", true
 		}
-		if !isAdmin && !anonymous && (row.UsedBy == nil || *row.UsedBy != uid) {
-			return nil, "该兑换码不是你的，无法取件", false
+		// 不是兑换码：匿名时直接当作「码不存在」，避免暴露订单号是否存在
+		if looksLikeCode(code) || uid <= 0 {
+			return nil, true, "兑换码不存在", false
 		}
-		if row.OrderNumber == "" {
-			return nil, "该兑换码尚未核销", false
-		}
-		target = row.OrderNumber
-	} else if anonymous {
-		return nil, "未登录只能用兑换码取件，订单号请登录后使用", false
+		orderNumber = code
 	}
-	order := store.GetOrder(target)
+
+	if uid <= 0 {
+		return nil, false, "未登录只能用兑换码取件，订单号请登录后使用", false
+	}
+	order := store.GetOrder(orderNumber)
 	if order == nil {
-		return nil, "订单不存在", false
+		return nil, false, "订单不存在", false
 	}
-	if !isAdmin && !anonymous && (order.UserUID == nil || *order.UserUID != uid) {
-		return nil, "无权查看该订单", false
+	if !isAdmin && (order.UserUID == nil || *order.UserUID != uid) {
+		return nil, false, "无权查看该订单", false
 	}
-	return order, "", true
+	return order, false, "", true
 }
 
 // MailList 拉取邮箱邮件列表（取件核心）。

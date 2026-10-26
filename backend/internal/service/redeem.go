@@ -135,40 +135,14 @@ type PickupResult struct {
 }
 
 // Pickup 用兑换码或订单号取回商品内容（卡号/卡密）。
+// 判定规则与邮箱取件一致：兑换码是凭证本身、不绑定用户；订单号必须校验归属。
 func Pickup(uid int, code, orderNumber string, isAdmin bool) PickupResult {
-	code = strings.ToUpper(strings.TrimSpace(code))
-	orderNumber = strings.TrimSpace(orderNumber)
-
-	target := orderNumber
-	if target == "" {
-		if code == "" {
-			return PickupResult{Message: "请输入兑换码或订单号"}
-		}
-		row := store.GetCodeByCode(code)
-		if row == nil {
-			return PickupResult{Message: "兑换码不存在"}
-		}
-		if !isAdmin && (row.UsedBy == nil || *row.UsedBy != uid) {
-			return PickupResult{Message: "该兑换码不是你的，无法取件"}
-		}
-		if row.OrderNumber == "" {
-			if row.Status == "redeeming" {
-				return PickupResult{Message: "兑换正在处理中，请稍后重试"}
-			}
-			return PickupResult{Message: "该兑换码尚未核销，请先在「充值 / 兑换」页兑换"}
-		}
-		target = row.OrderNumber
-	}
-
-	order := store.GetOrder(target)
-	if order == nil {
-		return PickupResult{Message: "订单不存在"}
-	}
-	if !isAdmin && (order.UserUID == nil || *order.UserUID != uid) {
-		return PickupResult{Message: "无权查看该订单"}
+	order, _, msg, ok := resolveTarget(uid, code, orderNumber, isAdmin)
+	if !ok {
+		return PickupResult{Message: msg}
 	}
 	if len(order.Cards) == 0 {
-		msg := "上游正在发货，请稍后刷新取件"
+		msg = "上游正在发货，请稍后刷新取件"
 		if order.Status == 3 {
 			msg = "该订单没有可取的卡券"
 		}

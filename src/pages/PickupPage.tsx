@@ -15,9 +15,19 @@ interface MailboxItem {
   status: number;
 }
 
-/** 兑换码形如 XXXX-XXXX-XXXX-XXXX */
+/**
+ * 兑换码形如 XXXX-XXXX-XXXX-XXXX，分隔符可有可无。
+ * 判断宽松一点没关系：后端会先按兑换码查，查不到再按订单号查。
+ */
 function looksLikeCode(v: string): boolean {
-  return /^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$/.test(v.trim());
+  return v.replace(/[^0-9A-Za-z]/g, "").length === 16;
+}
+
+/** 把用户输入规整成 XXXX-XXXX-XXXX-XXXX */
+function normalizeCode(v: string): string {
+  const digits = v.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+  if (digits.length !== 16) return v.trim().toUpperCase();
+  return digits.replace(/(.{4})(?=.)/g, "$1-");
 }
 
 function fmtTime(ms: number): string {
@@ -78,7 +88,7 @@ export function PickupPage() {
       return;
     }
     if (looksLikeCode(v)) {
-      setTarget({ code: v.toUpperCase() });
+      setTarget({ code: normalizeCode(v) });
       setEmail("");
       return;
     }
@@ -141,7 +151,7 @@ export function PickupPage() {
               <div className="mt-1 text-[12px] text-[#86909c]">
                 输入兑换码（XXXX-XXXX-XXXX-XXXX）
                 {loggedIn ? "或订单号" : ""}
-                ，直接打开对应邮箱读取邮件，无需登录。
+                ，直接打开对应邮箱读取邮件。兑换码不绑定账号，谁持有谁就能取件，无需登录。
               </div>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">

@@ -10,6 +10,30 @@ import (
 	"hstore/backend/internal/model"
 )
 
+// NormalizeCode 把用户输入的兑换码规整成 XXXX-XXXX-XXXX-XXXX。
+// 允许大小写混写、带或不带分隔符、前后有空格；其他字符一律丢弃。
+// 长度不是 16 位时原样返回，交给调用方按其他含义处理（比如订单号）。
+func NormalizeCode(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(strings.TrimSpace(raw)) {
+		if r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' {
+			b.WriteRune(r)
+		}
+	}
+	digits := b.String()
+	if len(digits) != 16 {
+		return strings.ToUpper(strings.TrimSpace(raw))
+	}
+	out := make([]byte, 0, 19)
+	for i := 0; i < 16; i++ {
+		if i > 0 && i%4 == 0 {
+			out = append(out, '-')
+		}
+		out = append(out, digits[i])
+	}
+	return string(out)
+}
+
 const codeCharset = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 // RandomRedeemCode 生成 XXXX-XXXX-XXXX-XXXX 形式的兑换码。
@@ -244,7 +268,7 @@ func GetCodeByID(id int) *model.RedeemCode {
 
 // GetCodeByCode 按码值取兑换码。
 func GetCodeByCode(code string) *model.RedeemCode {
-	row := db.Must().QueryRow(codeSelect+" WHERE rc.code = ?", strings.ToUpper(strings.TrimSpace(code)))
+	row := db.Must().QueryRow(codeSelect+" WHERE rc.code = ?", NormalizeCode(code))
 	c, e := scanCode(row)
 	if e != nil {
 		return nil

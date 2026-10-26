@@ -25,7 +25,12 @@
 - react-router 的 `<Link to="...">`（不是 `href`）；`useNavigate()`（不是 `useRouter().push`）。
 - 登录/退出后调用 `invalidateSession()`（`src/hooks/useSession.ts`），否则路由守卫读旧缓存。
 - **取件是公开页 `/pickup`，不要放进 `/account`**（那边有登录守卫）。后端 `/api/mailbox/list|detail`
-  用 `mailboxActor()` 支持匿名（`uid=0`）；匿名只认兑换码，订单号必须登录；匿名按 IP 限流。
+  用 `mailboxActor()` 支持匿名（`uid=0`）；匿名按 IP 限流。
+- **兑换码 = 凭证，不绑定用户**：谁持有谁就能取件，不校验 `used_by`（后台生成的码不记归属）。
+  **订单号才校验归属**（来自上游、可枚举，必须登录 + `order.UserUID == uid`）。
+  判定统一在 `service.resolveTarget()`，`/api/pickup` 也复用它，不要再写第二套。
+- 兑换码查库前一律走 `store.NormalizeCode()`（去分隔符、转大写、补 `-`），
+  用户粘贴 `testcode0001aaaa` 也能命中。
 - 邮箱阅读器是 `components/MailboxPanel.tsx`（可内嵌），`MailboxDrawer` 只是它的抽屉壳。
 - 订单/卡券表里 `ALTER TABLE` 追加的列可能为 NULL，`Scan` 到非指针类型会失败并让 `GetOrder` 返回 nil，
   查询这类列一律加 `COALESCE`。
