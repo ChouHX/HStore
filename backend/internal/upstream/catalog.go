@@ -171,6 +171,64 @@ func RefreshStockForProducts(items []StockItem, max int) {
 	}
 }
 
+// FetchStockCounts 并发拉取一组上游商品的详情库存，用于商品同步页展示。
+// 失败的商品不会出现在返回值中，由调用方显示为未知。
+func FetchStockCounts(ids []int, max int) map[int]int {
+	if max <= 0 {
+		max = 20
+	}
+	seen := map[int]bool{}
+	uniq := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] || len(uniq) >= max {
+			continue
+		}
+		seen[id] = true
+		uniq = append(uniq, id)
+	}
+	out := make(map[int]int, len(uniq))
+	if len(uniq) == 0 {
+		return out
+	}
+	type result struct {
+		id    int
+		stock int
+	}
+	jobs := make(chan int)
+	results := make(chan result, len(uniq))
+	workers := 4
+	if len(uniq) < workers {
+		workers = len(uniq)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range jobs {
+				if detail, err := GetDetail(id); err == nil {
+					results <- result{id: id, stock: detail.StockCount}
+				}
+				time.Sleep(80 * time.Millisecond)
+			}
+		}()
+	}
+	go func() {
+		for _, id := range uniq {
+			jobs <- id
+		}
+		close(jobs)
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	for item := range results {
+		out[item.id] = item.stock
+	}
+	return out
+}
+
 // SyncResult 是全量同步结果。
 type SyncResult struct {
 	OK         bool   `json:"ok"`

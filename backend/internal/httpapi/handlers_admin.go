@@ -288,12 +288,20 @@ func (a *API) handleAdminCatalogProducts(w http.ResponseWriter, r *http.Request)
 		ids = append(ids, it.GoodsID)
 	}
 	imported := store.ImportedGoodsSet(ids)
+	stocks := upstream.FetchStockCounts(ids, 20)
 	type item struct {
 		model.RemoteProduct
 		Imported bool `json:"imported"`
 	}
 	items := make([]item, 0, len(data.Items))
 	for _, it := range data.Items {
+		stock := -1
+		if v, ok := stocks[it.GoodsID]; ok {
+			stock = v
+		} else if local := store.GetProduct(it.GoodsID); local != nil {
+			stock = local.StockCount
+		}
+		it.StockCount = stock
 		items = append(items, item{RemoteProduct: it, Imported: imported[it.GoodsID]})
 	}
 	allCount := data.AllCount

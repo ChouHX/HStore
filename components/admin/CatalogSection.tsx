@@ -128,6 +128,21 @@ export function CatalogSection() {
     },
     { title: "成本", dataIndex: "salesPrice", width: 100, align: "right" as const, render: (_: unknown, r: CatalogItem) => `¥${formatPrice(r.salesPrice)}` },
     {
+      title: "库存",
+      dataIndex: "stockCount",
+      width: 90,
+      align: "right" as const,
+      render: (_: unknown, r: CatalogItem) => {
+        const stock = r.stockCount ?? -1;
+        if (stock < 0) return <span className="text-[12px] text-[#86909c]">未知</span>;
+        return (
+          <span className={stock === 0 ? "font-medium text-[#f53f3f]" : "font-medium text-[#00b42a]"}>
+            {stock}
+          </span>
+        );
+      },
+    },
+    {
       title: "状态",
       dataIndex: "imported",
       width: 90,
@@ -242,7 +257,7 @@ export function CatalogSection() {
           loading={loading}
           columns={columns}
           data={items}
-          scroll={{ x: 760 }}
+          scroll={{ x: 850 }}
           rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys) }}
           pagination={false}
         />

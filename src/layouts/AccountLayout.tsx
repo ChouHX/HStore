@@ -5,7 +5,6 @@ import { useSession } from "@/src/hooks/useSession";
 
 const NAV: NavItem[] = [
   { id: "overview", href: "/account/overview", label: "概览" },
-  { id: "recharge", href: "/account/recharge", label: "充值 / 兑换" },
   { id: "orders", href: "/account/orders", label: "我的订单" },
   { id: "pickup", href: "/pickup", label: "取件" },
   { id: "ledger", href: "/account/ledger", label: "余额明细" },

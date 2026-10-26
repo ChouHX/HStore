@@ -102,7 +102,7 @@ export function CheckoutPage() {
         <div className="w-full max-w-[420px] rounded-xl bg-white p-8 text-center shadow-lg">
           <div className="text-[16px] font-medium text-[#1d2129]">收银台不可用</div>
           <div className="mt-2 text-[13px] text-[#86909c]">{error || "订单不存在"}</div>
-          <Button className="mt-5" type="primary" onClick={() => navigate("/account/recharge")}>
+          <Button className="mt-5" type="primary" onClick={() => navigate("/account/overview?focus=recharge")}>
             返回充值页
           </Button>
         </div>
@@ -143,7 +143,7 @@ export function CheckoutPage() {
             <div className="mt-6 flex justify-center gap-2">
               <Button
                 type="primary"
-                onClick={() => navigate(`/account/recharge?alipay=${encodeURIComponent(checkout.orderNo)}`)}
+                onClick={() => navigate(`/account/overview?alipay=${encodeURIComponent(checkout.orderNo)}`)}
               >
                 返回充值页
               </Button>
@@ -180,7 +180,7 @@ export function CheckoutPage() {
               <Button loading={loading} onClick={load}>
                 刷新状态
               </Button>
-              <Button onClick={() => navigate("/account/recharge")}>返回充值页</Button>
+              <Button onClick={() => navigate("/account/overview?focus=recharge")}>返回充值页</Button>
             </div>
 
             <div className="mt-4 text-center text-[11px] text-[#86909c]">
@@ -196,7 +196,7 @@ export function CheckoutPage() {
               如果已经付款但未入账，请保留订单号联系管理员核对。
             </div>
             <div className="mt-5 flex justify-center gap-2">
-              <Button type="primary" onClick={() => navigate("/account/recharge")}>
+              <Button type="primary" onClick={() => navigate("/account/overview?focus=recharge")}>
                 重新充值
               </Button>
               <Button onClick={load}>刷新状态</Button>

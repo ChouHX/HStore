@@ -2,8 +2,9 @@
 import { formatPrice } from "@/lib/format";
 
 import { Button, Card, Grid, Message, Progress, Space, Statistic, Tag } from "@arco-design/web-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { RechargeSection } from "@/components/account/RechargeSection";
 import type { Level, User } from "@/lib/types";
 
 const { Row, Col } = Grid;
@@ -16,6 +17,17 @@ interface Data {
 
 export function OverviewSection() {
   const [data, setData] = useState<Data | null>(null);
+  const loc = useLocation();
+
+  useEffect(() => {
+    if (!data) return;
+    const params = new URLSearchParams(loc.search);
+    if (params.get("focus") !== "recharge" && !params.get("alipay")) return;
+    const timer = setTimeout(() => {
+      document.getElementById("account-recharge")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [data, loc.search]);
 
   useEffect(() => {
     fetch("/api/me")
@@ -75,11 +87,20 @@ export function OverviewSection() {
           ))}
         </div>
         <Space style={{ marginTop: 16 }}>
-          <Link to="/account/recharge"><Button size="small" type="primary">充值 / 兑换</Button></Link>
+          <Button
+            size="small"
+            type="primary"
+            onClick={() => document.getElementById("account-recharge")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          >
+            充值 / 兑换
+          </Button>
+          <Link to="/account/ledger"><Button size="small">余额明细</Button></Link>
           <Link to="/account/orders"><Button size="small">查看订单</Button></Link>
           <Link to="/"><Button size="small">返回商城</Button></Link>
         </Space>
       </Card>
+
+      <RechargeSection embedded />
     </div>
   );
 }

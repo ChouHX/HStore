@@ -48,7 +48,7 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
     if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
     else if (key === "pickup") navigate("/pickup");
-    else if (key === "recharge") navigate("/account/recharge");
+    else if (key === "recharge") navigate("/account/overview?focus=recharge");
     else if (key === "admin") navigate("/admin/overview");
     else if (key === "logout") logout();
   }

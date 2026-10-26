@@ -93,7 +93,7 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
   );
 }
 
-export function RechargeSection() {
+export function RechargeSection({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
@@ -376,8 +376,12 @@ export function RechargeSection() {
   const cryptoReady = Boolean(cfg?.enabled && cfg?.configured);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4">
-      {/* 顶部：余额 */}
+    <div
+      id={embedded ? "account-recharge" : undefined}
+      className={embedded ? "flex w-full flex-col gap-4" : "mx-auto flex w-full max-w-[1100px] flex-col gap-4"}
+    >
+      {!embedded && (
+      /* 顶部：余额 */
       <Card bordered={false} bodyStyle={{ padding: 20 }}>
         <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
@@ -405,6 +409,7 @@ export function RechargeSection() {
           </Button>
         </div>
       </Card>
+      )}
 
       {/* 充值方式：两列对齐 */}
       <div className="grid gap-4 lg:grid-cols-5">

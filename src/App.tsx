@@ -2,10 +2,9 @@ import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
 
 import { AnnouncementsSection } from "@/components/admin/AnnouncementsSection";
 import { CatalogSection } from "@/components/admin/CatalogSection";
-import { CryptoSection } from "@/components/admin/CryptoSection";
 import { LogsSection } from "@/components/admin/LogsSection";
 import { OverviewSection as AdminOverview } from "@/components/admin/OverviewSection";
-import { AlipaySection } from "@/components/admin/AlipaySection";
+import { PaymentSettingsSection } from "@/components/admin/PaymentSettingsSection";
 import { PricingSection } from "@/components/admin/PricingSection";
 import { ProductsSection } from "@/components/admin/ProductsSection";
 import { RedeemSection } from "@/components/admin/RedeemSection";
@@ -14,7 +13,6 @@ import { UsersSection } from "@/components/admin/UsersSection";
 import { MyLedgerSection } from "@/components/account/MyLedgerSection";
 import { MyOrdersSection } from "@/components/account/MyOrdersSection";
 import { OverviewSection as AccountOverview } from "@/components/account/OverviewSection";
-import { RechargeSection } from "@/components/account/RechargeSection";
 import { AdminLayout } from "@/src/layouts/AdminLayout";
 import { AccountLayout } from "@/src/layouts/AccountLayout";
 import { HomePage } from "@/src/pages/HomePage";
@@ -46,7 +44,7 @@ export function App() {
         <Route path="/account" element={<AccountLayout />}>
           <Route index element={<Navigate to="/account/overview" replace />} />
           <Route path="overview" element={<AccountOverview />} />
-          <Route path="recharge" element={<RechargeSection />} />
+          <Route path="recharge" element={<AccountOverview />} />
           <Route path="orders" element={<MyOrdersSection />} />
           <Route path="pickup" element={<Navigate to="/pickup" replace />} />
           <Route path="ledger" element={<MyLedgerSection />} />
@@ -62,11 +60,12 @@ export function App() {
           <Route path="redeem" element={<RedeemSection />} />
           <Route path="announcements" element={<AnnouncementsSection />} />
           <Route path="logs" element={<LogsSection />} />
-          <Route path="alipay" element={<AlipaySection />} />
-          <Route path="recharge" element={<CryptoSection />} />
+          <Route path="payment" element={<PaymentSettingsSection />} />
           <Route path="settings" element={<SettingsSection />} />
           {/* 旧路径兼容 */}
-          <Route path="crypto" element={<Navigate to="/admin/recharge" replace />} />
+          <Route path="alipay" element={<Navigate to="/admin/payment?tab=alipay" replace />} />
+          <Route path="recharge" element={<Navigate to="/admin/payment?tab=usdt" replace />} />
+          <Route path="crypto" element={<Navigate to="/admin/payment?tab=usdt" replace />} />
           <Route path="levels" element={<Navigate to="/admin/users" replace />} />
         </Route>
 

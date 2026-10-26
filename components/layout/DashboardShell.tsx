@@ -49,6 +49,7 @@ const ICONS: Record<string, React.ReactNode> = {
   catalog: <IconStorage />,
   announcements: <IconNotification />,
   crypto: <IconSafe />,
+  payment: <IconSafe />,
   settings: <IconSettings />,
   pricing: <IconTag />,
   users: <IconUserGroup />,
