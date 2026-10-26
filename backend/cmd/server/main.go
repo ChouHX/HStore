@@ -51,6 +51,7 @@ func main() {
 	defer stop()
 
 	go cryptoLoop(ctx)
+	go perPayLoop(ctx)
 
 	go func() {
 		log.Printf("[hstore] 监听 http://%s", srv.Addr)
@@ -89,10 +90,34 @@ func cryptoLoop(ctx context.Context) {
 	}
 }
 
+// perPayLoop 每 20 秒查询一次 PerPay 等待中的订单，自动确认并过期。
+func perPayLoop(ctx context.Context) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[hstore] PerPay 轮询 panic: %v", r)
+					}
+				}()
+				checked, errs := service.CheckPerPayOrders(30)
+				if len(errs) > 0 {
+					log.Printf("[hstore] PerPay 查单检查 %d 笔，失败 %d 笔: %s", checked, len(errs), errs[0])
+				}
+			}()
+		}
+	}
+}
+
 // pendingCryptoOrders 返回仍在等待中的链上订单 ID。
 func pendingCryptoOrders() []int {
 	rows, err := db.Must().Query(
-		"SELECT id FROM crypto_orders WHERE status = 'pending' ORDER BY id DESC LIMIT 50")
+		"SELECT id FROM crypto_orders WHERE status = 'waiting' ORDER BY id DESC LIMIT 50")
 	if err != nil {
 		return nil
 	}

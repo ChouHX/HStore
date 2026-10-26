@@ -302,6 +302,46 @@ type CryptoOrder struct {
 	PaidAt        *int64   `json:"paidAt"`
 }
 
+// ===== 支付宝（PerPay）充值 =====
+
+type PerPayOrder struct {
+	ID                int      `json:"id"`
+	UID               int      `json:"uid"`
+	Username          string   `json:"username"`
+	MerchantOrderNo   string   `json:"merchantOrderNo"`
+	PerPayOrderID     *string  `json:"perpayOrderId"`
+	AmountCny         float64  `json:"amountCny"`
+	AmountCents       int64    `json:"amountCents"`
+	PayableCents      *int64   `json:"payableCents"`
+	ReceivedCents     *int64   `json:"receivedCents"`
+	Status            string   `json:"status"`
+	PaymentBasis      string   `json:"paymentBasis"`
+	CheckoutURL       string   `json:"checkoutUrl"`
+	CheckoutStatus    string   `json:"checkoutStatus"`
+	CheckoutExpiresAt *int64   `json:"checkoutExpiresAt"`
+	OrderVersion      int      `json:"orderVersion"`
+	LastError         string   `json:"lastError"`
+	Credited          *float64 `json:"credited"`
+	CreatedAt         int64    `json:"createdAt"`
+	UpdatedAt         int64    `json:"updatedAt"`
+	PaidAt            *int64   `json:"paidAt"`
+	LastCheckedAt     int64    `json:"lastCheckedAt"`
+	RequestJSON       string   `json:"-"`
+}
+
+// PerPayWebhookEvent 是已验签并被幂等接收的 PerPay 通知。
+type PerPayWebhookEvent struct {
+	ID              int    `json:"id"`
+	EventID         string `json:"eventId"`
+	EventType       string `json:"eventType"`
+	MerchantOrderNo string `json:"merchantOrderNo"`
+	DeliveryID      string `json:"deliveryId"`
+	BodyDigest      string `json:"bodyDigest"`
+	OrderVersion    int    `json:"orderVersion"`
+	Disposition     string `json:"disposition"`
+	ReceivedAt      int64  `json:"receivedAt"`
+}
+
 // MailboxItem 是「可取出邮箱」的卡券摘要（取件页列表用）。
 type MailboxItem struct {
 	OrderNumber string `json:"orderNumber"`

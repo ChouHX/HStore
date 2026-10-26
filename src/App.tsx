@@ -5,6 +5,7 @@ import { CatalogSection } from "@/components/admin/CatalogSection";
 import { CryptoSection } from "@/components/admin/CryptoSection";
 import { LogsSection } from "@/components/admin/LogsSection";
 import { OverviewSection as AdminOverview } from "@/components/admin/OverviewSection";
+import { PerPaySection } from "@/components/admin/PerPaySection";
 import { PricingSection } from "@/components/admin/PricingSection";
 import { ProductsSection } from "@/components/admin/ProductsSection";
 import { RedeemSection } from "@/components/admin/RedeemSection";
@@ -59,6 +60,7 @@ export function App() {
           <Route path="redeem" element={<RedeemSection />} />
           <Route path="announcements" element={<AnnouncementsSection />} />
           <Route path="logs" element={<LogsSection />} />
+          <Route path="perpay" element={<PerPaySection />} />
           <Route path="recharge" element={<CryptoSection />} />
           <Route path="settings" element={<SettingsSection />} />
           {/* 旧路径兼容 */}

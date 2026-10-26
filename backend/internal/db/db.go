@@ -277,6 +277,47 @@ CREATE TABLE IF NOT EXISTS crypto_orders (
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_status ON crypto_orders(status);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_uid ON crypto_orders(uid);
 
+CREATE TABLE IF NOT EXISTS perpay_orders (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  uid                  INTEGER NOT NULL,
+  merchant_order_no    TEXT NOT NULL UNIQUE,
+  perpay_order_id      TEXT UNIQUE,
+  amount_cny           REAL NOT NULL DEFAULT 0,
+  amount_cents         INTEGER NOT NULL DEFAULT 0,
+  payable_cents        INTEGER,
+  received_cents       INTEGER,
+  status               TEXT NOT NULL DEFAULT 'creating',
+  payment_basis        TEXT NOT NULL DEFAULT '',
+  checkout_url         TEXT NOT NULL DEFAULT '',
+  checkout_status      TEXT NOT NULL DEFAULT '',
+  checkout_expires_at  INTEGER,
+  order_version        INTEGER NOT NULL DEFAULT 0,
+  last_error           TEXT NOT NULL DEFAULT '',
+  request_json         TEXT NOT NULL DEFAULT '',
+  credited             REAL,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL,
+  paid_at              INTEGER,
+  last_checked_at      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_perpay_orders_uid ON perpay_orders(uid, created_at);
+CREATE INDEX IF NOT EXISTS idx_perpay_orders_status ON perpay_orders(status);
+
+CREATE TABLE IF NOT EXISTS perpay_webhook_events (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id          TEXT NOT NULL UNIQUE,
+  event_type        TEXT NOT NULL DEFAULT '',
+  merchant_order_no TEXT NOT NULL DEFAULT '',
+  delivery_id       TEXT NOT NULL DEFAULT '',
+  body_digest       TEXT NOT NULL DEFAULT '',
+  order_version     INTEGER NOT NULL DEFAULT 0,
+  disposition       TEXT NOT NULL DEFAULT '',
+  received_at       INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_perpay_webhook_merchant ON perpay_webhook_events(merchant_order_no);
+
 CREATE TABLE IF NOT EXISTS announcements (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   type       TEXT NOT NULL DEFAULT 'normal',
@@ -493,14 +534,20 @@ func seed(db *sql.DB) error {
 	}
 
 	// 业务配置一律在管理后台维护（写入 sync_meta），不再从环境变量读取。
-	cryptoDefaults := [][2]string{
+	metaDefaults := [][2]string{
 		{"bybit_chain", "TRX"},
 		{"bybit_rate", "7.2"},
 		{"bybit_min_usdt", "2"},
 		{"bybit_pool_uids", "598363709,598363661"},
 		{"bybit_enabled", "1"},
+		{"perpay_enabled", "0"},
+		{"perpay_min_cny", "10"},
+		{"perpay_max_cny", "5000"},
+		{"perpay_product_name", "账户余额充值"},
+		{"perpay_notify_enabled", "0"},
+		{"perpay_return_enabled", "1"},
 	}
-	for _, kv := range cryptoDefaults {
+	for _, kv := range metaDefaults {
 		if kv[1] == "" {
 			continue
 		}

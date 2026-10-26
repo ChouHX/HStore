@@ -12,7 +12,8 @@ const NAV: NavItem[] = [
   { id: "redeem", href: "/admin/redeem", label: "兑换码" },
   { id: "announcements", href: "/admin/announcements", label: "公告管理" },
   { id: "logs", href: "/admin/logs", label: "操作日志" },
-  { id: "crypto", href: "/admin/recharge", label: "充值设置" },
+  { id: "perpay", href: "/admin/perpay", label: "支付宝支付" },
+  { id: "crypto", href: "/admin/recharge", label: "USDT 充值" },
   { id: "settings", href: "/admin/settings", label: "系统设置" },
 ];
 

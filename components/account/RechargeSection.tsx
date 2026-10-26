@@ -1,8 +1,8 @@
 "use client";
 
-import { Button, Card, Input, InputNumber, Message, Select, Space, Tag } from "@arco-design/web-react";
+import { Button, Card, Input, InputNumber, Message, Select, Space, Tabs, Tag } from "@arco-design/web-react";
 import QRCode from "qrcode";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import type { User } from "@/lib/types";
 import { formatPrice } from "@/lib/format";
@@ -34,6 +34,49 @@ interface CryptoOrderView {
   credited?: number | null;
 }
 
+interface PerPayCfg {
+  enabled: boolean;
+  configured: boolean;
+  minCny: number;
+  maxCny: number;
+  productName: string;
+  notifyEnabled: boolean;
+  returnEnabled: boolean;
+}
+
+interface PerPayOrderView {
+  id: number;
+  merchantOrderNo: string;
+  perpayOrderId: string | null;
+  amountCny: number;
+  amountCents: number;
+  payableCents: number | null;
+  receivedCents: number | null;
+  status: "creating" | "waiting" | "paid" | "expired" | "closed" | "failed" | "disputed";
+  paymentBasis: string;
+  checkoutUrl: string;
+  checkoutStatus: string;
+  checkoutExpiresAt: number | null;
+  credited: number | null;
+  lastError: string;
+  createdAt: number;
+  paidAt: number | null;
+}
+
+const PERPAY_TAG: Record<string, { color: string; text: string }> = {
+  creating: { color: "blue", text: "创建中" },
+  waiting: { color: "orange", text: "等待支付" },
+  paid: { color: "green", text: "已到账" },
+  expired: { color: "gray", text: "已过期" },
+  closed: { color: "gray", text: "已关闭" },
+  failed: { color: "red", text: "创建失败" },
+  disputed: { color: "red", text: "支付争议" },
+};
+
+function centsText(v: number | null | undefined) {
+  return v === null || v === undefined ? "-" : `¥${formatPrice(v / 100)}`;
+}
+
 function copy(text: string) {
   navigator.clipboard?.writeText(text);
   Message.success("已复制");
@@ -57,6 +100,7 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
 
 export function RechargeSection() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState<User | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -73,14 +117,30 @@ export function RechargeSection() {
   const [qr, setQr] = useState("");
   const [creating, setCreating] = useState(false);
 
+  const [ppCfg, setPpCfg] = useState<PerPayCfg | null>(null);
+  const [ppAmount, setPpAmount] = useState(20);
+  const [ppOrder, setPpOrder] = useState<PerPayOrderView | null>(null);
+  const [ppOrders, setPpOrders] = useState<PerPayOrderView[]>([]);
+  const [ppBusy, setPpBusy] = useState(false);
+
   const loadUser = useCallback(async () => {
     const j = await fetch("/api/me").then((r) => r.json());
     if (j.ok) setUser(j.user as User);
   }, []);
 
+  const loadPerPayOrders = useCallback(async () => {
+    try {
+      const j = await fetch("/api/perpay/orders?limit=10").then((r) => r.json());
+      if (j.ok) setPpOrders((j.orders ?? []) as PerPayOrderView[]);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useEffect(() => {
     loadUser();
-  }, [loadUser]);
+    loadPerPayOrders();
+  }, [loadUser, loadPerPayOrders]);
 
   useEffect(() => {
     fetch("/api/site/config")
@@ -90,6 +150,70 @@ export function RechargeSection() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetch("/api/perpay/config")
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.ok) {
+          setPpCfg(j as PerPayCfg);
+          setPpAmount(Math.max(j.minCny ?? 10, 20));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // PerPay 收银台返回：?perpay=商户订单号，服务端查单后再展示最终状态。
+  useEffect(() => {
+    const merchantNo = new URLSearchParams(location.search).get("perpay");
+    if (!merchantNo) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const j = await fetch(`/api/perpay/order?merchantOrderNo=${encodeURIComponent(merchantNo)}`).then((r) => r.json());
+        if (cancelled) return;
+        if (j.ok && j.order) {
+          setPpOrder(j.order as PerPayOrderView);
+          setPpAmount(j.order.amountCny);
+          if (j.warning) Message.warning(String(j.warning));
+          if (j.order.status === "paid") {
+            await loadUser();
+            Message.success("支付宝充值已到账");
+          }
+          await loadPerPayOrders();
+        } else {
+          Message.error(j.message ?? "查询支付订单失败");
+        }
+      } catch {
+        if (!cancelled) Message.error("查询支付订单失败");
+      } finally {
+        if (!cancelled) window.history.replaceState({}, "", location.pathname);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search, location.pathname, loadUser, loadPerPayOrders]);
+
+  useEffect(() => {
+    if (!ppOrder || !["waiting", "creating"].includes(ppOrder.status)) return;
+    const t = setInterval(async () => {
+      try {
+        const j = await fetch(`/api/perpay/order?id=${ppOrder.id}`).then((r) => r.json());
+        if (j.ok && j.order) {
+          setPpOrder(j.order as PerPayOrderView);
+          if (j.order.status === "paid") {
+            await loadUser();
+            await loadPerPayOrders();
+            Message.success("支付宝充值已到账");
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 8000);
+    return () => clearInterval(t);
+  }, [ppOrder, loadUser, loadPerPayOrders]);
 
   useEffect(() => {
     fetch("/api/crypto/config")
@@ -162,6 +286,76 @@ export function RechargeSection() {
       } else Message.error(j.message ?? "兑换失败");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function createPerPayOrder() {
+    if (!ppCfg?.enabled) {
+      Message.warning("支付宝充值未开启");
+      return;
+    }
+    if (!ppCfg.configured) {
+      Message.warning("管理员尚未配置 PerPay");
+      return;
+    }
+    setPpBusy(true);
+    try {
+      const j = await fetch("/api/perpay/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cny: ppAmount }),
+      }).then((r) => r.json());
+      if (j.order) {
+        setPpOrder(j.order as PerPayOrderView);
+        setPpAmount(j.order.amountCny);
+      }
+      if (j.ok) {
+        Message.success("订单已创建，正在打开支付宝收银台");
+        const url = String(j.order?.checkoutUrl ?? "");
+        if (url) window.location.assign(url);
+      } else {
+        Message.error(j.message ?? "创建失败");
+      }
+      await loadPerPayOrders();
+    } finally {
+      setPpBusy(false);
+    }
+  }
+
+  async function retryPerPayOrder() {
+    if (!ppOrder) return;
+    setPpBusy(true);
+    try {
+      const j = await fetch("/api/perpay/order/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ppOrder.id }),
+      }).then((r) => r.json());
+      if (j.order) setPpOrder(j.order as PerPayOrderView);
+      if (j.ok) {
+        Message.success("订单已重新创建");
+        const url = String(j.order?.checkoutUrl ?? "");
+        if (url) window.location.assign(url);
+      } else Message.error(j.message ?? "重试失败");
+      await loadPerPayOrders();
+    } finally {
+      setPpBusy(false);
+    }
+  }
+
+  async function closePerPayOrder() {
+    if (!ppOrder) return;
+    setPpBusy(true);
+    try {
+      const j = await fetch(`/api/perpay/order?id=${ppOrder.id}`, { method: "DELETE" }).then((r) => r.json());
+      if (j.order) setPpOrder(j.order as PerPayOrderView);
+      if (j.ok) {
+        Message.success("订单已关闭");
+        if (j.order?.status === "closed" || j.order?.status === "expired") setPpOrder(null);
+      } else Message.error(j.message ?? "关闭失败");
+      await loadPerPayOrders();
+    } finally {
+      setPpBusy(false);
     }
   }
 
@@ -298,6 +492,202 @@ export function RechargeSection() {
 
         <div className="lg:col-span-3">
           <Card bordered={false} className="h-full" bodyStyle={{ padding: 16 }}>
+            <Tabs className="recharge-tabs" defaultActiveTab="alipay" animation lazyload={false} destroyOnHide={false}>
+              <Tabs.TabPane key="alipay" title="支付宝扫码" lazyload={false} destroyOnHide={false}>
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[14px] font-medium">支付宝扫码充值</div>
+                      <div className="text-[12px] text-[#86909c]">
+                        {ppCfg
+                          ? `由 PerPay 收银台收款，单笔 ¥${formatPrice(ppCfg.minCny)} – ¥${formatPrice(ppCfg.maxCny)}`
+                          : "加载中…"}
+                      </div>
+                    </div>
+                    <Tag size="small" color={ppCfg?.enabled && ppCfg?.configured ? "green" : "gray"}>
+                      {ppCfg?.enabled && ppCfg?.configured ? "可用" : "不可用"}
+                    </Tag>
+                  </div>
+
+                  {!ppCfg?.configured && (
+                    <div className="rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-2 text-[12px] text-[#d25f00]">
+                      管理员尚未配置 PerPay，支付宝充值暂不可用。
+                    </div>
+                  )}
+
+                  {!ppOrder && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="mb-1 text-[12px] text-[#4e5969]">充值金额（CNY）</div>
+                        <InputNumber
+                          value={ppAmount}
+                          min={ppCfg?.minCny ?? 10}
+                          max={ppCfg?.maxCny ?? 5000}
+                          step={10}
+                          precision={2}
+                          style={{ width: "100%" }}
+                          onChange={(v) => setPpAmount(Number(v) || 0)}
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          type="primary"
+                          className="w-full"
+                          loading={ppBusy}
+                          disabled={!ppCfg?.enabled || !ppCfg?.configured}
+                          onClick={createPerPayOrder}
+                        >
+                          支付宝扫码支付
+                        </Button>
+                      </div>
+                      <div className="text-[11px] text-[#86909c] sm:col-span-2">
+                        下单后跳转到 PerPay 收银台，用支付宝扫码完成付款；返回本页后会自动查单确认。
+                      </div>
+                    </div>
+                  )}
+
+                  {ppOrder && (
+                    <div className="rounded border border-[#e5e6eb] p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Tag size="small" color={PERPAY_TAG[ppOrder.status]?.color}>
+                          {PERPAY_TAG[ppOrder.status]?.text ?? ppOrder.status}
+                        </Tag>
+                        <span className="font-mono text-[11px] text-[#86909c]">订单号 {ppOrder.merchantOrderNo}</span>
+                      </div>
+
+                      <div className="mt-2 grid gap-1 text-[12px] sm:grid-cols-2">
+                        <div>
+                          充值金额 <span className="font-semibold text-[#1d2129]">¥{formatPrice(ppOrder.amountCny)}</span>
+                        </div>
+                        {ppOrder.payableCents != null && (
+                          <div>
+                            应付金额{" "}
+                            <span className="font-semibold text-[#f53f3f]">{centsText(ppOrder.payableCents)}</span>
+                          </div>
+                        )}
+                        {ppOrder.status === "waiting" && ppOrder.checkoutExpiresAt && (
+                          <div className="text-[#86909c]">
+                            支付剩余 <Countdown expiresAt={ppOrder.checkoutExpiresAt} />
+                          </div>
+                        )}
+                        {ppOrder.credited != null && (
+                          <div>
+                            已入账{" "}
+                            <span className="font-semibold text-[#00b42a]">¥{formatPrice(ppOrder.credited)}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {ppOrder.status === "waiting" && (
+                        <>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {ppOrder.checkoutUrl && (
+                              <Button
+                                size="small"
+                                type="primary"
+                                onClick={() => window.location.assign(ppOrder.checkoutUrl)}
+                              >
+                                打开支付宝收银台
+                              </Button>
+                            )}
+                            <Button size="small" loading={ppBusy} onClick={closePerPayOrder}>
+                              关闭订单
+                            </Button>
+                          </div>
+                          <div className="mt-2 text-[11px] leading-relaxed text-[#86909c]">
+                            如已完成付款，返回本页或稍等片刻，系统会自动查单确认，无需重复支付。
+                            金额必须与收银台显示完全一致。
+                          </div>
+                        </>
+                      )}
+
+                      {ppOrder.status === "creating" && (
+                        <div className="mt-2 text-[12px] text-[#86909c]">正在创建 PerPay 订单…</div>
+                      )}
+
+                      {ppOrder.status === "paid" && (
+                        <div className="mt-3">
+                          <Button size="small" type="primary" onClick={() => setPpOrder(null)}>
+                            继续充值
+                          </Button>
+                        </div>
+                      )}
+
+                      {ppOrder.status === "disputed" && (
+                        <div className="mt-2 rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-2 text-[12px] text-[#d25f00]">
+                          该笔支付关联已被撤销或进入争议处理，请联系管理员核对。
+                        </div>
+                      )}
+
+                      {ppOrder.status === "failed" && (
+                        <div className="mt-3">
+                          <div className="mb-2 break-all rounded bg-[#ffece8] px-3 py-2 text-[11px] text-[#f53f3f]">
+                            {ppOrder.lastError || "创建 PerPay 订单失败"}
+                          </div>
+                          <Space>
+                            <Button size="small" type="primary" loading={ppBusy} onClick={retryPerPayOrder}>
+                              使用原单号重试
+                            </Button>
+                            <Button size="small" onClick={() => setPpOrder(null)}>
+                              重新下单
+                            </Button>
+                          </Space>
+                        </div>
+                      )}
+
+                      {(ppOrder.status === "expired" || ppOrder.status === "closed") && (
+                        <div className="mt-3">
+                          <div className="mb-2 text-[12px] text-[#86909c]">
+                            {ppOrder.status === "expired" ? "收银台已过期。" : "订单已关闭。"}
+                          </div>
+                          <Button size="small" type="primary" onClick={() => setPpOrder(null)}>
+                            重新充值
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {ppOrders.filter((o) => o.id !== ppOrder?.id).length > 0 && (
+                    <div>
+                      <div className="mb-1 text-[12px] font-medium text-[#4e5969]">最近支付宝订单</div>
+                      <div className="divide-y divide-[#f2f3f5] rounded border border-[#e5e6eb] px-3">
+                        {ppOrders
+                          .filter((o) => o.id !== ppOrder?.id)
+                          .slice(0, 5)
+                          .map((o) => (
+                            <div key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]">
+                                <Tag size="small" color={PERPAY_TAG[o.status]?.color}>
+                                  {PERPAY_TAG[o.status]?.text ?? o.status}
+                                </Tag>
+                                <span className="font-medium text-[#1d2129]">¥{formatPrice(o.amountCny)}</span>
+                                <span className="text-[#86909c]">
+                                  {new Date(o.createdAt).toLocaleString("zh-CN")}
+                                </span>
+                              </div>
+                              <Button
+                                size="mini"
+                                onClick={() => {
+                                  setPpOrder(o);
+                                  setPpAmount(o.amountCny);
+                                }}
+                              >
+                                查看
+                              </Button>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-[11px] leading-relaxed text-[#86909c]">
+                    收款由自托管 PerPay 完成。系统只以服务端查单或验签通知的确认结果入账，浏览器返回不代表支付成功。
+                  </div>
+                </div>
+              </Tabs.TabPane>
+
+              <Tabs.TabPane key="usdt" title="USDT 链上" lazyload={false} destroyOnHide={false}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-[14px] font-medium">USDT 链上充值</div>
@@ -432,6 +822,8 @@ export function RechargeSection() {
                 </div>
               </div>
             )}
+              </Tabs.TabPane>
+            </Tabs>
           </Card>
         </div>
       </div>
