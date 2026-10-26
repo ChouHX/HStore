@@ -21,7 +21,10 @@ const (
 	alipayMaxLookbackMs = 7 * 24 * 60 * 60 * 1000
 )
 
-var alipayScanMu sync.Mutex
+var (
+	alipayScanMu           sync.Mutex
+	lastAlipayQuickCheckMs int64
+)
 
 // AlipayScanResult 是一次查账/对账的结果。
 type AlipayScanResult struct {
@@ -296,6 +299,51 @@ func CloseAlipayOrder(id int, user *model.User) (*model.AlipayOrder, error) {
 		return order, errors.New("订单已支付，不能关闭")
 	}
 	return store.CloseAlipayOrder(id)
+}
+
+// QuickCheckAlipayOrder 在用户收银台轮询时直接查询最近账单，缩短到账展示延迟。
+// 与后台轮询共用扫描锁；已有扫描进行中时直接返回本地状态，不阻塞页面。
+func QuickCheckAlipayOrder(ctx context.Context, id int) (*model.AlipayOrder, error) {
+	order := store.GetAlipayOrder(id)
+	if order == nil {
+		return nil, errors.New("订单不存在")
+	}
+	if order.PaymentStatus != "UNPAID" || order.CheckoutStatus != "OPEN" {
+		return order, nil
+	}
+	if !alipayScanMu.TryLock() {
+		return order, nil
+	}
+	defer alipayScanMu.Unlock()
+
+	nowMs := time.Now().UnixMilli()
+	if nowMs-lastAlipayQuickCheckMs < 3000 {
+		return store.GetAlipayOrder(id), nil
+	}
+	lastAlipayQuickCheckMs = nowMs
+
+	_, client, err := alipayClient()
+	if err != nil {
+		return order, err
+	}
+	order = store.GetAlipayOrder(id)
+	if order == nil || order.PaymentStatus != "UNPAID" || order.CheckoutStatus != "OPEN" {
+		return order, nil
+	}
+	start := order.CreatedAt - alipayScanOverlapMs
+	if start < nowMs-alipayMaxLookbackMs {
+		start = nowMs - alipayMaxLookbackMs
+	}
+	if start >= nowMs {
+		start = nowMs - 1000
+	}
+	result := &AlipayScanResult{}
+	if err := scanAlipayWindow(ctx, client, start, nowMs, result); err != nil {
+		return store.GetAlipayOrder(id), err
+	}
+	// scanAlipayWindow 已处理新流水；这里补一次待分配流水，覆盖极短窗口的边界。
+	ReconcilePendingAlipay(50)
+	return store.GetAlipayOrder(id), nil
 }
 
 // AlipayScanDue 根据当前是否有待支付订单选择活跃/常规查账间隔。

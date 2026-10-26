@@ -56,7 +56,9 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type recentRecharge struct {
+		Key          string  `json:"key"`
 		ID           int     `json:"id"`
+		OrderNo      string  `json:"orderNo"`
 		Channel      string  `json:"channel"`
 		ChannelLabel string  `json:"channelLabel"`
 		Username     string  `json:"username"`
@@ -77,7 +79,8 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 			amount = *o.Credited
 		}
 		recent = append(recent, recentRecharge{
-			ID: o.ID, Channel: "alipay", ChannelLabel: "支付宝", Username: o.Username,
+			Key: "alipay-" + itoa(o.ID), ID: o.ID, OrderNo: o.OrderNo,
+			Channel: "alipay", ChannelLabel: "支付宝", Username: o.Username,
 			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
 		})
 	}
@@ -94,7 +97,8 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 			username = u.Username
 		}
 		recent = append(recent, recentRecharge{
-			ID: o.ID, Channel: "usdt", ChannelLabel: "USDT", Username: username,
+			Key: "usdt-" + itoa(o.ID), ID: o.ID, OrderNo: "USDT-" + itoa(o.ID),
+			Channel: "usdt", ChannelLabel: "USDT", Username: username,
 			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
 		})
 	}

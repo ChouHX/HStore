@@ -98,6 +98,35 @@ func (a *API) handleAlipayGet(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"order": order})
 }
 
+func (a *API) handleAlipayCheck(w http.ResponseWriter, r *http.Request) {
+	user := requireUser(w, r)
+	if user == nil {
+		return
+	}
+	var body struct {
+		ID int `json:"id"`
+	}
+	if err := readJSON(r, &body); err != nil || body.ID == 0 {
+		fail(w, http.StatusBadRequest, "缺少订单号")
+		return
+	}
+	order := store.GetAlipayOrder(body.ID)
+	if order == nil {
+		fail(w, http.StatusNotFound, "订单不存在")
+		return
+	}
+	if order.UID != user.UID && user.Role != "admin" {
+		fail(w, http.StatusForbidden, "无权查看")
+		return
+	}
+	updated, err := service.QuickCheckAlipayOrder(r.Context(), body.ID)
+	resp := map[string]any{"order": updated}
+	if err != nil {
+		resp["warning"] = err.Error()
+	}
+	ok(w, resp)
+}
+
 func (a *API) handleAlipayClose(w http.ResponseWriter, r *http.Request) {
 	user := requireUser(w, r)
 	if user == nil {

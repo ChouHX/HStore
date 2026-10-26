@@ -50,6 +50,7 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/alipay/order", a.handleAlipayCreate)
 	a.mux.HandleFunc("GET /api/alipay/orders", a.handleAlipayList)
 	a.mux.HandleFunc("GET /api/alipay/order", a.handleAlipayGet)
+	a.mux.HandleFunc("POST /api/alipay/order/check", a.handleAlipayCheck)
 	a.mux.HandleFunc("DELETE /api/alipay/order", a.handleAlipayClose)
 	a.mux.HandleFunc("GET /api/alipay/checkout/{token}", a.handleAlipayCheckout)
 

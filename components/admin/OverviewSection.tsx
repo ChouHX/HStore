@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Grid, Message, Statistic, Tag } from "@arco-design/web-react";
+import { Button, Card, Grid, Message, Statistic, Table, Tag } from "@arco-design/web-react";
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/format";
@@ -8,7 +8,9 @@ import { formatPrice } from "@/lib/format";
 const { Row, Col } = Grid;
 
 interface RecentRecharge {
+  key: string;
   id: number;
+  orderNo: string;
   channel: "alipay" | "usdt";
   channelLabel: string;
   username: string;
@@ -176,44 +178,76 @@ export function OverviewSection() {
             bordered={false}
             extra={<Link to="/admin/payment" className="text-[12px] text-[#165dff]">支付设置</Link>}
           >
-            <div className="flex flex-col gap-2">
-              {stats.recentRecharges?.map((item) => {
-                const status = rechargeStatus(item.status);
-                const time = item.paidAt ?? item.createdAt;
-                return (
-                  <div
-                    key={`${item.channel}-${item.id}`}
-                    className="flex items-center justify-between gap-2 rounded border border-[#e5e6eb] px-2.5 py-2 text-[12px]"
-                  >
-                    <div className="flex min-w-0 items-center gap-2">
+            {stats.recentRecharges?.length ? (
+              <Table
+                rowKey="key"
+                size="small"
+                pagination={false}
+                data={stats.recentRecharges}
+                scroll={{ x: 620 }}
+                columns={[
+                  {
+                    title: "渠道",
+                    dataIndex: "channelLabel",
+                    width: 90,
+                    render: (_: unknown, item: RecentRecharge) => (
                       <Tag size="small" color={item.channel === "alipay" ? "arcoblue" : "orange"}>
                         {item.channelLabel}
                       </Tag>
-                      <span className="truncate text-[#4e5969]">
-                        {item.username || "未知用户"}
-                      </span>
-                      <span className="shrink-0 font-medium text-[#f53f3f]">
-                        ¥{formatPrice(item.amountCny)}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Tag size="small" color={status.color}>{status.text}</Tag>
+                    ),
+                  },
+                  {
+                    title: "用户",
+                    dataIndex: "username",
+                    width: 100,
+                    render: (_: unknown, item: RecentRecharge) => item.username || "未知用户",
+                  },
+                  {
+                    title: "金额",
+                    dataIndex: "amountCny",
+                    width: 100,
+                    align: "right" as const,
+                    render: (_: unknown, item: RecentRecharge) => (
+                      <span className="font-medium text-[#f53f3f]">¥{formatPrice(item.amountCny)}</span>
+                    ),
+                  },
+                  {
+                    title: "状态",
+                    dataIndex: "status",
+                    width: 100,
+                    render: (_: unknown, item: RecentRecharge) => {
+                      const status = rechargeStatus(item.status);
+                      return <Tag size="small" color={status.color}>{status.text}</Tag>;
+                    },
+                  },
+                  {
+                    title: "时间",
+                    dataIndex: "paidAt",
+                    width: 150,
+                    render: (_: unknown, item: RecentRecharge) => (
                       <span className="text-[11px] text-[#86909c]">
-                        {new Date(time).toLocaleString("zh-CN", {
+                        {new Date(item.paidAt ?? item.createdAt).toLocaleString("zh-CN", {
                           month: "2-digit",
                           day: "2-digit",
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </span>
-                    </div>
-                  </div>
-                );
-              })}
-              {(!stats.recentRecharges || stats.recentRecharges.length === 0) && (
-                <div className="py-8 text-center text-[12px] text-[#86909c]">暂无充值订单</div>
-              )}
-            </div>
+                    ),
+                  },
+                  {
+                    title: "订单号",
+                    dataIndex: "orderNo",
+                    width: 180,
+                    render: (_: unknown, item: RecentRecharge) => (
+                      <span className="font-mono text-[11px]">{item.orderNo}</span>
+                    ),
+                  },
+                ]}
+              />
+            ) : (
+              <div className="py-10 text-center text-[12px] text-[#86909c]">暂无充值订单</div>
+            )}
             <div className="mt-3 flex gap-2">
               <Link to="/admin/payment?tab=alipay"><Button size="small">支付宝订单</Button></Link>
               <Link to="/admin/payment?tab=usdt"><Button size="small">USDT 订单</Button></Link>

@@ -124,6 +124,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
   const [chain, setChain] = useState("TRX");
   const [creating, setCreating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [active, setActive] = useState<ActiveOrder | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [qr, setQr] = useState("");
@@ -212,9 +213,14 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
     const orderID = active.order.id;
     const timer = setInterval(async () => {
       try {
-        const endpoint =
-          currentChannel === "alipay" ? `/api/alipay/order?id=${orderID}` : `/api/crypto/order?id=${orderID}`;
-        const j = await fetch(endpoint).then((r) => r.json());
+        const j =
+          currentChannel === "alipay"
+            ? await fetch("/api/alipay/order/check", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: orderID }),
+              }).then((r) => r.json())
+            : await fetch(`/api/crypto/order?id=${orderID}`).then((r) => r.json());
         if (!j.ok || !j.order) return;
         if (currentChannel === "alipay") {
           setActive((prev) =>
@@ -232,7 +238,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
       } catch {
         /* 下一轮继续 */
       }
-    }, currentChannel === "alipay" ? 4000 : 8000);
+    }, currentChannel === "alipay" ? 4000 : 5000);
     return () => clearInterval(timer);
   }, [active?.channel, active?.order.id, active?.order.status, onRecharged]);
 
@@ -312,6 +318,44 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
       Message.error("创建充值订单失败，请稍后重试");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function refreshActiveNow() {
+    if (!active || refreshing) return;
+    setRefreshing(true);
+    try {
+      const j =
+        active.channel === "alipay"
+          ? await fetch("/api/alipay/order/check", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: active.order.id }),
+            }).then((r) => r.json())
+          : await fetch(`/api/crypto/order?id=${active.order.id}`).then((r) => r.json());
+      if (!j.ok || !j.order) {
+        Message.warning(j.message ?? "查询订单失败");
+        return;
+      }
+      if (active.channel === "alipay") {
+        setActive((prev) =>
+          prev && prev.channel === "alipay" ? { ...prev, order: j.order as AlipayOrderView } : prev,
+        );
+      } else {
+        setActive((prev) =>
+          prev && prev.channel === "usdt" ? { ...prev, order: j.order as CryptoOrderView } : prev,
+        );
+      }
+      if (j.order.status === "paid") {
+        Message.success("充值已到账");
+        onRecharged?.();
+      } else if (j.order.status === "waiting") {
+        Message.info("暂未查询到账，请确认已按弹窗金额支付");
+      }
+    } catch {
+      Message.error("查询订单失败，请稍后重试");
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -607,7 +651,10 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                   </div>
                 )}
 
-                <div className="mt-4 flex justify-center gap-2">
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <Button loading={refreshing} onClick={refreshActiveNow}>
+                    刷新状态
+                  </Button>
                   <Button status="danger" loading={cancelling} onClick={cancelActive}>
                     取消订单
                   </Button>
