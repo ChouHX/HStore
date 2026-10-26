@@ -780,3 +780,26 @@ func SetPassword(uid int, newPassword string) (bool, string) {
 	}
 	return true, ""
 }
+
+// DeleteUser 删除用户。返回错误原因（存在时）。
+// 不允许删自己，也不允许删掉最后一个管理员。
+func DeleteUser(uid, operatorUID int) (bool, string) {
+	if uid == operatorUID {
+		return false, "不能删除当前登录的账号"
+	}
+	var role string
+	if e := db.Must().QueryRow("SELECT role FROM users WHERE uid = ?", uid).Scan(&role); e != nil {
+		return false, "用户不存在"
+	}
+	if role == "admin" {
+		var admins int
+		_ = db.Must().QueryRow("SELECT COUNT(*) FROM users WHERE role = 'admin'").Scan(&admins)
+		if admins <= 1 {
+			return false, "至少保留一个管理员"
+		}
+	}
+	if _, e := db.Must().Exec("DELETE FROM users WHERE uid = ?", uid); e != nil {
+		return false, "删除失败，该用户可能还有未清理的关联数据"
+	}
+	return true, ""
+}

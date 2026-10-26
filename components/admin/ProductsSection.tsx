@@ -19,6 +19,7 @@ import { IconFilter } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useState } from "react";
 import type { AdminProduct, ProductFilterOptions } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
+import { PricingSection } from "@/components/admin/PricingSection";
 
 const PAGE_SIZE = 15;
 
@@ -115,6 +116,7 @@ export function ProductsSection() {
   const [enabledList, setEnabledList] = useState<number[]>([]);
   const [options, setOptions] = useState<ProductFilterOptions>({ roots: [], subs: [], status: [] });
   const [selected, setSelected] = useState<(string | number)[]>([]);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [priceModal, setPriceModal] = useState<{ goodsId: number; name: string; price: number; locked: boolean } | null>(null);
@@ -527,28 +529,31 @@ export function ProductsSection() {
           size="small"
           type="primary"
           disabled={selected.length === 0}
-          onClick={() => post({ action: "toggle", ids: selected.map(Number), enabled: true }, "已批量上架")}
+          onClick={() => post({ action: "toggle", ids: selected.map(Number), enabled: true }, "已上架")}
         >
-          批量上架
+          上架
         </Button>
         <Button
           size="small"
           status="danger"
           disabled={selected.length === 0}
-          onClick={() => post({ action: "toggle", ids: selected.map(Number), enabled: false }, "已批量下架")}
+          onClick={() => post({ action: "toggle", ids: selected.map(Number), enabled: false }, "已下架")}
         >
-          批量下架
+          下架
         </Button>
         <Popconfirm
           title={`确认删除选中的 ${selected.length} 个本地商品？`}
           onOk={() => post({ action: "delete", ids: selected.map(Number) }, `已删除 ${selected.length} 个商品`)}
         >
           <Button size="small" status="danger" disabled={selected.length === 0}>
-            批量删除
+            删除
           </Button>
         </Popconfirm>
         <Button size="small" onClick={() => post({ action: "recompute" }, "已重算售价")}>
           重算售价
+        </Button>
+        <Button size="small" onClick={() => setPricingOpen(true)}>
+          定价规则
         </Button>
       </Space>
 
@@ -669,6 +674,18 @@ export function ProductsSection() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 定价规则：从独立页面收进弹窗，入口在操作栏 */}
+      <Modal
+        title="定价规则"
+        visible={pricingOpen}
+        onCancel={() => setPricingOpen(false)}
+        footer={<Button onClick={() => setPricingOpen(false)}>关闭</Button>}
+        style={{ width: 960 }}
+        unmountOnExit
+      >
+        <PricingSection />
       </Modal>
     </div>
   );

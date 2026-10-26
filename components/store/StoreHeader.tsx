@@ -48,7 +48,6 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
   function onMenu(key: string) {
     if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
-    else if (key === "pickup") navigate("/pickup");
     else if (key === "query") navigate("/orders");
     else if (key === "recharge") navigate("/account/overview?focus=recharge");
     else if (key === "admin") navigate("/admin/overview");
@@ -86,10 +85,10 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
           <span className="lg:hidden">
             <Button size="small" icon={<IconNotification />} aria-label="公告" onClick={() => setNoticeOpen(true)} />
           </span>
-          {/* 取件 / 订单查询都是公开页面，未登录也保留入口 */}
+          {/* 微软取件 / 订单查询都是公开页面，未登录也保留入口 */}
           <Link to="/pickup" className="inline-flex">
-            <Button size="small" icon={<IconEmail />} aria-label="取件">
-              <span className="hidden sm:inline">取件</span>
+            <Button size="small" icon={<IconEmail />} aria-label="微软取件">
+              <span className="hidden sm:inline">微软取件</span>
             </Button>
           </Link>
           <Link to="/orders" className="inline-flex">
@@ -119,11 +118,6 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
                       <Menu.Item key="orders">
                         <span className="inline-flex items-center gap-2">
                           <IconList /> 我的订单
-                        </span>
-                      </Menu.Item>
-                      <Menu.Item key="pickup">
-                        <span className="inline-flex items-center gap-2">
-                          <IconEmail /> 取件
                         </span>
                       </Menu.Item>
                       <Menu.Item key="query">

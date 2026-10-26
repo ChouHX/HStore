@@ -44,13 +44,12 @@ export function LoginPage() {
           </Typography.Title>
         </div>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          登录 · 演示账号 demo/demo123 · 管理员 admin/admin123
+          登录后即可下单、充值、取件
         </Typography.Text>
 
         <Form
           layout="vertical"
           style={{ marginTop: 16 }}
-          initialValues={{ username: "demo", password: "demo123" }}
           onSubmit={onSubmit}
         >
           <Form.Item label="用户名" field="username" rules={[{ required: true, message: "请输入用户名" }]}>

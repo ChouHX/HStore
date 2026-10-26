@@ -6,7 +6,6 @@ import { LogsSection } from "@/components/admin/LogsSection";
 import { OverviewSection as AdminOverview } from "@/components/admin/OverviewSection";
 import { PaymentOrdersSection } from "@/components/admin/PaymentOrdersSection";
 import { PaymentSettingsSection } from "@/components/admin/PaymentSettingsSection";
-import { PricingSection } from "@/components/admin/PricingSection";
 import { ProductsSection } from "@/components/admin/ProductsSection";
 import { RedeemSection } from "@/components/admin/RedeemSection";
 import { SettingsSection } from "@/components/admin/SettingsSection";
@@ -64,7 +63,6 @@ export function App() {
           <Route path="overview" element={<AdminOverview />} />
           <Route path="products" element={<ProductsSection />} />
           <Route path="catalog" element={<CatalogSection />} />
-          <Route path="pricing" element={<PricingSection />} />
           <Route path="users" element={<UsersSection />} />
           <Route path="redeem" element={<RedeemSection />} />
           <Route path="announcements" element={<AnnouncementsSection />} />

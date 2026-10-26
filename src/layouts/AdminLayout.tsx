@@ -7,7 +7,6 @@ const NAV: NavItem[] = [
   { id: "overview", href: "/admin/overview", label: "数据概览" },
   { id: "products", href: "/admin/products", label: "商品与上下架" },
   { id: "catalog", href: "/admin/catalog", label: "商品同步" },
-  { id: "pricing", href: "/admin/pricing", label: "定价规则" },
   { id: "users", href: "/admin/users", label: "用户与资产" },
   { id: "redeem", href: "/admin/redeem", label: "兑换码" },
   { id: "announcements", href: "/admin/announcements", label: "公告管理" },

@@ -112,7 +112,7 @@ export function PickupPage() {
           <Link to="/" className="flex shrink-0 items-center gap-2 text-[16px] font-semibold">
             <img src="/favicon.svg" alt="HShop" className="h-7 w-7 rounded-md" />
             HShop
-            <span className="text-[13px] font-normal text-[#86909c]">取件</span>
+            <span className="text-[13px] font-normal text-[#86909c]">微软取件</span>
           </Link>
 
           <div className="flex items-center gap-2">
@@ -147,7 +147,7 @@ export function PickupPage() {
         <Card bordered={false}>
           <div className="flex flex-col gap-3">
             <div>
-              <div className="text-[15px] font-medium text-[#1d2129]">取件</div>
+              <div className="text-[15px] font-medium text-[#1d2129]">微软取件</div>
               <div className="mt-1 text-[12px] text-[#86909c]">
                 输入兑换码（XXXX-XXXX-XXXX-XXXX）
                 {loggedIn ? "或订单号" : ""}

@@ -615,6 +615,13 @@ func (a *API) handleAdminUsersPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ok(w, map[string]any{"before": before, "after": after})
+	case "delete":
+		if ok2, msg := store.DeleteUser(uid, admin.UID); !ok2 {
+			fail(w, http.StatusBadRequest, msg)
+			return
+		}
+		store.WriteAudit(&admin.UID, "user_delete", "user", itoa(uid), nil, nil, "删除用户")
+		ok(w, map[string]any{"message": "用户已删除"})
 	case "setPassword":
 		pw, _ := body["password"].(string)
 		if e := store.ValidatePassword(pw); e != nil {

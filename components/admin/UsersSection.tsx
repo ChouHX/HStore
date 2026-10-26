@@ -7,6 +7,7 @@ import {
   InputNumber,
   Message,
   Modal,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -116,6 +117,25 @@ export function UsersSection() {
       body: JSON.stringify(body),
     }).then((r) => r.json());
     return j as { ok: boolean; message?: string; user?: User; after?: number };
+  }
+
+  async function removeUser(u: User) {
+    try {
+      const j = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", uid: u.uid }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success(`已删除用户 ${u.username}`);
+        if (managed?.uid === u.uid) setManaged(null);
+        load();
+      } else {
+        Message.error(j.message ?? "删除失败");
+      }
+    } catch {
+      Message.error("删除失败");
+    }
   }
 
   async function resetPassword() {
@@ -253,11 +273,22 @@ export function UsersSection() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 90,
+      width: 150,
       render: (_: unknown, u: User) => (
-        <Button size="small" onClick={() => openManage(u)}>
-          管理
-        </Button>
+        <Space>
+          <Button size="small" onClick={() => openManage(u)}>
+            管理
+          </Button>
+          <Popconfirm
+            title={`确认删除用户 ${u.username}？`}
+            content="删除后该账号无法登录，历史订单与流水仍保留。"
+            onOk={() => removeUser(u)}
+          >
+            <Button size="small" status="danger">
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];

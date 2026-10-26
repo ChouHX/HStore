@@ -44,8 +44,12 @@ func Open() (*sql.DB, error) {
 		if err != nil {
 			return
 		}
-		// modernc.org/sqlite 是纯 Go 实现，单连接可避免写冲突（对齐 better-sqlite3 语义）
-		conn.SetMaxOpenConns(1)
+		// WAL 允许多读一写：给 4 个连接，避免「一条连接被卡住 → 整站所有接口全挂」。
+		// 之前是 1，一旦某次请求把连接占住不放（网络/驱动异常），全站 DB 调用会永久排队。
+		// 写并发靠 busy_timeout(10000) 串行化，不会出现写冲突报错。
+		conn.SetMaxOpenConns(4)
+		conn.SetMaxIdleConns(4)
+		conn.SetConnMaxLifetime(30 * time.Minute)
 		if err = conn.Ping(); err != nil {
 			return
 		}
@@ -604,12 +608,9 @@ func seed(db *sql.DB) error {
 	if n == 0 {
 		var basic int
 		_ = db.QueryRow("SELECT id FROM levels ORDER BY threshold ASC LIMIT 1").Scan(&basic)
+		// 首次启动只建管理员；普通用户由站点自行注册 / 后台创建。
 		if _, e := db.Exec(`INSERT INTO users(username, nickname, password, phone, email, role, status, balance, total_spent, level_id, level_locked, created_at, updated_at)
 			VALUES('admin','系统管理员',?,'','','admin','active',0,0,?,0,?,?)`, HashPassword("admin123"), basic, now, now); e != nil {
-			return e
-		}
-		if _, e := db.Exec(`INSERT INTO users(username, nickname, password, phone, email, role, status, balance, total_spent, level_id, level_locked, created_at, updated_at)
-			VALUES('demo','演示用户',?,'13800000000','demo@example.com','user','active',100,0,?,0,?,?)`, HashPassword("demo123"), basic, now, now); e != nil {
 			return e
 		}
 	}
