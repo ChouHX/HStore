@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { GoodsDetail, LocalOrder, Product, RechargeTemplate, User } from "@/lib/types";
 import { CARD_STATUS, cardStatusColor, arcoColor } from "@/lib/status";
 import { PaymentMethodTags } from "@/components/PaymentMethodTags";
+import { loadLastContact, saveLastContact, saveOrder } from "@/lib/orderStorage";
 
 interface Props {
   product: Product | null;
@@ -171,6 +172,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState<LocalOrder | null>(null);
+  // 下单必填：联系方式（手机 / 邮箱 / QQ），用于事后凭订单号或联系方式找回订单
+  const [contact, setContact] = useState("");
 
   const [guestCfg, setGuestCfg] = useState<{ alipay: AlipayPaymentCfg | null; crypto: CryptoPaymentCfg | null }>({
     alipay: null,
@@ -195,6 +198,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     setGuestQr("");
     setCount(1);
     setAttach({});
+    // 优先用上次填过的，其次用账号里的手机号 / 邮箱
+    setContact((prev) => prev || loadLastContact() || user?.phone || user?.email || "");
     setLoading(true);
 
     if (!user) {
@@ -251,21 +256,44 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
 
   useEffect(() => {
     if (!guestOrder || !["waiting", "paid", "fulfilling"].includes(guestOrder.status)) return;
-    const timer = setInterval(async () => {
+    const token = guestOrder.token;
+    const interval = guestOrder.channel === "usdt" ? 5000 : 4000;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    // 链式 setTimeout：上一次请求回来才排下一次，绝不让轮询请求叠加。
+    // 之前用 setInterval，后端一慢就会堆到浏览器 6 个并发上限，整页卡死。
+    const tick = async () => {
       try {
-        const j = await fetch(`/api/guest/order?token=${encodeURIComponent(guestOrder.token)}`).then((r) => r.json());
-        if (!j.ok || !j.guest) return;
-        const next = j.guest as GuestOrderView;
-        setGuestOrder(next);
-        if (next.status === "fulfilled") {
-          Message.success("支付成功，已自动发货");
-          onDone();
+        const j = await fetch(`/api/guest/order?token=${encodeURIComponent(token)}`).then((r) => r.json());
+        if (!stopped && j.ok && j.guest) {
+          const next = j.guest as GuestOrderView;
+          setGuestOrder(next);
+          if (next.status === "fulfilled") {
+            if (next.order?.orderNumber) {
+              saveOrder({
+                orderNumber: next.order.orderNumber,
+                contact: loadLastContact(),
+                goodsName: next.productName,
+                amount: next.amountCny,
+              });
+            }
+            Message.success("支付成功，已自动发货");
+            onDone();
+            return;
+          }
         }
       } catch {
-        /* ignore */
+        /* 网络抖动忽略，下一轮再试 */
       }
-    }, guestOrder?.channel === "usdt" ? 5000 : 4000);
-    return () => clearInterval(timer);
+      if (!stopped) timer = setTimeout(tick, interval);
+    };
+
+    timer = setTimeout(tick, interval);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [guestOrder?.token, guestOrder?.channel, guestOrder?.status, onDone]);
 
   const guestQrPayload = guestOrder
@@ -308,6 +336,10 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
 
   async function submitBalance() {
     if (!product) return;
+    if (!contact.trim()) {
+      Message.warning("请填写联系方式，便于查询订单");
+      return;
+    }
     const missing = templates.find((t) => t.required === 1 && !attach[t.title]);
     if (missing) {
       Message.warning(`请填写「${missing.title}」`);
@@ -321,12 +353,22 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         body: JSON.stringify({
           goodsId: product.goodsId,
           count,
+          contact: contact.trim(),
           attach: templates.map((t) => ({ name: t.title, value: attach[t.title] ?? "" })),
         }),
       });
       const j = await res.json();
       if (j.ok) {
         setOrder(j.order);
+        saveLastContact(contact.trim());
+        if (j.order?.orderNumber) {
+          saveOrder({
+            orderNumber: j.order.orderNumber,
+            contact: contact.trim(),
+            goodsName: j.order.goodsName,
+            amount: j.order.money,
+          });
+        }
         Message.success("下单成功");
         onDone();
       } else {
@@ -349,6 +391,10 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       Message.warning("USDT 支付暂不可用");
       return;
     }
+    if (!contact.trim()) {
+      Message.warning("请填写联系方式，便于查询订单");
+      return;
+    }
     const missing = templates.find((t) => t.required === 1 && !attach[t.title]);
     if (missing) {
       Message.warning(`请填写「${missing.title}」`);
@@ -365,6 +411,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           attach: templates.map((t) => ({ name: t.title, value: attach[t.title] ?? "" })),
           channel: guestChannel,
           chain: guestChannel === "usdt" ? guestChain : "",
+          contact: contact.trim(),
         }),
       });
       const j = await res.json();
@@ -375,6 +422,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       const view = j.guest as GuestOrderView;
       setGuestOrder(view);
       saveGuestToken(view.token, product.goodsId);
+      saveLastContact(contact.trim());
       Message.success("订单已创建，请扫码支付");
     } catch {
       Message.error("创建支付订单失败，请稍后重试");
@@ -645,6 +693,22 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               ))}
             </div>
           )}
+
+          {/* 下单必填：联系方式。游客丢了页面也能凭它找回订单 */}
+          <div className="flex flex-col gap-1 text-[12px]">
+            <span className="text-[#86909c]">
+              联系方式 <span className="text-[#f53f3f]">*</span>
+            </span>
+            <Input
+              placeholder="手机号 / 邮箱 / QQ，用于查询订单"
+              value={contact}
+              maxLength={64}
+              onChange={setContact}
+            />
+            <span className="text-[11px] text-[#86909c]">
+              下单后可凭订单号或这个联系方式在「订单查询」页找回卡密。
+            </span>
+          </div>
 
           {isGuest && (
             <div className="flex flex-col gap-2 rounded border border-[#e5e6eb] p-3">

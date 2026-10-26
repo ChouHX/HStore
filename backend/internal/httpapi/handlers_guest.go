@@ -18,12 +18,13 @@ func (a *API) handleGuestOrderCreate(w http.ResponseWriter, r *http.Request) {
 		Attach  []map[string]string `json:"attach"`
 		Channel string              `json:"channel"`
 		Chain   string              `json:"chain"`
+		Contact string              `json:"contact"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
 		return
 	}
-	gp, _, _, err := service.CreateGuestPurchase(body.GoodsID, body.Count, body.Attach, body.Channel, body.Chain)
+	gp, _, _, err := service.CreateGuestPurchase(body.GoodsID, body.Count, body.Attach, body.Channel, body.Chain, body.Contact)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return

@@ -115,3 +115,43 @@ func allowGuestCreate(ip string) bool {
 	b.used++
 	return true
 }
+
+// 订单查询限流：比取件宽松（翻页、重复搜索很常见），但足以挡住脚本枚举。
+const (
+	queryWindow   = time.Minute
+	queryMaxPerIP = 60
+)
+
+var (
+	queryMu      sync.Mutex
+	queryBuckets = map[string]*ipBucket{}
+	queryCalls   int
+)
+
+func allowQuery(ip string) bool {
+	if ip == "" {
+		ip = "-"
+	}
+	now := time.Now()
+	queryMu.Lock()
+	defer queryMu.Unlock()
+
+	queryCalls++
+	if queryCalls%pickupSweepEach == 0 {
+		for k, b := range queryBuckets {
+			if now.After(b.reset) {
+				delete(queryBuckets, k)
+			}
+		}
+	}
+	b := queryBuckets[ip]
+	if b == nil || now.After(b.reset) {
+		queryBuckets[ip] = &ipBucket{used: 1, reset: now.Add(queryWindow)}
+		return true
+	}
+	if b.used >= queryMaxPerIP {
+		return false
+	}
+	b.used++
+	return true
+}

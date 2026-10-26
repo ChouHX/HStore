@@ -333,6 +333,13 @@ func QuickCheckAlipayOrder(ctx context.Context, id int) (*model.AlipayOrder, err
 	}
 	defer alipayScanMu.Unlock()
 
+	// 收银台轮询必须快速返回：这里给一个硬上限，避免账单接口慢时把请求拖死。
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+	}
+
 	nowMs := time.Now().UnixMilli()
 	if nowMs-lastAlipayQuickCheckMs < 3000 {
 		return store.GetAlipayOrder(id), nil
@@ -462,6 +469,9 @@ func scanAlipayWindow(ctx context.Context, client *alipayv3.Client, startMs, end
 	}
 	pageNo := 1
 	for pageNo <= 100 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		page, err := client.QueryAccountLog(ctx, startText, endText, pageNo, 500)
 		if err != nil {
 			return err

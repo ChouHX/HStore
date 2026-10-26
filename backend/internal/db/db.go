@@ -470,10 +470,15 @@ func migrate(db *sql.DB) error {
 		{"cost_money", "REAL NOT NULL DEFAULT 0"},
 		{"source", "TEXT NOT NULL DEFAULT 'admin'"},
 		{"settled", "INTEGER NOT NULL DEFAULT 0"},
+		// 联系方式：游客下单必填，用于「订单查询」按联系方式检索
+		{"contact", "TEXT NOT NULL DEFAULT ''"},
 	}); e != nil {
 		return e
 	}
 	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_uid)"); e != nil {
+		return e
+	}
+	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_contact ON orders(contact)"); e != nil {
 		return e
 	}
 
@@ -499,6 +504,16 @@ func migrate(db *sql.DB) error {
 		return e
 	}
 	if _, e := db.Exec("UPDATE alipay_orders SET ended_at = expires_at WHERE ended_at = 0"); e != nil {
+		return e
+	}
+
+	// 游客直购的联系方式：下单必填，用于「订单查询」按联系方式检索
+	if e := addColumns(db, "guest_purchases", [][2]string{
+		{"contact", "TEXT NOT NULL DEFAULT ''"},
+	}); e != nil {
+		return e
+	}
+	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_guest_purchases_contact ON guest_purchases(contact)"); e != nil {
 		return e
 	}
 

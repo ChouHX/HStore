@@ -43,14 +43,14 @@ func CreateGuestUser() (*model.User, error) {
 
 const guestPurchaseCols = `id, token, uid, guest_user, channel, payment_order_id,
 	goods_id, goods_name, goods_count, attach_json, amount_cny, status,
-	upstream_order_no, outer_number, last_error, created_at, updated_at, paid_at, fulfilled_at`
+	upstream_order_no, outer_number, last_error, contact, created_at, updated_at, paid_at, fulfilled_at`
 
 func scanGuestPurchase(sc interface{ Scan(...any) error }) (model.GuestPurchase, error) {
 	var g model.GuestPurchase
 	var paidAt, fulfilledAt sql.NullInt64
 	err := sc.Scan(&g.ID, &g.Token, &g.UID, &g.GuestUser, &g.Channel, &g.PaymentOrderID,
 		&g.GoodsID, &g.GoodsName, &g.GoodsCount, &g.AttachJSON, &g.AmountCny, &g.Status,
-		&g.UpstreamOrderNo, &g.OuterNumber, &g.LastError, &g.CreatedAt, &g.UpdatedAt,
+		&g.UpstreamOrderNo, &g.OuterNumber, &g.LastError, &g.Contact, &g.CreatedAt, &g.UpdatedAt,
 		&paidAt, &fulfilledAt)
 	if paidAt.Valid {
 		v := paidAt.Int64
@@ -67,11 +67,11 @@ func scanGuestPurchase(sc interface{ Scan(...any) error }) (model.GuestPurchase,
 func InsertGuestPurchase(g model.GuestPurchase) (int, error) {
 	res, err := db.Must().Exec(`INSERT INTO guest_purchases(token,uid,guest_user,channel,payment_order_id,
 		goods_id,goods_name,goods_count,attach_json,amount_cny,status,upstream_order_no,outer_number,
-		last_error,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		last_error,contact,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		g.Token, g.UID, g.GuestUser, g.Channel, g.PaymentOrderID, g.GoodsID, g.GoodsName,
 		g.GoodsCount, g.AttachJSON, g.AmountCny, g.Status, g.UpstreamOrderNo, g.OuterNumber,
-		g.LastError, now(), now())
+		g.LastError, g.Contact, now(), now())
 	if err != nil {
 		return 0, err
 	}

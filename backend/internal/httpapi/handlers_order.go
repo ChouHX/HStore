@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"hstore/backend/internal/service"
 	"hstore/backend/internal/store"
@@ -18,6 +19,7 @@ func (a *API) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 		Count   int                 `json:"count"`
 		Attach  []map[string]string `json:"attach"`
 		Source  string              `json:"source"`
+		Contact string              `json:"contact"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -27,9 +29,15 @@ func (a *API) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 	if user.Role == "admin" && body.Source == "admin" {
 		source = "admin"
 	}
+	// 下单必须留联系方式，否则买家丢了页面就无法按订单号 / 联系方式找回订单。
+	contact, e := service.ValidateContact(body.Contact)
+	if e != nil {
+		fail(w, http.StatusBadRequest, e.Error())
+		return
+	}
 	res := service.PlaceOrder(service.PlaceOrderOptions{
 		User: user, GoodsID: body.GoodsID, Count: body.Count,
-		Source: source, Payment: "balance", Attach: body.Attach,
+		Source: source, Payment: "balance", Attach: body.Attach, Contact: contact,
 	})
 	if !res.OK {
 		fail(w, res.Status, res.Message)
@@ -267,4 +275,54 @@ func (a *API) handleMailboxCards(w http.ResponseWriter, r *http.Request) {
 	}
 	items := store.UserMailboxCards(user.UID, queryInt(r, "limit"))
 	ok(w, map[string]any{"items": items, "total": len(items)})
+}
+
+// handleOrderQuery 是公开的订单查询：凭订单号或下单时的联系方式。
+// 游客不需要登录，所以按 IP 限流，防止被拿来枚举订单号。
+func (a *API) handleOrderQuery(w http.ResponseWriter, r *http.Request) {
+	if !allowQuery(clientIP(r)) {
+		fail(w, http.StatusTooManyRequests, "查询过于频繁，请稍后再试")
+		return
+	}
+	// orderNumbers：前端把本地保存的订单号一次性带上来，直接回填列表
+	if raw := strings.TrimSpace(r.URL.Query().Get("orderNumbers")); raw != "" {
+		ok(w, map[string]any{"items": store.QueryOrdersByNumbers(strings.Split(raw, ",")), "total": 0})
+		return
+	}
+	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
+	if keyword == "" {
+		fail(w, http.StatusBadRequest, "请输入订单号或联系方式")
+		return
+	}
+	if len([]rune(keyword)) > 64 {
+		fail(w, http.StatusBadRequest, "查询内容过长")
+		return
+	}
+	items := store.QueryPublicOrders(keyword, 100)
+	ok(w, map[string]any{"items": items, "total": len(items), "keyword": keyword})
+}
+
+// handleOrderQueryDetail 是公开订单详情：必须同时给出订单号与下单时的联系方式，
+// 联系方式相当于第二重校验，避免订单号被枚举后直接拿到卡密。
+func (a *API) handleOrderQueryDetail(w http.ResponseWriter, r *http.Request) {
+	if !allowQuery(clientIP(r)) {
+		fail(w, http.StatusTooManyRequests, "查询过于频繁，请稍后再试")
+		return
+	}
+	orderNumber := strings.TrimSpace(r.URL.Query().Get("orderNumber"))
+	contact := strings.TrimSpace(r.URL.Query().Get("contact"))
+	if orderNumber == "" || contact == "" {
+		fail(w, http.StatusBadRequest, "请同时提供订单号与联系方式")
+		return
+	}
+	order := store.GetOrder(orderNumber)
+	if order == nil {
+		fail(w, http.StatusNotFound, "订单不存在")
+		return
+	}
+	if order.Contact == "" || store.NormalizeContact(order.Contact) != store.NormalizeContact(contact) {
+		fail(w, http.StatusForbidden, "联系方式与订单不匹配")
+		return
+	}
+	ok(w, map[string]any{"order": order})
 }

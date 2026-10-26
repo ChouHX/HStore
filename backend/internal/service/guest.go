@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"hstore/backend/internal/model"
@@ -98,11 +100,32 @@ func guestProduct(goodsID, count int) (*model.Product, *model.GoodsDetail, float
 	return product, detail, amount, nil
 }
 
+// ValidateContact 校验下单必填的联系方式：手机号 / 邮箱 / QQ 均可。
+func ValidateContact(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", errors.New("请填写联系方式，便于查询订单")
+	}
+	if len([]rune(v)) > 64 {
+		return "", errors.New("联系方式最多 64 个字符")
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return "", errors.New("联系方式包含非法字符")
+		}
+	}
+	return v, nil
+}
+
 // CreateGuestPurchase 创建游客直购订单；支付宝使用商品精确金额，不加价。
-func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel, chain string) (*model.GuestPurchase, *model.AlipayOrder, *model.CryptoOrder, error) {
+func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel, chain, contact string) (*model.GuestPurchase, *model.AlipayOrder, *model.CryptoOrder, error) {
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	if channel != "alipay" && channel != "usdt" {
 		return nil, nil, nil, errors.New("请选择支付渠道")
+	}
+	contact, err := ValidateContact(contact)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	product, detail, amount, err := guestProduct(goodsID, count)
 	if err != nil {
@@ -161,6 +184,7 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 		AmountCny:      amount,
 		Status:         "waiting",
 		OuterNumber:    genOuterNumber(),
+		Contact:        contact,
 	}
 	id, err := store.InsertGuestPurchase(gp)
 	if err != nil {
@@ -176,7 +200,45 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 	return &gp, alipayOrder, cryptoOrder, nil
 }
 
-// GetGuestOrder 返回游客订单视图；refresh=true 时会立即查一次支付状态并尝试发货。
+// 同一笔游客单同时只跑一个同步任务，避免前端轮询把上游/支付宝查询打成并发风暴。
+var (
+	guestSyncMu  sync.Mutex
+	guestSyncing = map[int]bool{}
+)
+
+// syncGuestPurchaseAsync 在后台查支付状态并尝试发货。
+//
+// 这里必须异步：查支付宝账单、向上游下单都是秒级网络请求，放在 HTTP 请求里
+// 会让前端每 4 秒一次的轮询不断堆积，浏览器 6 个连接被占满后整页卡死。
+func syncGuestPurchaseAsync(gp *model.GuestPurchase) {
+	if gp == nil {
+		return
+	}
+	guestSyncMu.Lock()
+	if guestSyncing[gp.ID] {
+		guestSyncMu.Unlock()
+		return
+	}
+	guestSyncing[gp.ID] = true
+	guestSyncMu.Unlock()
+
+	go func() {
+		defer func() {
+			guestSyncMu.Lock()
+			delete(guestSyncing, gp.ID)
+			guestSyncMu.Unlock()
+			if r := recover(); r != nil {
+				log.Printf("[hstore] 游客订单同步 panic: %v", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		syncGuestPurchase(ctx, gp)
+	}()
+}
+
+// GetGuestOrder 返回游客订单视图。
+// refresh=true 时只在后台触发一次同步，HTTP 请求本身立刻返回当前状态。
 func GetGuestOrder(ctx context.Context, token string, refresh bool) (*GuestOrderView, error) {
 	store.ExpireAlipayOrders()
 	store.ExpireCryptoOrders()
@@ -185,7 +247,7 @@ func GetGuestOrder(ctx context.Context, token string, refresh bool) (*GuestOrder
 		return nil, errors.New("游客订单不存在或凭证已失效")
 	}
 	if refresh {
-		syncGuestPurchase(ctx, gp)
+		syncGuestPurchaseAsync(gp)
 		gp = store.GetGuestPurchase(gp.ID)
 	}
 	if gp == nil {
@@ -316,16 +378,18 @@ func FulfillGuestPurchase(id int) error {
 	}
 	var attach []map[string]string
 	_ = json.Unmarshal([]byte(gp.AttachJSON), &attach)
+	// 游客的款已经通过支付宝 / USDT 收到，不能再从游客账户扣余额（余额恒为 0）。
 	res := PlaceOrder(PlaceOrderOptions{
 		User:      user,
 		GoodsID:   gp.GoodsID,
 		Count:     gp.GoodsCount,
 		Source:    "guest",
-		Payment:   "balance",
+		Payment:   "external",
 		Attach:    attach,
 		Remark:    "游客购买",
 		OuterNum:  gp.OuterNumber,
 		SaleMoney: &gp.AmountCny,
+		Contact:   gp.Contact,
 	})
 	if !res.OK {
 		store.MarkGuestPurchaseFailed(id, res.Message)

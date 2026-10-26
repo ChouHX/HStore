@@ -16,8 +16,9 @@ type PlaceOrderOptions struct {
 	User      *model.User
 	GoodsID   int
 	Count     int
-	Source    string // admin | user
-	Payment   string // balance | code
+	Source    string // admin | user | guest
+	Payment   string // balance | code | external（已通过支付宝/USDT 收款，不再扣余额）
+	Contact   string // 联系方式，游客必填，用于订单查询
 	Attach    []map[string]string
 	Remark    string
 	OuterNum  string
@@ -166,6 +167,7 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 		SaleMoney:   saleMoney,
 		CostMoney:   costMoney,
 		Source:      source,
+		Contact:     opts.Contact,
 	})
 	if len(result.Cards) > 0 {
 		store.UpsertCards(result.OrderNumber, result.Cards)

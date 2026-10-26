@@ -22,19 +22,21 @@ type UpsertOrderInput struct {
 	SaleMoney   float64
 	CostMoney   float64
 	Source      string
+	Contact     string
 }
 
 // UpsertOrder 插入或更新订单。
 func UpsertOrder(o UpsertOrderInput) {
 	ts := now()
 	_, _ = db.Must().Exec(`INSERT INTO orders(order_number, outer_number, goods_id, goods_name, count, money,
-		status, result, platform, user_uid, sale_money, cost_money, source, settled, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?)
+		status, result, platform, user_uid, sale_money, cost_money, source, settled, contact, created_at, updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)
 		ON CONFLICT(order_number) DO UPDATE SET
 		  status=excluded.status, result=excluded.result, money=excluded.money,
-		  count=excluded.count, updated_at=excluded.updated_at`,
+		  count=excluded.count, updated_at=excluded.updated_at,
+		  contact=CASE WHEN excluded.contact<>'' THEN excluded.contact ELSE orders.contact END`,
 		o.OrderNumber, o.OuterNumber, o.GoodsID, o.GoodsName, o.Count, o.Money, o.Status, o.Result,
-		o.Platform, o.UserUID, o.SaleMoney, o.CostMoney, o.Source, ts, ts)
+		o.Platform, o.UserUID, o.SaleMoney, o.CostMoney, o.Source, o.Contact, ts, ts)
 }
 
 // UpsertCards 写入/更新卡券。
@@ -59,11 +61,11 @@ func GetOrder(orderNumber string) *model.LocalOrder {
 	e := d.QueryRow(`SELECT o.order_number, o.outer_number, o.goods_id, o.goods_name, o.count, o.money,
 		o.status, COALESCE(o.result,''), COALESCE(o.platform,'other'), o.created_at, o.updated_at, o.user_uid,
 		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), COALESCE(o.sale_money,0), COALESCE(o.cost_money,0),
-		COALESCE(o.source,''), COALESCE(o.settled,0)
+		COALESCE(o.source,''), COALESCE(o.settled,0), COALESCE(o.contact,'')
 		FROM orders o LEFT JOIN users u ON u.uid = o.user_uid WHERE o.order_number = ?`, orderNumber).
 		Scan(&o.OrderNumber, &o.OuterNumber, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
 			&o.Status, &o.Result, &o.Platform, &o.CreatedAt, &o.UpdatedAt, &uid,
-			&o.Username, &o.SaleMoney, &o.CostMoney, &o.Source, &o.Settled)
+			&o.Username, &o.SaleMoney, &o.CostMoney, &o.Source, &o.Settled, &o.Contact)
 	if e != nil {
 		return nil
 	}

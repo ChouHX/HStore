@@ -31,6 +31,10 @@ func (a *API) routes() {
 	a.mux.HandleFunc("GET /api/order/list", a.handleOrderList)
 	a.mux.HandleFunc("POST /api/card/void", a.handleCardVoid)
 
+	// 公开订单查询（游客可用，凭订单号或联系方式）
+	a.mux.HandleFunc("GET /api/orders/query", a.handleOrderQuery)
+	a.mux.HandleFunc("GET /api/orders/query/detail", a.handleOrderQueryDetail)
+
 	// 兑换 / 取件
 	a.mux.HandleFunc("POST /api/redeem", a.handleRedeem)
 	a.mux.HandleFunc("POST /api/pickup", a.handlePickup)

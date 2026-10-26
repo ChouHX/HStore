@@ -157,6 +157,7 @@ type LocalOrder struct {
 	CostMoney   float64 `json:"costMoney"`
 	Source      string  `json:"source"`
 	Settled     int     `json:"settled"`
+	Contact     string  `json:"contact"`
 	Cards       []Card  `json:"cards"`
 }
 
@@ -319,6 +320,7 @@ type GuestPurchase struct {
 	UpstreamOrderNo string  `json:"upstreamOrderNo"`
 	OuterNumber     string  `json:"outerNumber"`
 	LastError       string  `json:"lastError"`
+	Contact         string  `json:"contact"`
 	CreatedAt       int64   `json:"createdAt"`
 	UpdatedAt       int64   `json:"updatedAt"`
 	PaidAt          *int64  `json:"paidAt"`
@@ -391,4 +393,21 @@ type MailboxItem struct {
 	GoodsName   string `json:"goodsName"`
 	CreatedAt   int64  `json:"createdAt"`
 	Status      int    `json:"status"`
+}
+
+// PublicOrderItem 是「订单查询」页对外的订单摘要。
+// 游客也能用，所以只暴露查询必需的字段，不含成本、用户 UID 等内部信息。
+type PublicOrderItem struct {
+	Kind        string  `json:"kind"` // order | guest
+	OrderNumber string  `json:"orderNumber"`
+	GoodsName   string  `json:"goodsName"`
+	Count       int     `json:"count"`
+	Money       float64 `json:"money"`
+	Status      int     `json:"status"`
+	StatusText  string  `json:"statusText"`
+	Contact     string  `json:"contact"`
+	Token       string  `json:"token,omitempty"` // 游客未发货时用于跳转支付页
+	CreatedAt   int64   `json:"createdAt"`
+	CardCount   int     `json:"cardCount"`
+	Error       string  `json:"error,omitempty"`
 }

@@ -4,6 +4,7 @@ import { formatPrice } from "@/lib/format";
 import { Avatar, Button, Drawer, Dropdown, Input, Menu, Modal, Tag } from "@arco-design/web-react";
 import {
   IconEmail,
+  IconFile,
   IconGift,
   IconNotification,
   IconSearch,
@@ -48,6 +49,7 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
     if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
     else if (key === "pickup") navigate("/pickup");
+    else if (key === "query") navigate("/orders");
     else if (key === "recharge") navigate("/account/overview?focus=recharge");
     else if (key === "admin") navigate("/admin/overview");
     else if (key === "logout") logout();
@@ -84,10 +86,15 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
           <span className="lg:hidden">
             <Button size="small" icon={<IconNotification />} aria-label="公告" onClick={() => setNoticeOpen(true)} />
           </span>
-          {/* 取件是公开页面，未登录也保留入口 */}
+          {/* 取件 / 订单查询都是公开页面，未登录也保留入口 */}
           <Link to="/pickup" className="inline-flex">
             <Button size="small" icon={<IconEmail />} aria-label="取件">
               <span className="hidden sm:inline">取件</span>
+            </Button>
+          </Link>
+          <Link to="/orders" className="inline-flex">
+            <Button size="small" icon={<IconFile />} aria-label="订单查询">
+              <span className="hidden sm:inline">订单查询</span>
             </Button>
           </Link>
           {user ? (
@@ -117,6 +124,11 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
                       <Menu.Item key="pickup">
                         <span className="inline-flex items-center gap-2">
                           <IconEmail /> 取件
+                        </span>
+                      </Menu.Item>
+                      <Menu.Item key="query">
+                        <span className="inline-flex items-center gap-2">
+                          <IconFile /> 订单查询
                         </span>
                       </Menu.Item>
                       <Menu.Item key="recharge">
