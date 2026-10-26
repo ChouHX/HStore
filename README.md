@@ -92,6 +92,7 @@ docker compose up -d
 
 默认映射 `3001:3001`，数据保存在 `hstore-data` 卷（容器内 `/data/faka.db`）。
 修改端口：`HSTORE_PORT=8080 docker compose up -d`。
+公网部署请立即修改默认管理员密码，并在前面加 HTTPS 反向代理。
 固定版本：`HSTORE_IMAGE=ghcr.io/chouhx/hstore:sha-xxxxxxx docker compose up -d`。
 
 查看日志与健康状态：
