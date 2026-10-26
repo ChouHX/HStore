@@ -103,3 +103,30 @@ func (a *API) handleMyLedger(w http.ResponseWriter, r *http.Request) {
 
 // ts 供各 handler 统一取时间戳。
 func ts() int64 { return time.Now().UnixMilli() }
+
+// handleChangePassword 用户自助修改密码：必须校验原密码。
+func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	user := requireUser(w, r)
+	if user == nil {
+		return
+	}
+	var body struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	if e := readJSON(r, &body); e != nil {
+		fail(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if e := store.ValidatePassword(body.NewPassword); e != nil {
+		fail(w, http.StatusBadRequest, e.Error())
+		return
+	}
+	ok2, msg := store.ChangePassword(user.UID, body.OldPassword, body.NewPassword)
+	if !ok2 {
+		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	store.WriteAudit(&user.UID, "password_change", "user", itoa(user.UID), nil, nil, "修改登录密码")
+	ok(w, map[string]any{"message": "密码已修改"})
+}

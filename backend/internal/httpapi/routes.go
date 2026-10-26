@@ -24,6 +24,7 @@ func (a *API) routes() {
 	a.mux.HandleFunc("GET /api/account", a.handleUpstreamAccount)
 	a.mux.HandleFunc("GET /api/me", a.handleMyProfile)
 	a.mux.HandleFunc("GET /api/me/ledger", a.handleMyLedger)
+	a.mux.HandleFunc("POST /api/me/password", a.handleChangePassword)
 
 	// 订单 / 卡券
 	a.mux.HandleFunc("POST /api/order/create", a.handleOrderCreate)

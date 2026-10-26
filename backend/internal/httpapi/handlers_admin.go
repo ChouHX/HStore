@@ -615,6 +615,19 @@ func (a *API) handleAdminUsersPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ok(w, map[string]any{"before": before, "after": after})
+	case "setPassword":
+		pw, _ := body["password"].(string)
+		if e := store.ValidatePassword(pw); e != nil {
+			fail(w, http.StatusBadRequest, e.Error())
+			return
+		}
+		ok2, msg := store.SetPassword(uid, pw)
+		if !ok2 {
+			fail(w, http.StatusBadRequest, msg)
+			return
+		}
+		store.WriteAudit(&admin.UID, "user_password_reset", "user", itoa(uid), nil, nil, "重置用户密码")
+		ok(w, map[string]any{"message": "密码已重置"})
 	case "level":
 		var levelID *int
 		if v, ok3 := store.ToInt(body["levelId"]); ok3 && v > 0 {

@@ -213,78 +213,6 @@ export function CryptoSection() {
     },
   ];
 
-  const orderColumns = [
-    { title: "ID", dataIndex: "id", width: 60 },
-    { title: "用户", dataIndex: "uid", width: 70 },
-    { title: "链", dataIndex: "chain", width: 70 },
-    {
-      title: "申请 (CNY)",
-      dataIndex: "requestedCny",
-      width: 100,
-      render: (_: unknown, r: OrderView) => `¥${formatPrice(r.requestedCny)}`,
-    },
-    {
-      title: "应付金额",
-      dataIndex: "usdtAmount",
-      width: 130,
-      render: (_: unknown, r: OrderView) => (
-        <span className="font-mono text-[12px]">{r.usdtAmount} USDT</span>
-      ),
-    },
-    {
-      title: "预计到账",
-      dataIndex: "creditCny",
-      width: 110,
-      render: (_: unknown, r: OrderView) => `¥${formatPrice(r.creditCny)}`,
-    },
-    {
-      title: "状态",
-      dataIndex: "status",
-      width: 100,
-      render: (_: unknown, r: OrderView) => (
-        <Tag size="small" color={STATUS_TAG[r.status]?.color}>
-          {STATUS_TAG[r.status]?.text ?? r.status}
-        </Tag>
-      ),
-    },
-    {
-      title: "TXID",
-      dataIndex: "txid",
-      render: (_: unknown, r: OrderView) => (
-        <span className="line-clamp-1 max-w-[200px] font-mono text-[11px] text-[#86909c]">{r.txid ?? "-"}</span>
-      ),
-    },
-    {
-      title: "创建时间",
-      dataIndex: "createdAt",
-      width: 170,
-      render: (_: unknown, r: OrderView) => new Date(r.createdAt).toLocaleString("zh-CN"),
-    },
-    {
-      title: "操作",
-      dataIndex: "op",
-      width: 170,
-      render: (_: unknown, r: OrderView) =>
-        r.status === "waiting" ? (
-          <Space>
-            <Button size="small" disabled={busy} onClick={() => post({ action: "checkOrder", orderId: r.id }, "已检查订单")}>
-              检查
-            </Button>
-            <Button
-              size="small"
-              status="warning"
-              disabled={busy}
-              onClick={() => post({ action: "simulate", orderId: r.id }, "已模拟到账（测试）")}
-            >
-              模拟到账
-            </Button>
-          </Space>
-        ) : (
-          <span className="text-[12px] text-[#86909c]">-</span>
-        ),
-    },
-  ];
-
   return (
     <div className="flex flex-col gap-4">
       <Tabs className="recharge-tabs" defaultActiveTab="config" animation={true} lazyload={false} destroyOnHide={false}>
@@ -457,19 +385,6 @@ export function CryptoSection() {
           </div>
         </Tabs.TabPane>
 
-        <Tabs.TabPane key="orders" title="充值订单" lazyload={false} destroyOnHide={false}>
-      <Card
-        title="充值订单"
-        bordered={false}
-        extra={
-          <Button size="small" loading={busy} onClick={() => post({ action: "checkOrders" }, "已检查组进行中订单")}>
-            检查进行中订单
-          </Button>
-        }
-      >
-        <Table rowKey="id" columns={orderColumns} data={data.orders} pagination={{ pageSize: 10 }} scroll={{ x: 1000 }} />
-      </Card>
-        </Tabs.TabPane>
       </Tabs>
     </div>
   );

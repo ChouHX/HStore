@@ -128,6 +128,7 @@ function copyText(text: string) {
 export function AlipaySection() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(false);
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const [matchEntry, setMatchEntry] = useState<AlipayLedgerView | null>(null);
   const [matchOrderID, setMatchOrderID] = useState<number | undefined>();
   const [form, setForm] = useState({
@@ -215,103 +216,6 @@ export function AlipaySection() {
 
   const pendingOrders = data.orders.filter((o) => o.paymentStatus === "UNPAID");
 
-  const orderColumns = [
-    { title: "ID", dataIndex: "id", width: 60 },
-    {
-      title: "用户",
-      dataIndex: "username",
-      width: 100,
-      render: (_: unknown, r: AlipayOrderView) => r.username || `UID ${r.uid}`,
-    },
-    {
-      title: "订单号",
-      dataIndex: "orderNo",
-      width: 210,
-      render: (_: unknown, r: AlipayOrderView) => <span className="font-mono text-[11px]">{r.orderNo}</span>,
-    },
-    {
-      title: "申请 / 应付",
-      dataIndex: "requestedCny",
-      width: 130,
-      render: (_: unknown, r: AlipayOrderView) => (
-        <div className="text-[12px]">
-          <div>¥{formatPrice(r.requestedCny)}</div>
-          <div className="text-[#f53f3f]">{cents(r.payableCents)}</div>
-        </div>
-      ),
-    },
-    {
-      title: "实收 / 入账",
-      dataIndex: "credited",
-      width: 130,
-      render: (_: unknown, r: AlipayOrderView) => (
-        <div className="text-[12px]">
-          <div>{cents(r.receivedCents)}</div>
-          <div className="text-[#00b42a]">{r.credited != null ? `¥${formatPrice(r.credited)}` : "-"}</div>
-        </div>
-      ),
-    },
-    {
-      title: "状态",
-      dataIndex: "status",
-      width: 100,
-      render: (_: unknown, r: AlipayOrderView) => (
-        <Tag size="small" color={STATUS_TAG[r.status]?.color}>
-          {STATUS_TAG[r.status]?.text ?? r.status}
-        </Tag>
-      ),
-    },
-    {
-      title: "匹配方式",
-      dataIndex: "paymentBasis",
-      width: 90,
-      render: (_: unknown, r: AlipayOrderView) => r.paymentBasis,
-    },
-    {
-      title: "支付宝订单号",
-      dataIndex: "alipayOrderNo",
-      width: 190,
-      render: (_: unknown, r: AlipayOrderView) => (
-        <span className="font-mono text-[11px]">{r.alipayOrderNo || "-"}</span>
-      ),
-    },
-    {
-      title: "创建 / 确认",
-      dataIndex: "createdAt",
-      width: 170,
-      render: (_: unknown, r: AlipayOrderView) => (
-        <div className="text-[11px] text-[#4e5969]">
-          <div>{new Date(r.createdAt).toLocaleString("zh-CN")}</div>
-          <div className="text-[#00b42a]">{r.paidAt ? new Date(r.paidAt).toLocaleString("zh-CN") : "-"}</div>
-        </div>
-      ),
-    },
-    {
-      title: "操作",
-      dataIndex: "op",
-      width: 170,
-      render: (_: unknown, r: AlipayOrderView) => (
-        <Space>
-          {r.checkoutUrl && (
-            <Button size="small" href={r.checkoutUrl} target="_blank" rel="noreferrer">
-              收银台
-            </Button>
-          )}
-          {r.status === "waiting" && (
-            <Button
-              size="small"
-              status="danger"
-              disabled={busy}
-              onClick={() => post({ action: "closeOrder", orderId: r.id }, "订单已关闭")}
-            >
-              关闭
-            </Button>
-          )}
-        </Space>
-      ),
-    },
-  ];
-
   const ledgerColumns = [
     { title: "ID", dataIndex: "id", width: 60 },
     {
@@ -394,6 +298,18 @@ export function AlipaySection() {
         type="info"
         content="HStore 直接对接支付宝开放平台：用户扫经营码支付唯一应付金额，后端定时查询账务明细并按金额 + 时间窗口自动确认入账。无需部署 PerPay，也无需手机监听软件。"
       />
+
+      <div className="flex flex-wrap items-center gap-2 rounded border border-[#e5e6eb] bg-white p-2">
+        <Button size="small" onClick={() => setLedgerOpen(true)}>
+          查看支付宝流水（待匹配 {data.pendingLedger.length}）
+        </Button>
+        <Button size="small" loading={busy} onClick={() => post({ action: "expire" }, "已处理过期订单")}>
+          处理过期订单
+        </Button>
+        <span className="ml-2 text-[11px] text-[#86909c]">
+          支付订单统一在「订单管理」页查看；这里只做经营码配置与查账。
+        </span>
+      </div>
 
       <Tabs className="recharge-tabs" defaultActiveTab="config" lazyload={false} destroyOnHide={false}>
         <Tabs.TabPane key="config" title="经营码配置" lazyload={false} destroyOnHide={false}>
@@ -686,49 +602,53 @@ export function AlipaySection() {
           </div>
         </Tabs.TabPane>
 
-        <Tabs.TabPane key="orders" title={`充值订单（${data.orders.length}）`} lazyload={false} destroyOnHide={false}>
-          <Card
-            title="支付宝经营码订单"
-            bordered={false}
-            extra={
-              <Space>
-                <Button size="small" loading={busy} onClick={() => post({ action: "expire" }, "已处理过期订单")}>
-                  处理过期订单
-                </Button>
-                <Button size="small" onClick={load}>
-                  刷新
-                </Button>
-              </Space>
-            }
-          >
-            <Table rowKey="id" columns={orderColumns} data={data.orders} pagination={{ pageSize: 10 }} scroll={{ x: 1240 }} />
-          </Card>
-        </Tabs.TabPane>
+      </Tabs>
 
-        <Tabs.TabPane key="pending" title={`待匹配流水（${data.pendingLedger.length}）`} lazyload={false} destroyOnHide={false}>
-          <Card title="未自动匹配的支付宝收入流水" bordered={false} extra={<Button size="small" onClick={load}>刷新</Button>}>
+      <Modal
+        title={`支付宝流水（待匹配 ${data.pendingLedger.length} / 全部 ${data.recentLedger.length}）`}
+        visible={ledgerOpen}
+        onCancel={() => setLedgerOpen(false)}
+        footer={
+          <Space>
+            <Button onClick={load}>刷新</Button>
+            <Button
+              type="primary"
+              disabled={busy}
+              onClick={() => post({ action: "reconcilePending" }, "已重新匹配待处理流水")}
+            >
+              重新匹配待处理流水
+            </Button>
+            <Button onClick={() => setLedgerOpen(false)}>关闭</Button>
+          </Space>
+        }
+        style={{ width: 1080 }}
+        unmountOnExit
+      >
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="mb-2 text-[13px] font-medium">待匹配流水</div>
             <Table
               rowKey="id"
               columns={ledgerColumns}
               data={data.pendingLedger}
-              pagination={{ pageSize: 10 }}
+              pagination={{ pageSize: 5 }}
               scroll={{ x: 1100 }}
+              size="small"
             />
-          </Card>
-        </Tabs.TabPane>
-
-        <Tabs.TabPane key="ledger" title="全部流水" lazyload={false} destroyOnHide={false}>
-          <Card title="支付宝账务明细" bordered={false} extra={<Button size="small" onClick={load}>刷新</Button>}>
+          </div>
+          <div>
+            <div className="mb-2 text-[13px] font-medium">全部流水</div>
             <Table
               rowKey="id"
               columns={ledgerColumns}
               data={data.recentLedger}
-              pagination={{ pageSize: 10 }}
+              pagination={{ pageSize: 8 }}
               scroll={{ x: 1100 }}
+              size="small"
             />
-          </Card>
-        </Tabs.TabPane>
-      </Tabs>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         title="手工关联支付宝流水"

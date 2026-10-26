@@ -24,7 +24,9 @@ export function PaymentSettingsSection() {
         <Button type={tab === "usdt" ? "primary" : "secondary"} size="small" onClick={() => changeTab("usdt")}>
           USDT 充值
         </Button>
-        <span className="ml-2 text-[11px] text-[#86909c]">支付渠道配置与充值订单统一在这里管理。</span>
+        <span className="ml-2 text-[11px] text-[#86909c]">
+          这里只做渠道配置；支付订单在「订单管理」页统一查看，支付宝流水用弹窗查看。
+        </span>
       </div>
       {tab === "alipay" ? <AlipaySection /> : <CryptoSection />}
     </div>

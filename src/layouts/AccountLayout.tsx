@@ -8,6 +8,7 @@ const NAV: NavItem[] = [
   { id: "orders", href: "/account/orders", label: "我的订单" },
   { id: "pickup", href: "/pickup", label: "取件" },
   { id: "ledger", href: "/account/ledger", label: "余额明细" },
+  { id: "security", href: "/account/security", label: "账号安全" },
 ];
 
 export function AccountLayout() {

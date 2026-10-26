@@ -4,6 +4,7 @@ import { AnnouncementsSection } from "@/components/admin/AnnouncementsSection";
 import { CatalogSection } from "@/components/admin/CatalogSection";
 import { LogsSection } from "@/components/admin/LogsSection";
 import { OverviewSection as AdminOverview } from "@/components/admin/OverviewSection";
+import { PaymentOrdersSection } from "@/components/admin/PaymentOrdersSection";
 import { PaymentSettingsSection } from "@/components/admin/PaymentSettingsSection";
 import { PricingSection } from "@/components/admin/PricingSection";
 import { ProductsSection } from "@/components/admin/ProductsSection";
@@ -13,6 +14,7 @@ import { UsersSection } from "@/components/admin/UsersSection";
 import { MyLedgerSection } from "@/components/account/MyLedgerSection";
 import { MyOrdersSection } from "@/components/account/MyOrdersSection";
 import { OverviewSection as AccountOverview } from "@/components/account/OverviewSection";
+import { SecuritySection } from "@/components/account/SecuritySection";
 import { AdminLayout } from "@/src/layouts/AdminLayout";
 import { AccountLayout } from "@/src/layouts/AccountLayout";
 import { HomePage } from "@/src/pages/HomePage";
@@ -54,6 +56,7 @@ export function App() {
           <Route path="orders" element={<MyOrdersSection />} />
           <Route path="pickup" element={<Navigate to="/pickup" replace />} />
           <Route path="ledger" element={<MyLedgerSection />} />
+          <Route path="security" element={<SecuritySection />} />
         </Route>
 
         <Route path="/admin" element={<AdminLayout />}>
@@ -67,6 +70,7 @@ export function App() {
           <Route path="announcements" element={<AnnouncementsSection />} />
           <Route path="logs" element={<LogsSection />} />
           <Route path="payment" element={<PaymentSettingsSection />} />
+          <Route path="orders" element={<PaymentOrdersSection />} />
           <Route path="settings" element={<SettingsSection />} />
           {/* 旧路径兼容 */}
           <Route path="alipay" element={<Navigate to="/admin/payment?tab=alipay" replace />} />

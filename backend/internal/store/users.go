@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"math"
 
 	"hstore/backend/internal/db"
@@ -734,4 +735,48 @@ func MaskSecret(s string) string {
 		return "****"
 	}
 	return string(r[:4]) + "****" + string(r[len(r)-4:])
+}
+
+// ValidatePassword 校验新密码强度：6–64 位，不含空白以外的控制字符。
+func ValidatePassword(pw string) error {
+	if len(pw) < 6 {
+		return errors.New("密码至少 6 位")
+	}
+	if len(pw) > 64 {
+		return errors.New("密码最多 64 位")
+	}
+	for _, r := range pw {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("密码不能包含控制字符")
+		}
+	}
+	return nil
+}
+
+// ChangePassword 校验原密码后改成新密码（用户自助）。
+func ChangePassword(uid int, oldPassword, newPassword string) (bool, string) {
+	var hash string
+	if e := db.Must().QueryRow("SELECT password FROM users WHERE uid = ?", uid).Scan(&hash); e != nil {
+		return false, "用户不存在"
+	}
+	if !db.VerifyPassword(oldPassword, hash) {
+		return false, "原密码不正确"
+	}
+	if db.VerifyPassword(newPassword, hash) {
+		return false, "新密码不能与原密码相同"
+	}
+	return SetPassword(uid, newPassword)
+}
+
+// SetPassword 直接重置密码（管理员用，不校验原密码）。
+func SetPassword(uid int, newPassword string) (bool, string) {
+	res, e := db.Must().Exec("UPDATE users SET password = ?, updated_at = ? WHERE uid = ?",
+		db.HashPassword(newPassword), now(), uid)
+	if e != nil {
+		return false, "修改密码失败"
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, "用户不存在"
+	}
+	return true, ""
 }

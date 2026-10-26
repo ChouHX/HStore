@@ -43,6 +43,8 @@ export function UsersSection() {
   const [saving, setSaving] = useState(false);
 
   const [managed, setManaged] = useState<User | null>(null);
+  const [newPwd, setNewPwd] = useState("");
+  const [resetting, setResetting] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
 
   const [ledgerOpen, setLedgerOpen] = useState(false);
@@ -88,6 +90,7 @@ export function UsersSection() {
 
   function openManage(u: User) {
     setManaged(u);
+    setNewPwd("");
     setForm({
       nickname: u.nickname,
       phone: u.phone,
@@ -113,6 +116,32 @@ export function UsersSection() {
       body: JSON.stringify(body),
     }).then((r) => r.json());
     return j as { ok: boolean; message?: string; user?: User; after?: number };
+  }
+
+  async function resetPassword() {
+    if (!managed) return;
+    if (newPwd.length < 6) {
+      Message.warning("新密码至少 6 位");
+      return;
+    }
+    setResetting(true);
+    try {
+      const j = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setPassword", uid: managed.uid, password: newPwd }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success(`已重置 ${managed.username} 的密码`);
+        setNewPwd("");
+      } else {
+        Message.error(j.message ?? "重置失败");
+      }
+    } catch {
+      Message.error("重置失败");
+    } finally {
+      setResetting(false);
+    }
   }
 
   async function save() {
@@ -400,6 +429,23 @@ export function UsersSection() {
               <Button size="small" onClick={openLedger}>
                 查看账本明细
               </Button>
+            </div>
+            <div className="rounded border border-[#e5e6eb] p-3 sm:col-span-2">
+              <div className="mb-2 text-[12px] text-[#4e5969]">重置登录密码</div>
+              <div className="flex gap-2">
+                <Input.Password
+                  value={newPwd}
+                  onChange={setNewPwd}
+                  placeholder="新密码，至少 6 位"
+                  autoComplete="new-password"
+                />
+                <Button type="primary" loading={resetting} onClick={resetPassword}>
+                  重置
+                </Button>
+              </div>
+              <div className="mt-1 text-[11px] text-[#86909c]">
+                不需要原密码，重置后请自行通知用户；操作会记入审计日志。
+              </div>
             </div>
           </div>
         )}
