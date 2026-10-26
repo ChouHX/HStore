@@ -1,5 +1,5 @@
 "use client";
-import { formatPrice } from "@/lib/format";
+import { ceilToCents, formatPrice } from "@/lib/format";
 
 import { Button, Input, InputNumber, Message, Modal, Select, Space, Tag } from "@arco-design/web-react";
 import QRCode from "qrcode";
@@ -315,6 +315,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   const templates = useMemo(() => (detail?.rechargeTemplates ?? []).filter((t) => t.title), [detail]);
   const unitPrice = product ? Number((product.finalPrice * discount).toFixed(4)) : 0;
   const total = unitPrice * count;
+  // 支付宝只能支付到分：不足 1 分向上取整（0.064 → 0.07），展示与后端保持一致
+  const alipayTotal = ceilToCents(total);
+  const payable = isGuest && guestChannel === "alipay" ? alipayTotal : total;
 
   function saveGuestToken(token: string, goodsId: number) {
     try {
@@ -730,7 +733,15 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                 <div className="text-[11px] text-[#f53f3f]">管理员尚未配置可用的支付渠道。</div>
               )}
               {guestChannel === "alipay" && (
-                <div className="text-[11px] text-[#86909c]">支付宝按商品精确售价支付，不额外加价。</div>
+                <div className="text-[11px] text-[#86909c]">
+                  支付宝按商品售价支付，只能支付到分，不足 1 分向上取整
+                  {alipayTotal !== Number(total.toFixed(2)) ? (
+                    <span className="text-[#d25f00]">
+                      （¥{formatPrice(total)} → ¥{formatPrice(alipayTotal)}）
+                    </span>
+                  ) : null}
+                  。
+                </div>
               )}
               {guestChannel === "usdt" && guestCfg.crypto?.rate ? (
                 <div className="text-[11px] text-[#86909c]">
@@ -752,7 +763,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               />
             </div>
             <div className="text-right text-[12px] text-[#86909c]">
-              应付 <div className="text-[18px] font-semibold text-[#f53f3f]">¥{formatPrice(total)}</div>
+              应付 <div className="text-[18px] font-semibold text-[#f53f3f]">¥{formatPrice(payable)}</div>
             </div>
           </div>
 

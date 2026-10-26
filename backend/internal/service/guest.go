@@ -117,6 +117,19 @@ func ValidateContact(raw string) (string, error) {
 	return v, nil
 }
 
+// ceilToCents 把金额转成「分」，不足 1 分向上取整：0.064 → 7 分。
+//
+// 不能直接 math.Ceil(amount*100)：0.06*100 在 float64 里是 6.000000000000001，
+// 会被误判成有余数、白白多收 1 分。所以先四舍五入，再判断余量是否超过浮点误差。
+func ceilToCents(amount float64) int64 {
+	raw := amount * 100
+	cents := int64(math.Round(raw))
+	if raw-float64(cents) > 1e-6 {
+		cents++
+	}
+	return cents
+}
+
 // CreateGuestPurchase 创建游客直购订单；支付宝使用商品精确金额，不加价。
 func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel, chain, contact string) (*model.GuestPurchase, *model.AlipayOrder, *model.CryptoOrder, error) {
 	channel = strings.ToLower(strings.TrimSpace(channel))
@@ -132,8 +145,8 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 		return nil, nil, nil, err
 	}
 	if channel == "alipay" {
-		// 支付宝只能支付到分；按四舍五入到分，不再额外加价。
-		cents := int64(math.Round(amount * 100))
+		// 支付宝只能支付到「分」，不足 1 分向上取整：0.064 → 0.07
+		cents := ceilToCents(amount)
 		if cents < 1 {
 			return nil, nil, nil, errors.New("商品金额过低，暂不支持支付宝支付")
 		}

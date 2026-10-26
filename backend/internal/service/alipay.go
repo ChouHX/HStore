@@ -209,6 +209,10 @@ func createAlipayOrder(user *model.User, cny float64, exactAmount bool) (*model.
 		return nil, errors.New("请输入充值金额")
 	}
 	requested := int64(math.Round(cny * 100))
+	if exactAmount {
+		// 商品直购走精确金额：不足 1 分向上取整（0.064 → 0.07）
+		requested = ceilToCents(cny)
+	}
 	if requested < 1 {
 		return nil, errors.New("充值金额过小")
 	}
