@@ -60,7 +60,12 @@ func (s *jsStorage) RemoveItem(...any)  {}
 func (s *jsStorage) Clear()             {}
 
 // RefreshWafCookie 执行站点 JS 挑战，拿到放行 Cookie（无需浏览器）。
-func RefreshWafCookie(baseURL string) wafResult {
+func RefreshWafCookie(baseURL string) (result wafResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = wafResult{Message: "执行站点挑战脚本异常，请检查上游站点或稍后重试"}
+		}
+	}()
 	root := strings.TrimRight(baseURL, "/")
 	req, e := http.NewRequest(http.MethodGet, root+"/", nil)
 	if e != nil {
@@ -68,9 +73,9 @@ func RefreshWafCookie(baseURL string) wafResult {
 	}
 	req.Header.Set("User-Agent", wafUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	res, e := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	res, e := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if e != nil {
-		return wafResult{Message: "网络错误，无法访问站点"}
+		return wafResult{Message: "网络错误，无法访问站点（请检查服务器出网或 DNS）"}
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
@@ -152,9 +157,15 @@ func RefreshWafCookie(baseURL string) wafResult {
 		"log": func(...any) {}, "warn": func(...any) {}, "error": func(...any) {}, "info": func(...any) {},
 	})
 
+	// 挑战脚本不应长期占用进程；按 5 秒强制中断，避免页面请求永久卡住。
+	interrupt := time.AfterFunc(5*time.Second, func() {
+		vm.Interrupt("challenge script timeout")
+	})
+	defer interrupt.Stop()
 	for _, s := range scripts {
-		// 脚本末尾通常会调用 location.reload()，垫片不会抛错；其它异常忽略
-		_, _ = vm.RunString(s)
+		if _, err := vm.RunString(s); err != nil {
+			return wafResult{Message: "站点挑战脚本执行超时或失败，请稍后重试"}
+		}
 	}
 
 	if doc.Cookie != "" {

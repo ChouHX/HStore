@@ -20,7 +20,7 @@ import (
 
 const apiVersion = "3.0"
 
-var httpClient = &http.Client{Timeout: 60 * time.Second}
+var httpClient = &http.Client{Timeout: 20 * time.Second}
 
 // Config 是上游调用所需的凭据。
 type Config struct {
@@ -286,27 +286,50 @@ type wafCall struct {
 }
 
 var (
-	wafMu  sync.Mutex
-	wafCur *wafCall
+	wafMu              sync.Mutex
+	wafCur             *wafCall
+	refreshWafCookieFn = RefreshWafCookie
 )
 
 // RefreshWafCookieOnce 并发去重的 Cookie 刷新。
+//
+// 注意：挑战脚本可能 panic、死循环或网络请求长时间无响应。这里必须保证：
+//   - in-flight 的 done 一定被 close，避免后续所有请求永久等待；
+//   - 清理 wafCur 只清理自己，避免覆盖后来者；
+//   - 等待方最多等 30 秒，而不是无限等待。
 func RefreshWafCookieOnce(baseURL string) wafResult {
 	wafMu.Lock()
 	if c := wafCur; c != nil {
 		wafMu.Unlock()
-		<-c.done
-		return c.res
+		select {
+		case <-c.done:
+			return c.res
+		case <-time.After(30 * time.Second):
+			wafMu.Lock()
+			if wafCur == c {
+				wafCur = nil
+			}
+			wafMu.Unlock()
+			return wafResult{Message: "获取 Cookie 超时，请检查服务器出网、DNS 或上游 WAF 状态"}
+		}
 	}
 	c := &wafCall{done: make(chan struct{})}
 	wafCur = c
 	wafMu.Unlock()
 
-	c.res = RefreshWafCookie(baseURL)
-	close(c.done)
-
-	wafMu.Lock()
-	wafCur = nil
-	wafMu.Unlock()
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.res = wafResult{Message: "获取 Cookie 失败：挑战脚本异常"}
+			}
+			close(c.done)
+			wafMu.Lock()
+			if wafCur == c {
+				wafCur = nil
+			}
+			wafMu.Unlock()
+		}()
+		c.res = refreshWafCookieFn(baseURL)
+	}()
 	return c.res
 }
