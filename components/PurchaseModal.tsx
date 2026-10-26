@@ -201,7 +201,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         const raw = localStorage.getItem(guestStorageKey(product.goodsId));
         if (raw) {
           const saved = JSON.parse(raw) as { token?: string; goodsId?: number; at?: number };
-          if (saved.token && saved.goodsId === product.goodsId && Date.now() - (saved.at ?? 0) < 30 * 60 * 1000) {
+          if (saved.token && saved.goodsId === product.goodsId) {
             fetch(`/api/guest/order?token=${encodeURIComponent(saved.token)}`)
               .then((r) => r.json())
               .then((j) => {
@@ -585,7 +585,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           )}
 
           <div className="text-[11px] leading-relaxed text-[#86909c]">
-            游客无需注册即可购买。支付成功后请在此窗口查看卡密；凭证会保存在本浏览器，30 分钟内重新打开同一商品即可继续查看，也可以复制凭证联系客服查询。
+            游客无需注册即可购买。支付成功后请在此窗口查看卡密；凭证会保存在本浏览器，重新打开同一商品即可继续查看，也可以复制凭证联系客服查询。
           </div>
         </div>
       ) : detail ? (
