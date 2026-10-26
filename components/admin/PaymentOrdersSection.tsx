@@ -353,6 +353,8 @@ export function PaymentOrdersSection() {
 
       <Card bordered={false} bodyStyle={{ padding: 12 }}>
         <Table
+          // 筛选变化时重建表格，回到第 1 页，避免停在不存在的页码上
+          key={`${channel}-${status}-${keyword}`}
           rowKey="key"
           columns={columns}
           data={filtered}
