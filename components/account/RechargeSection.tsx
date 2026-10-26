@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MailboxDrawer, type MailboxTarget } from "@/components/MailboxDrawer";
+import { PaymentMethodTags } from "@/components/PaymentMethodTags";
 import { formatPrice } from "@/lib/format";
 
 interface AlipayCfg {
@@ -441,23 +442,16 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
 
               <div>
                 <div className="mb-1 text-[12px] text-[#4e5969]">充值渠道</div>
-                <Select
+                <PaymentMethodTags
                   value={channel}
-                  onChange={(v) => {
-                    const next = String(v) as "alipay" | "usdt";
+                  alipayReady={alipayReady}
+                  usdtReady={usdtReady}
+                  onChange={(next) => {
                     setChannel(next);
                     const nextMin = next === "alipay" ? (alipayCfg?.minCny ?? 1) : (cryptoCfg?.minCny ?? 14.4);
                     if (amount < nextMin) setAmount(nextMin);
                   }}
-                  style={{ width: "100%" }}
-                >
-                  <Select.Option value="alipay" disabled={!alipayReady}>
-                    支付宝经营码
-                  </Select.Option>
-                  <Select.Option value="usdt" disabled={!usdtReady}>
-                    USDT 链上充值
-                  </Select.Option>
-                </Select>
+                />
               </div>
 
               {channel === "usdt" && (
@@ -594,7 +588,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
         style={{ width: 480 }}
         maskClosable={false}
         unmountOnExit
-        title={active?.channel === "alipay" ? "支付宝扫码支付" : active?.channel === "usdt" ? "USDT 链上充值" : "充值"}
+        title={active?.channel === "alipay" ? "支付宝" : active?.channel === "usdt" ? "USDT" : "充值"}
       >
         {active && (
           <div className="pt-1">
@@ -618,7 +612,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                   {qr ? (
                     <img
                       src={qr}
-                      alt={active.channel === "alipay" ? "支付宝经营码" : "USDT 充值地址"}
+                      alt={active.channel === "alipay" ? "支付宝二维码" : "USDT 地址"}
                       className="h-[240px] w-[240px] rounded-lg border border-[#e5e6eb]"
                     />
                   ) : (

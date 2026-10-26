@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { useEffect, useMemo, useState } from "react";
 import type { GoodsDetail, LocalOrder, Product, RechargeTemplate, User } from "@/lib/types";
 import { CARD_STATUS, cardStatusColor, arcoColor } from "@/lib/status";
+import { PaymentMethodTags } from "@/components/PaymentMethodTags";
 
 interface Props {
   product: Product | null;
@@ -648,23 +649,19 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           {isGuest && (
             <div className="flex flex-col gap-2 rounded border border-[#e5e6eb] p-3">
               <div className="text-[12px] font-medium">支付方式</div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Select
-                  value={guestChannel}
-                  onChange={(v) => setGuestChannel(String(v) as "alipay" | "usdt")}
-                  style={{ width: "100%" }}
-                >
-                  <Select.Option value="alipay" disabled={!alipayReady}>支付宝经营码</Select.Option>
-                  <Select.Option value="usdt" disabled={!usdtReady}>USDT 链上支付</Select.Option>
+              <PaymentMethodTags
+                value={guestChannel}
+                onChange={setGuestChannel}
+                alipayReady={alipayReady}
+                usdtReady={usdtReady}
+              />
+              {guestChannel === "usdt" && (
+                <Select value={guestChain} onChange={(v) => setGuestChain(String(v))} style={{ width: "100%" }}>
+                  {(guestCfg.crypto?.chains ?? []).map((c) => (
+                    <Select.Option key={c.code} value={c.code}>{c.label}</Select.Option>
+                  ))}
                 </Select>
-                {guestChannel === "usdt" && (
-                  <Select value={guestChain} onChange={(v) => setGuestChain(String(v))} style={{ width: "100%" }}>
-                    {(guestCfg.crypto?.chains ?? []).map((c) => (
-                      <Select.Option key={c.code} value={c.code}>{c.label}</Select.Option>
-                    ))}
-                  </Select>
-                )}
-              </div>
+              )}
               {!alipayReady && !usdtReady && (
                 <div className="text-[11px] text-[#f53f3f]">管理员尚未配置可用的支付渠道。</div>
               )}
