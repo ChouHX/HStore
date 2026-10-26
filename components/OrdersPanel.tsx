@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import type { LocalOrder } from "@/lib/types";
 import { CARD_STATUS, ORDER_STATUS, arcoColor, cardStatusColor, orderStatusColor } from "@/lib/status";
+import { MailboxDrawer, type MailboxTarget } from "@/components/MailboxDrawer";
 
 const PAGE_SIZE = 10;
 
@@ -30,6 +31,15 @@ export function OrdersPanel() {
   const [detail, setDetail] = useState<LocalOrder | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // 取件（读邮箱）
+  const [mailOpen, setMailOpen] = useState(false);
+  const [mailTarget, setMailTarget] = useState<MailboxTarget | null>(null);
+
+  function openMailbox(t: MailboxTarget) {
+    setMailTarget(t);
+    setMailOpen(true);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -255,6 +265,13 @@ export function OrdersPanel() {
                 <span className="text-[12px] text-[#86909c]">{detail.result || ""}</span>
               </Space>
               <Space>
+                <Button
+                  size="small"
+                  onClick={() => openMailbox({ orderNumber: detail.orderNumber })}
+                  disabled={detail.cards.length === 0}
+                >
+                  取件
+                </Button>
                 <Button size="small" onClick={downloadTxt} disabled={detail.cards.length === 0}>
                   下载 TXT
                 </Button>
@@ -299,6 +316,21 @@ export function OrdersPanel() {
                       </div>
                       <Space>
                         <Tag color={arcoColor(cardStatusColor(c.status))}>{CARD_STATUS[c.status] ?? c.status}</Tag>
+                        {(c.cardNo ?? "").includes("@") && (
+                          <Button
+                            size="small"
+                            type="primary"
+                            onClick={() =>
+                              openMailbox({
+                                orderNumber: detail.orderNumber,
+                                cardId: c.cardId,
+                                email: c.cardNo ?? "",
+                              })
+                            }
+                          >
+                            取件
+                          </Button>
+                        )}
                         <Button
                           size="small"
                           onClick={() => {
@@ -324,6 +356,8 @@ export function OrdersPanel() {
           <div className="py-10 text-center text-[13px] text-[#86909c]">加载中…</div>
         )}
       </Drawer>
+
+      <MailboxDrawer visible={mailOpen} target={mailTarget} onClose={() => setMailOpen(false)} />
     </div>
   );
 }

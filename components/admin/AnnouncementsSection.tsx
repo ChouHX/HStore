@@ -15,7 +15,7 @@ import {
   Tag,
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
-import type { Announcement } from "@/lib/announcements";
+import type { Announcement } from "@/lib/api-types";
 
 const EMPTY = { id: 0, type: "normal" as "normal" | "popup", title: "", content: "", enabled: true, sort: 0 };
 

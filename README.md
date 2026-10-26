@@ -1,23 +1,67 @@
 # 发卡商城
 
-基于 **Next.js (App Router) + better-sqlite3 + Arco Design** 的发卡系统，对接「天启云商 商家客户 API 3.0」，
-覆盖商品同步、动态定价、用户资产、兑换码、会员等级与下单闭环。
+**Vite + React 19 + Go + SQLite + Arco Design** 的发卡系统，对接「天启云商 商家客户 API 3.0」，
+覆盖商品同步、动态定价、用户资产、兑换码（面值码 / 商品码）、取件、会员等级与下单闭环。
+
+前端只负责页面渲染，所有业务逻辑都在 Go 后端；`vite build` 的产物通过 `go:embed` 打进二进制，
+**生产环境只需部署一个可执行文件**。
+
+> **零配置文件**：项目没有 `.env`。上游 AppID / 密钥、定价规则、兑换码、Bybit、汇率等
+> 全部在「管理后台 → 系统设置」维护（写入 SQLite 的 `sync_meta`）；
+> 会话签名密钥首次启动随机生成并落库；WAF 放行 Cookie 由 Go 用 goja 直接执行站点挑战脚本获取，
+> **不需要浏览器、不需要 Node、不需要人工填 Cookie**。
+> 仅剩的运行时变量只有 `PORT` / `FAKA_ADDR` / `FAKA_DB_PATH`（都有合理默认值）。
 
 ## 技术栈
 
 | 层 | 选型 |
 | --- | --- |
-| 框架 | Next.js 16 (App Router, Turbopack) |
-| UI | **Arco Design**（`@arco-design/web-react`）+ Tailwind CSS（仅布局工具类） |
-| 数据库 | SQLite（better-sqlite3） |
-| 对接 | 天启云商开放平台 API 3.0（MD5 签名） |
+| 前端 | **Vite 7 + React 19 + React Router 7**（纯 SPA，无 SSR） |
+| 后端 | **Go 1.23**（`backend/`，`net/http` + 纯 Go SQLite，无 cgo） |
+| UI | **Arco Design**（`@arco-design/web-react`）+ Tailwind CSS 4（`@tailwindcss/vite`） |
+| 数据库 | SQLite（`modernc.org/sqlite`，WAL 模式） |
+| 部署 | 前端产物 `go:embed` 进二进制，单文件运行 |
+| 对接 | 天启云商开放平台 API 3.0（MD5 签名）、Bybit 子账户、IMAP / Graph 邮箱取件 |
 
 ## 快速开始
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
+
+npm run dev          # 一键启动：Go 后端(3001) + Vite 前端(3000)
+# Windows 也可直接双击 dev.cmd；macOS / Linux / Git Bash 用 ./dev.sh
 ```
+
+打开 http://localhost:3000 。开发时 Vite 把 `/api/*` 代理到 Go 服务（`GO_API_ORIGIN`，
+启动脚本会按实际后端端口自动注入）；生产环境由 Go 同源托管，不存在跨域问题。
+
+### 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `npm run dev` | 一键启动前后端（推荐） |
+| `npm run dev:web` | 只启动 Vite（后端需另起） |
+| `npm run dev:api` | 只启动 Go 后端 |
+| `npm run dev -- --bin` | 用已编译二进制启动后端（跳过 `go run` 编译） |
+| `npm run dev -- -w 4000 -a 4001` | 自定义前端 / 后端端口 |
+| `npm run build` | 构建前端 → `backend/web/dist` |
+| `npm run build:api` | 编译 `backend/bin/hstore-server[.exe]`（已内嵌前端） |
+| `npm run build:all` | 先构建前端，再编译后端（**推荐的生产构建**） |
+| `npm run typecheck` | `tsc --noEmit` |
+
+启动脚本行为：自动创建 `data/` 目录、统一注入 `FAKA_DB_PATH`、等后端健康检查通过后再起前端、
+`[api] / [web]` 彩色日志前缀、Ctrl+C 整组停止。
+后端端口被占用时会明确报错而不是静默换端口（避免两个进程同时写同一个 SQLite）。
+
+### 生产部署
+
+```bash
+npm run build:all
+./backend/bin/hstore-server        # 或 hstore-server.exe
+```
+
+启动后访问 `http://127.0.0.1:3001` 即为完整站点（页面 + API 同源）。
+静态资源走 `Cache-Control: immutable`，未命中的路径回退 `index.html`（SPA history 路由）。
 
 | 账号 | 密码 | 角色 | 入口 |
 | --- | --- | --- | --- |
@@ -28,7 +72,9 @@ npm run dev      # http://localhost:3000
 
 - **商城 `/`**：简洁顶栏（头像下拉点击展开；移动端新增「公告」按钮）+ **Hero 区（轮播图；公告卡片桌面显示，移动端收进公告抽屉）** + **板块以无边框列表展示**（图片/名称/件数，名称自动去掉括号说明、不截断，点击切换）+ **商品分类（桌面为左侧边栏、移动端为抽屉，抽屉标题带板块名，均带分类图片）** + **Header 全局搜索（跨板块）**/排序 + 商品网格（**商品按需加载（接口分页）、有货优先、默认按名称排序、价格去除多余 0**）；
   右上角图标可切换 **列表 / 一列两个 / 一列四个** 布局；卡片展示**库存**，缺货置灰；窄屏子分类转为下拉。
-- **个人中心 `/account`**：Arco `Layout` 侧边栏 + Header + 内容区，含概览、充值/兑换、我的订单、余额明细。
+- **个人中心 `/account`**：Arco `Layout` 侧边栏 + Header + 内容区，含概览、充值/兑换、我的订单、取件、余额明细。
+- **取件 `/pickup`（公开页，无需登录）**：独立于个人中心的全屏页面，输入兑换码（未登录）或兑换码/订单号（已登录）
+  直接打开邮箱；登录后下方还会自动列出**我的所有可取出邮箱**。商城顶栏常驻「取件」入口（未登录也显示）。
 - **管理后台 `/admin`**：侧边栏 + Header + 内容区；默认「数据概览」（KPI + 平台分布 + 最近操作）。移动端侧边栏收起为**抽屉**，由 Header 左侧按钮展开，仅保留一个 Header。
 - 列表统一使用 Arco `Table`（服务端分页）、`Input.Search`/`Select` 筛选、`Modal` 弹窗、`Popconfirm` 删除确认、`Message` 提示。
 - **订单**：列表分页展示，点击「查看详情」打开抽屉查看卡券与状态；详情支持**下载 TXT（一行一个卡券，卡号----密码）**，避免数据过多无法展示。
@@ -55,18 +101,39 @@ npm run dev      # http://localhost:3000
 - **不可篡改账本**：`ledger` 表触发器禁止 `UPDATE/DELETE`。
 
 ### 4. 兑换码（无批次）
-- 直接生成兑换码：填写面值、数量、有效期（空=永久）即可生成；
+- **两种码**：面值码（核销后充入余额）、商品码（关联某个商品 + 数量，核销后自动向上游下单）；
+- 后台「兑换码」页可切换类型创建，商品码支持搜索商品、指定数量、批量生成；
 - 表格展示**全部兑换码**，支持按状态、兑换码关键字筛选与分页；
 - 导出 CSV、单码作废；
-- 核销并发安全：事务 + `UPDATE ... WHERE status='unused'` 原子占用；
+- 核销并发安全：`unused → redeeming → used` 状态机 + `redeeming_at` 锁（3 分钟未完成自动回收），
+  面值码入账为单事务原子操作；
+- 商品码核销复用 `PlaceOrder(payment:"code")`：不扣余额、走上游下单、订单号回写兑换码，
+  订单与卡券直接复用 `orders` / `cards`，**不额外存储任何账号数据**；
 - 防刷：1 分钟失败 5 次临时锁定。
+
+### 5. 取件（读邮箱）
+- **取件页 `/pickup` 是公开页面，不需要登录**（参考 Redeem 的取件页形态：卡密即凭证）。
+  未登录：输入兑换码 `XXXX-XXXX-XXXX-XXXX` 直接取件；已登录：额外支持订单号，
+  并自动列出自己所有可取出邮箱（`GET /api/mailbox/cards`）；
+- 取件结果直接内嵌在页面里阅读（`MailboxPanel`），订单详情里仍用抽屉（`MailboxDrawer` 是它的薄壳）；
+- **匿名取件只认兑换码，不认订单号**：兑换码 16 位随机（熵足够），订单号来自上游、可被枚举，
+  因此订单号必须登录且校验归属；匿名调用另按 IP 限流（1 分钟 12 次，超出 429）；
+- 订单详情里含 `@` 的卡券同样有「取件」按钮，兑换商品码成功后也会直接给出取件入口；
+- 卡券若是「邮箱----密码[----refresh_token]」格式，即可打开邮箱，
+  浏览收件箱 / 垃圾箱并阅读邮件正文（正文在沙箱 iframe 中渲染）；
+- 后端 `backend/internal/mail` 从同级 `Redeem` 项目移植：有 `refresh_token` 走 OAuth（XOAUTH2 + 自动刷新），
+  只有邮箱密码时用 IMAP `LOGIN`；Outlook 走 IMAP，微软 Graph 作为备选通道；
+- **邮件服务参数全部内置**（与 Redeem 一致），后台无需任何配置：ClientID、Token 地址、IMAP 服务器
+  （`outlook.office365.com:993`）、收件箱 / 垃圾箱目录名都写在 `internal/service/mailbox.go`。
+  接入非 Outlook 租户时用环境变量覆盖即可：`IMAP_SERVER` / `IMAP_PORT` / `MAIL_CLIENT_ID` / `MAIL_TOKEN_URL`。
 
 ### 6. 加密充值（USDT / Bybit 子账户地址池）
 - 管理后台「加密充值」页：Bybit API 配置、汇率/最小金额/默认链、子账户地址池、充值订单；
 - 用户按 **CNY** 输入金额，并**自选链路（TRC20 / BEP20）**；最小 **2 USDT（约 ¥14.4）**，订单 **30 分钟**有效；汇率默认 `1 USDT = 7.2 CNY`（可改）；
 - **地址池**：多个 Bybit 子账户作为并发槽位（当前 2 个），每个子账户同时维护 **TRC20 + BEP20** 两个地址；下单时按所选链事务内原子占用，完成后自动释放；
 - **唯一精确金额**：在申请金额上加 0.0001–0.0099 的随机尾数，必须精确转账；匹配时校验 链 + 地址 + 金额 + txID；
-- **自动到账**：服务端每 30 秒轮询 Bybit 子账户充值记录（`instrumentation.ts` + `lib/crypto-scheduler.ts`），也支持外部 cron `/api/crypto/cron`；
+- **自动到账**：Go 服务内置每 30 秒轮询 Bybit 子账户充值记录（`cmd/server` 的 `cryptoLoop`），
+  也支持外部 cron `/api/crypto/cron`；前端不再包含任何轮询逻辑，避免重复结算；
 - 后台可手动「检查订单」或「模拟到账（测试）」；订单过期自动释放地址并标记 expired；
 - 入账复用不可篡改账本（`ledger`，类型 recharge，单号 `crypto-<id>`）。
 
@@ -75,34 +142,62 @@ npm run dev      # http://localhost:3000
 - 自动升级以「累计实际已消费」为准，订单结算完成才累加；
 - 人工指定 + 锁定等级，锁定后不再自动变更。
 
+### 7. 上游对接与 WAF（纯 Go）
+- 上游域名前挂了阿里云 ESA/WAF，未带 Cookie 时返回一段 JS 挑战页。`internal/upstream/waf.go`
+  用 **goja** 在进程内执行挑战脚本（垫了 `document` / `location` / `navigator` / `storage` /
+  `atob` / `setTimeout` 等最小 DOM 环境），直接从脚本写回的 `document.cookie` 里取出放行 Cookie；
+- 触发时机全自动：Cookie 为空时先取一次；请求返回非 JSON（被判为挑战）时再取一次并重放；
+  取到后写回 `sync_meta`，后台「系统设置」可看到时间与预览，也可点「刷新 Cookie」手动触发；
+- 并发去重（`RefreshWafCookieOnce`）：同时有多个请求需要刷新时只跑一次脚本，其余等待同一个结果；
+- 整条链路（签名 → Cookie → 解析 → 下单）都在 Go 里，**无需浏览器 / Node / 人工粘贴 Cookie**，
+  实测刷新一次约 1 秒。
+
 ## 目录结构
 
 ```
-app/
-  page.tsx                      商城
-  login/page.tsx                登录（Arco Form）
-  account/                      个人中心（layout + overview/recharge/orders/ledger）
-  admin/crypto/                 加密充值（Bybit 配置/地址池/订单）
-  api/crypto/*                  用户充值下单/查询、cron
-  api/admin/crypto              后台地址池与订单管理
-  instrumentation.ts            服务启动时启动充值轮询
-  admin/                        管理后台（layout + overview/products/pricing/users/redeem/levels/logs）
-  api/
-    auth/{login,logout,me}
-    me, me/ledger
-    redeem, order/*, card/void, goods/*, image, sync, account
-    admin/{stats,products,pricing,users,levels,redeem,ledger,audit}
+index.html                       Vite 入口
+vite.config.ts                   别名 @、/api 代理、产物输出到 backend/web/dist
+src/
+  main.tsx                       挂载 React（Arco CSS + Tailwind）
+  App.tsx                        路由表（商城 / 登录 / 取件 / 个人中心 / 管理后台）
+  layouts/AccountLayout.tsx      个人中心布局 + 登录守卫
+  layouts/AdminLayout.tsx        管理后台布局 + 管理员守卫
+  pages/HomePage.tsx             商城（拉 /api/store/home）
+  pages/LoginPage.tsx            登录（Arco Form）
+  pages/PickupPage.tsx           取件（公开页，无需登录）
+  hooks/useSession.ts            /api/auth/me 缓存 + 失效
+  components/PageLoading.tsx     全屏加载占位
+  styles/globals.css             Tailwind + 全局样式
 components/
-  layout/DashboardShell.tsx     Arco Layout 侧边栏 + Header + 内容
-  admin/*Section.tsx            后台模块（Arco Table + Modal + Message）
-  admin/LevelsPanel.tsx         会员等级管理（嵌入用户页弹窗）
-  account/*Section.tsx          个人中心模块
+  layout/DashboardShell.tsx      Arco Layout 侧边栏 + Header + 内容
+  store/                         StoreHeader / HeroSection / PopupAnnouncement
+  admin/*Section.tsx             后台模块（Arco Table + Modal + Message）
+  account/*Section.tsx           个人中心模块
+  MailboxPanel.tsx               邮箱阅读器（列表 + 正文沙箱 iframe）
+  MailboxDrawer.tsx              MailboxPanel 的抽屉壳（订单详情用）
   ProductBrowser.tsx PurchaseModal.tsx OrdersPanel.tsx
 lib/
-  db.ts session.ts admin.ts pagination.ts
-  tianqi.ts sync.ts pricing.ts queries.ts
-  users.ts redeem.ts orders.ts status.ts platform.ts types.ts
-  bybit.ts crypto.ts crypto-scheduler.ts
+  api-types.ts                   与 Go JSON 对齐的展示类型（纯类型）
+  types.ts format.ts status.ts platform.ts site.ts pagination.ts
+
+backend/                         Go 后端（模块 hstore/backend）
+  cmd/server/main.go             入口：PORT / FAKA_ADDR / FAKA_DB_PATH，内置加密轮询 + 静态托管
+  internal/db/                   建表、迁移、seed、scrypt、会话签名
+  internal/store/                products / pricing / users / orders / redeem / crypto
+  internal/upstream/             天启客户端、goja 执行 WAF 挑战、Bybit
+  internal/service/              共用下单、兑换、取件、演示数据
+  internal/httpapi/              全部 API 路由与处理器
+  internal/mail/                 IMAP / Graph 取件引擎（移植自 Redeem 项目）
+  web/embed.go                   go:embed 前端产物
+  web/dist/                      vite build 输出（assets 已 gitignore）
+  bin/                           编译产物（已 gitignore）
+
+scripts/
+  dev-all.mjs                    一键启动前后端（dev.cmd / dev.sh 的入口）
+  build-api.mjs                  跨平台编译 Go 后端
+  patch-arco.mjs                 React 19 兼容补丁
+
+dev.cmd / dev.sh                 Windows / macOS·Linux 一键启动快捷方式
 ```
 
 ## React 19 兼容
@@ -116,7 +211,7 @@ Arco Design 与 React 19 存在两处不兼容，项目通过 `scripts/patch-arc
 
 `categories` `products` `orders` `cards` `users` `ledger` `audit_logs`
 `pricing_rules` `levels` `redeem_codes` `redeem_failures` `sync_meta`
-`bybit_pool` `crypto_orders`
+`bybit_pool` `crypto_orders` `announcements`
 
 ## 已验证
 

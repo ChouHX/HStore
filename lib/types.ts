@@ -156,7 +156,7 @@ export interface LocalOrder {
   username: string;
   saleMoney: number;
   costMoney: number;
-  source: "admin" | "user";
+  source: "admin" | "user" | "redeem";
   settled: number;
   cards: Card[];
 }
@@ -236,8 +236,15 @@ export interface PricingRule {
 export interface RedeemCode {
   id: number;
   code: string;
+  /** 面值码金额（商品码为 0） */
   faceValue: number;
-  status: "unused" | "used" | "voided";
+  /** 非空 = 商品码，核销后自动下单取件 */
+  goodsId: number | null;
+  goodsName: string;
+  goodsCount: number;
+  /** 核销后关联的订单号 */
+  orderNumber: string;
+  status: "unused" | "redeeming" | "used" | "voided";
   usedBy: number | null;
   usedAt: number | null;
   startAt: number | null;

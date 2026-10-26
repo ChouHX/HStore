@@ -2,30 +2,36 @@
   "name": "faka-demo",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "seed": "node scripts/seed.mjs",
+    "dev": "node scripts/dev-all.mjs",
+    "dev:all": "node scripts/dev-all.mjs",
+    "dev:web": "vite",
+    "dev:api": "node scripts/dev-all.mjs --no-web",
+    "build": "vite build",
+    "build:web": "vite build",
+    "build:api": "node scripts/build-api.mjs",
+    "build:all": "vite build && node scripts/build-api.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/patch-arco.mjs"
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.18",
-    "better-sqlite3": "^13.0.3",
-    "next": "^16.4.2",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.4"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.3",
-    "@types/better-sqlite3": "^7.6.13",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.0.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vite": "^7.1.9"
   }
 }

@@ -17,7 +17,7 @@ import {
 } from "@arco-design/web-react";
 import { IconFilter } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useState } from "react";
-import type { AdminProduct, ProductFilterOptions } from "@/lib/queries";
+import type { AdminProduct, ProductFilterOptions } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
 
 const PAGE_SIZE = 15;
@@ -200,14 +200,70 @@ export function ProductsSection() {
     } else Message.error(j.message ?? "操作失败");
   }
 
+  /**
+   * 同步「当前商品」的上游信息（价格/库存/状态等）。
+   * 有勾选时只同步勾选项，否则同步当前筛选结果（无筛选即全部本地商品）。
+   */
   async function sync() {
     setSyncing(true);
     try {
-      const j = await fetch("/api/sync", { method: "POST" }).then((r) => r.json());
-      if (j.ok) {
-        Message.success(j.message ?? "同步完成");
-        load();
-      } else Message.error(j.message ?? "同步失败");
+      const filtered = Boolean(keyword || rootIds.length || subIds.length || enabledList.length);
+      let ids: number[] = selected.map(Number).filter(Boolean);
+      let scopeLabel = "选中";
+
+      if (ids.length === 0) {
+        const sp = new URLSearchParams({ idsOnly: "1" });
+        if (keyword) sp.set("keyword", keyword);
+        if (rootIds.length) sp.set("rootIds", rootIds.join(","));
+        if (subIds.length) sp.set("subIds", subIds.join(","));
+        if (enabledList.length) sp.set("enabledList", enabledList.join(","));
+        const j = await fetch(`/api/admin/products?${sp}`).then((r) => r.json());
+        if (!j.ok) {
+          Message.error(j.message ?? "获取商品列表失败");
+          return;
+        }
+        ids = (j.ids as number[]) ?? [];
+        scopeLabel = filtered ? "筛选结果内" : "全部";
+      }
+
+      if (ids.length === 0) {
+        Message.warning("没有可同步的商品");
+        return;
+      }
+
+      const CHUNK = 40;
+      let updated = 0;
+      let failed = 0;
+      let missing = 0;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        Message.loading({
+          id: "sync-upstream",
+          duration: 0,
+          content: `同步${scopeLabel}商品 ${Math.min(i + chunk.length, ids.length)}/${ids.length}…`,
+        });
+        const r = await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: "current", ids: chunk }),
+        }).then((res) => res.json());
+        if (!r.ok) {
+          failed += chunk.length;
+          continue;
+        }
+        updated += (r.updated as number) ?? 0;
+        failed += (r.failed as number) ?? 0;
+        missing += (r.missing as number[])?.length ?? 0;
+      }
+
+      const parts = [`已更新 ${updated} 个商品的上游信息`];
+      if (failed) parts.push(`${failed} 个拉取失败`);
+      if (missing) parts.push(`${missing} 个已失效`);
+      Message.success({ id: "sync-upstream", duration: 3000, content: parts.join("，") });
+      load();
+      loadOptions();
+    } catch {
+      Message.error({ id: "sync-upstream", duration: 3000, content: "同步失败，请稍后重试" });
     } finally {
       setSyncing(false);
     }
@@ -459,8 +515,13 @@ export function ProductsSection() {
             重置筛选
           </Button>
         )}
-        <Button size="small" loading={syncing} onClick={sync}>
-          同步商品
+        <Button
+          size="small"
+          loading={syncing}
+          onClick={sync}
+          title="只刷新当前商品在上游的价格、库存、状态等信息，不改变上下架与自定义内容"
+        >
+          同步上游信息{selected.length > 0 ? `（${selected.length}）` : ""}
         </Button>
         <Button
           size="small"

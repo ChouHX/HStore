@@ -18,11 +18,11 @@ import {
   IconSort,
   IconUnorderedList,
 } from "@arco-design/web-react/icon";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import type { Product, User } from "@/lib/types";
-import type { StoreBoard, StoreSubCategory } from "@/lib/queries";
-import type { Announcement } from "@/lib/announcements";
+import type { StoreBoard, StoreSubCategory } from "@/lib/api-types";
+import type { Announcement } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
 import { PurchaseModal } from "./PurchaseModal";
 import { HeroSection } from "./store/HeroSection";
@@ -92,7 +92,6 @@ function CategoryChips({
       {items.map((c) => (
         <button key={c.id} type="button" onClick={() => onPick(c.id)} className={cls(dirFilter === c.id)}>
           {catImg(c.img) && (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={catImg(c.img)!} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" loading="lazy" />
           )}
           {c.name}
@@ -123,7 +122,6 @@ function ProductCard({
       <div className="flex items-center gap-3 rounded border border-[#e5e6eb] bg-white p-3 transition hover:shadow-md">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[#f7f8fa]">
           {imgSrc && (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={imgSrc} alt="" loading="lazy" className="h-full w-full object-cover" />
           )}
         </div>
@@ -161,7 +159,6 @@ function ProductCard({
       <div className="flex gap-2">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[#f7f8fa]">
           {imgSrc && (
-            // eslint-disable-next-line @next/next/no-img-element
             <img src={imgSrc} alt="" loading="lazy" className="h-full w-full object-cover" />
           )}
         </div>
@@ -196,7 +193,7 @@ function ProductCard({
 }
 
 export function ProductBrowser({ boards, configured, lastSync, user, discount, announcements, popup }: Props) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [purchaseProduct, setPurchaseProduct] = useState<Product | null>(null);
   const [boardId, setBoardId] = useState<number | null>(boards[0]?.id ?? null);
   const [dirFilter, setDirFilter] = useState(0);
@@ -285,7 +282,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
   }
   function handleBuy(p: Product) {
     if (!user) {
-      router.push("/login");
+      navigate("/login");
       return;
     }
     setPurchaseProduct(p);
@@ -306,7 +303,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
       <main className="mx-auto max-w-[1200px] px-4 py-4">
         {!configured && (
           <div className="mb-3 rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-2 text-[12px] text-[#d25f00]">
-            未配置 TIANQI_APP_ID，无法调用远端接口。
+            上游接口未配置，请让管理员在「管理后台 → 系统设置」填写 AppID 与密钥。
           </div>
         )}
 
@@ -334,7 +331,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                     }`}
                   >
                     {catImg(b.img) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={catImg(b.img)!}
                         alt=""
@@ -531,7 +527,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         onOpenChange={(o) => {
           if (!o) setPurchaseProduct(null);
         }}
-        onDone={() => router.refresh()}
+        onDone={() => load()}
       />
     </div>
   );

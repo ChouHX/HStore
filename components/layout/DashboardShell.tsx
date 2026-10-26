@@ -5,6 +5,7 @@ import { Avatar, Button, Drawer, Dropdown, Layout, Menu } from "@arco-design/web
 import {
   IconApps,
   IconBook,
+  IconEmail,
   IconNotification,
   IconDashboard,
   IconEdit,
@@ -21,10 +22,11 @@ import {
   IconTrophy,
   IconUserGroup,
 } from "@arco-design/web-react/icon";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import type { User } from "@/lib/types";
+import { invalidateSession } from "@/src/hooks/useSession";
 
 const { Sider, Header, Content } = Layout;
 
@@ -55,12 +57,13 @@ const ICONS: Record<string, React.ReactNode> = {
   logs: <IconFile />,
   recharge: <IconGift />,
   orders: <IconList />,
+  pickup: <IconEmail />,
   ledger: <IconBook />,
 };
 
 export function DashboardShell({ user, nav, children }: Props) {
-  const pathname = usePathname();
-  const router = useRouter();
+  const pathname = useLocation().pathname;
+  const navigate = useNavigate();
   const active = nav.find((n) => pathname === n.href || pathname.startsWith(n.href + "/")) ?? nav[0];
   const [upstream, setUpstream] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -79,8 +82,8 @@ export function DashboardShell({ user, nav, children }: Props) {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
+    invalidateSession();
+    navigate("/login");
   }
 
   function navMenu(after?: () => void) {
@@ -90,7 +93,7 @@ export function DashboardShell({ user, nav, children }: Props) {
         selectedKeys={active ? [active.id] : []}
         onClickMenuItem={(key) => {
           const href = hrefById[String(key)];
-          if (href) router.push(href);
+          if (href) navigate(href);
           after?.();
         }}
         style={{ border: "none" }}
@@ -112,7 +115,6 @@ export function DashboardShell({ user, nav, children }: Props) {
       {/* 桌面侧边栏 */}
       <Sider className="app-sider" width={208} style={{ background: "#fff" }}>
         <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 8 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/favicon.svg" alt="HShop" style={{ width: 30, height: 30, borderRadius: 8 }} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 600 }}>{isAdmin ? "发卡后台" : "个人中心"}</div>
@@ -121,7 +123,7 @@ export function DashboardShell({ user, nav, children }: Props) {
         </div>
         {navMenu()}
         <div style={{ padding: 12 }}>
-          <Link href="/">
+          <Link to="/">
             <Button long icon={<IconHome />} size="small">
               返回商城
             </Button>
@@ -135,7 +137,6 @@ export function DashboardShell({ user, nav, children }: Props) {
         placement="left"
         title={
           <span style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/favicon.svg" alt="" style={{ width: 24, height: 24, borderRadius: 6 }} />
             {isAdmin ? "发卡后台" : "个人中心"}
           </span>
@@ -147,7 +148,7 @@ export function DashboardShell({ user, nav, children }: Props) {
       >
         {navMenu(() => setMobileOpen(false))}
         <div style={{ marginTop: 12 }}>
-          <Link href="/">
+          <Link to="/">
             <Button long icon={<IconHome />} size="small">
               返回商城
             </Button>
@@ -172,7 +173,6 @@ export function DashboardShell({ user, nav, children }: Props) {
               <Button size="small" shape="circle" icon={<IconMenu />} onClick={() => setMobileOpen(true)} />
             </span>
             <span className="md:hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/favicon.svg" alt="HShop" style={{ width: 24, height: 24, borderRadius: 6 }} />
             </span>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{active?.label}</div>
@@ -196,9 +196,9 @@ export function DashboardShell({ user, nav, children }: Props) {
               droplist={
                 <Menu
                   onClickMenuItem={(key) => {
-                    if (key === "account") router.push("/account/overview");
-                    else if (key === "admin") router.push("/admin/overview");
-                    else if (key === "shop") router.push("/");
+                    if (key === "account") navigate("/account/overview");
+                    else if (key === "admin") navigate("/admin/overview");
+                    else if (key === "shop") navigate("/");
                     else if (key === "logout") logout();
                   }}
                 >

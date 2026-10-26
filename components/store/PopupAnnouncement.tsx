@@ -2,7 +2,7 @@
 
 import { Button, Modal } from "@arco-design/web-react";
 import { useEffect, useState } from "react";
-import type { Announcement } from "@/lib/announcements";
+import type { Announcement } from "@/lib/api-types";
 
 export function PopupAnnouncement({ popup }: { popup: Announcement | null }) {
   const [open, setOpen] = useState(false);

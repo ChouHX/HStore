@@ -1,9 +1,9 @@
 "use client";
 
 import { Button, Card, Grid, Message, Progress, Statistic, Tag } from "@arco-design/web-react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import type { AuditLog } from "@/lib/users";
+import type { AuditLog } from "@/lib/api-types";
 
 const { Row, Col } = Grid;
 
@@ -92,9 +92,9 @@ export function OverviewSection() {
               </div>
             ))}
             <div className="mt-2 flex gap-2">
-              <Link href="/admin/products"><Button size="small" type="primary">商品管理</Button></Link>
-              <Link href="/admin/pricing"><Button size="small">定价规则</Button></Link>
-              <Link href="/admin/redeem"><Button size="small">兑换码</Button></Link>
+              <Link to="/admin/products"><Button size="small" type="primary">商品管理</Button></Link>
+              <Link to="/admin/pricing"><Button size="small">定价规则</Button></Link>
+              <Link to="/admin/redeem"><Button size="small">兑换码</Button></Link>
             </div>
           </Card>
         </Col>
@@ -117,8 +117,8 @@ export function OverviewSection() {
               {logs.length === 0 && <div className="text-[12px] text-[#86909c]">暂无操作记录</div>}
             </div>
             <div className="mt-3 flex gap-2">
-              <Link href="/admin/logs"><Button size="small">全部日志</Button></Link>
-              <Link href="/admin/users"><Button size="small">用户与资产</Button></Link>
+              <Link to="/admin/logs"><Button size="small">全部日志</Button></Link>
+              <Link to="/admin/users"><Button size="small">用户与资产</Button></Link>
             </div>
           </Card>
         </Col>

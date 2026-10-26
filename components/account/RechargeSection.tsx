@@ -2,10 +2,11 @@
 
 import { Button, Card, Input, InputNumber, Message, Select, Space, Tag } from "@arco-design/web-react";
 import QRCode from "qrcode";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import type { User } from "@/lib/types";
 import { formatPrice } from "@/lib/format";
+import { MailboxDrawer, type MailboxTarget } from "@/components/MailboxDrawer";
 
 interface CryptoCfg {
   enabled: boolean;
@@ -55,10 +56,14 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
 }
 
 export function RechargeSection() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  // 商品码兑换成功后的取件入口
+  const [redeemed, setRedeemed] = useState<{ orderNumber: string; message: string } | null>(null);
+  const [mailOpen, setMailOpen] = useState(false);
+  const [mailTarget, setMailTarget] = useState<MailboxTarget | null>(null);
 
   const [cfg, setCfg] = useState<CryptoCfg | null>(null);
   const [cny, setCny] = useState<number>(20);
@@ -108,7 +113,6 @@ export function RechargeSection() {
           setOrder(j.order as CryptoOrderView);
           if (j.order.status === "paid") {
             await loadUser();
-            router.refresh();
             Message.success("充值到账");
           }
         }
@@ -117,7 +121,7 @@ export function RechargeSection() {
       }
     }, 8000);
     return () => clearInterval(t);
-  }, [order, loadUser, router]);
+  }, [order, loadUser]);
 
   useEffect(() => {
     if (!order?.address) {
@@ -142,10 +146,19 @@ export function RechargeSection() {
         body: JSON.stringify({ code }),
       }).then((r) => r.json());
       if (j.ok) {
-        Message.success(`${j.message}，到账 ¥${formatPrice(j.amount)}`);
         setCode("");
-        await loadUser();
-        router.refresh();
+        if (j.kind === "product") {
+          // 商品码：已下单取件，跳转订单/邮箱
+          setRedeemed({
+            orderNumber: String(j.orderNumber ?? ""),
+            message: String(j.message ?? "兑换成功"),
+          });
+          Message.success(String(j.message ?? "兑换成功"));
+        } else {
+          setRedeemed(null);
+          Message.success(`${j.message}，到账 ¥${formatPrice(j.amount)}`);
+          await loadUser();
+        }
       } else Message.error(j.message ?? "兑换失败");
     } finally {
       setBusy(false);
@@ -219,7 +232,7 @@ export function RechargeSection() {
               </span>
             </div>
           </div>
-          <Button size="small" onClick={() => router.push("/account/ledger")}>
+          <Button size="small" onClick={() => navigate("/account/ledger")}>
             余额明细
           </Button>
         </div>
@@ -249,8 +262,35 @@ export function RechargeSection() {
                   </Button>
                 )}
               </div>
+              {redeemed && (
+                <div className="mt-3 rounded border border-[#aff0b5] bg-[#e8ffea] px-3 py-2 text-[12px]">
+                  <div className="text-[#00b42a]">{redeemed.message}</div>
+                  {redeemed.orderNumber && (
+                    <div className="mt-1 font-mono text-[11px] text-[#4e5969]">
+                      订单号 {redeemed.orderNumber}
+                    </div>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="mini"
+                      type="primary"
+                      onClick={() => {
+                        setMailTarget({ orderNumber: redeemed.orderNumber });
+                        setMailOpen(true);
+                      }}
+                    >
+                      取件
+                    </Button>
+                    <Button size="mini" onClick={() => navigate("/account/orders")}>
+                      我的订单
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-auto pt-4 text-[11px] leading-relaxed text-[#86909c]">
                 同一兑换码仅可核销一次；1 分钟内失败 5 次将临时锁定核销功能。
+                面值码直接充入余额，商品码自动下单并可在「我的订单」中取件。
               </div>
             </div>
           </Card>
@@ -315,7 +355,6 @@ export function RechargeSection() {
               <div className="mt-3 grid gap-4 sm:grid-cols-[150px_1fr]">
                 <div className="flex flex-col items-center gap-2 rounded border border-[#e5e6eb] p-2">
                   {qr ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={qr} alt="充值地址二维码" className="h-[140px] w-[140px]" />
                   ) : (
                     <div className="h-[140px] w-[140px] bg-[#f7f8fa]" />
@@ -375,7 +414,7 @@ export function RechargeSection() {
                     <Button size="small" onClick={() => setOrder(null)}>
                       继续充值
                     </Button>
-                    <Button size="small" type="primary" onClick={() => router.push("/account/ledger")}>
+                    <Button size="small" type="primary" onClick={() => navigate("/account/ledger")}>
                       查看余额明细
                     </Button>
                   </Space>
@@ -396,6 +435,8 @@ export function RechargeSection() {
           </Card>
         </div>
       </div>
+
+      <MailboxDrawer visible={mailOpen} target={mailTarget} onClose={() => setMailOpen(false)} />
     </div>
   );
 }

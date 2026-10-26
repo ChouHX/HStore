@@ -1,14 +1,23 @@
 node_modules/
-.next/
-out/
-build/
+/dist/
+/build/
 data/
 *.log
 .DS_Store
-.env
-.env*.local
 
+# 不再使用 .env：所有业务配置在管理后台维护（存 sync_meta）
 .env*
 *.bak
+*.tsbuildinfo
 
-!.env.example
+# 旧 Next.js 构建缓存（迁移到 Vite 后不再使用，可手动删除）
+/.next/
+
+# Go 后端构建产物
+backend/bin/
+backend/data/
+
+# 前端构建产物：只保留 index.html 占位。
+# 整个 dist/ 都忽略的话，全新克隆时 go:embed all:dist 会因为目录不存在而编译失败。
+backend/web/dist/*
+!backend/web/dist/index.html

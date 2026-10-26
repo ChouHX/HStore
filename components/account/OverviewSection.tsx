@@ -2,7 +2,7 @@
 import { formatPrice } from "@/lib/format";
 
 import { Button, Card, Grid, Message, Progress, Space, Statistic, Tag } from "@arco-design/web-react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import type { Level, User } from "@/lib/types";
 
@@ -75,9 +75,9 @@ export function OverviewSection() {
           ))}
         </div>
         <Space style={{ marginTop: 16 }}>
-          <Link href="/account/recharge"><Button size="small" type="primary">充值 / 兑换</Button></Link>
-          <Link href="/account/orders"><Button size="small">查看订单</Button></Link>
-          <Link href="/"><Button size="small">返回商城</Button></Link>
+          <Link to="/account/recharge"><Button size="small" type="primary">充值 / 兑换</Button></Link>
+          <Link to="/account/orders"><Button size="small">查看订单</Button></Link>
+          <Link to="/"><Button size="small">返回商城</Button></Link>
         </Space>
       </Card>
     </div>

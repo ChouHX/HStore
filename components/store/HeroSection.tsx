@@ -2,7 +2,7 @@
 
 import { Button, Card, Carousel, Tag } from "@arco-design/web-react";
 import { BANNERS } from "@/lib/site";
-import type { Announcement } from "@/lib/announcements";
+import type { Announcement } from "@/lib/api-types";
 
 export function HeroSection({ announcements }: { announcements: Announcement[] }) {
   return (

@@ -174,7 +174,6 @@ export function PurchaseModal({ product, open, discount = 1, onOpenChange, onDon
         <div className="flex flex-col gap-3">
           <div className="flex gap-3">
             {detail.imgUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={`/api/image?url=${encodeURIComponent(detail.imgUrl)}`}
                 alt=""

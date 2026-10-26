@@ -3,6 +3,7 @@ import { formatPrice } from "@/lib/format";
 
 import { Avatar, Button, Drawer, Dropdown, Input, Menu, Modal, Tag } from "@arco-design/web-react";
 import {
+  IconEmail,
   IconGift,
   IconNotification,
   IconSearch,
@@ -11,11 +12,12 @@ import {
   IconSettings,
   IconUser,
 } from "@arco-design/web-react/icon";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import type { User } from "@/lib/types";
-import type { Announcement } from "@/lib/announcements";
+import type { Announcement } from "@/lib/api-types";
 import { useEffect, useState } from "react";
+import { invalidateSession } from "@/src/hooks/useSession";
 
 interface Props {
   user: User | null;
@@ -25,7 +27,7 @@ interface Props {
 }
 
 export function StoreHeader({ user, searchQuery = "", onSearch, announcements = [] }: Props) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -37,15 +39,17 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
-    router.refresh();
+    invalidateSession();
+    navigate("/");
+    window.location.reload();
   }
 
   function onMenu(key: string) {
-    if (key === "account") router.push("/account/overview");
-    else if (key === "orders") router.push("/account/orders");
-    else if (key === "recharge") router.push("/account/recharge");
-    else if (key === "admin") router.push("/admin/overview");
+    if (key === "account") navigate("/account/overview");
+    else if (key === "orders") navigate("/account/orders");
+    else if (key === "pickup") navigate("/pickup");
+    else if (key === "recharge") navigate("/account/recharge");
+    else if (key === "admin") navigate("/admin/overview");
     else if (key === "logout") logout();
   }
 
@@ -53,8 +57,7 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
     <header className="sticky top-0 z-20 border-b border-[#e5e6eb] bg-white">
       <div className="mx-auto flex h-14 max-w-[1200px] items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <Link href="/" className="flex shrink-0 items-center gap-2 text-[16px] font-semibold">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          <Link to="/" className="flex shrink-0 items-center gap-2 text-[16px] font-semibold">
             <img src="/favicon.svg" alt="HShop" className="h-7 w-7 rounded-md" />
             HShop
           </Link>
@@ -81,6 +84,12 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
           <span className="lg:hidden">
             <Button size="small" icon={<IconNotification />} aria-label="公告" onClick={() => setNoticeOpen(true)} />
           </span>
+          {/* 取件是公开页面，未登录也保留入口 */}
+          <Link to="/pickup" className="inline-flex">
+            <Button size="small" icon={<IconEmail />} aria-label="取件">
+              <span className="hidden sm:inline">取件</span>
+            </Button>
+          </Link>
           {user ? (
             <>
               <span className="hidden text-[13px] text-[#4e5969] sm:inline">
@@ -103,6 +112,11 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
                       <Menu.Item key="orders">
                         <span className="inline-flex items-center gap-2">
                           <IconList /> 我的订单
+                        </span>
+                      </Menu.Item>
+                      <Menu.Item key="pickup">
+                        <span className="inline-flex items-center gap-2">
+                          <IconEmail /> 取件
                         </span>
                       </Menu.Item>
                       <Menu.Item key="recharge">
@@ -135,7 +149,7 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
               </Dropdown>
             </>
           ) : (
-            <Link href="/login">
+            <Link to="/login">
               <Button size="small" type="primary">
                 登录 / 注册
               </Button>

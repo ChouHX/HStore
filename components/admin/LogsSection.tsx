@@ -2,7 +2,7 @@
 
 import { Button, Message, Table, Tag } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
-import type { AuditLog } from "@/lib/users";
+import type { AuditLog } from "@/lib/api-types";
 
 const PAGE_SIZE = 20;
 

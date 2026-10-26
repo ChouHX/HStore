@@ -11,6 +11,7 @@ interface SettingsData {
   hasCookie: boolean;
   cookieAt: number;
   cookiePreview: string;
+  redeemPurchaseUrl?: string;
 }
 
 export function SettingsSection() {
@@ -30,6 +31,7 @@ export function SettingsSection() {
       setData(j as SettingsData);
       setBaseUrl(j.baseUrl);
       setAppId(j.appId);
+      setRedeemUrl(j.redeemPurchaseUrl ?? "");
     } else {
       Message.error(j.message ?? "加载失败");
     }
@@ -93,6 +95,21 @@ export function SettingsSection() {
     } else Message.error(j.message ?? "清除失败");
   }
 
+  async function saveSite() {
+    setSavingSite(true);
+    try {
+      const j = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "saveSite", redeemPurchaseUrl: redeemUrl }),
+      }).then((r) => r.json());
+      if (j.ok) Message.success("商城设置已保存");
+      else Message.error(j.message ?? "保存失败");
+    } finally {
+      setSavingSite(false);
+    }
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card title="开放平台配置" bordered={false}>
@@ -127,7 +144,7 @@ export function SettingsSection() {
             </Button>
           </Space>
           <p className="text-[11px] text-[#86909c]">
-            配置保存在数据库中，无需修改 `.env`；签名请求会自动使用这里的客户编号与密钥。
+            配置保存在数据库中，无需修改任何配置文件；签名请求会自动使用这里的客户编号与密钥。
           </p>
         </div>
       </Card>
@@ -159,6 +176,27 @@ export function SettingsSection() {
           <p className="text-[11px] text-[#86909c]">
             当接口返回人机校验页时，系统会自动执行站点脚本获取 Cookie 并重试，通常无需手动操作；
             Cookie 过期后可点击上方按钮或等待下次请求自动刷新。
+          </p>
+        </div>
+      </Card>
+
+      <Card title="商城设置" bordered={false}>
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">兑换码购买链接</div>
+            <Input
+              value={redeemUrl}
+              onChange={setRedeemUrl}
+              placeholder="https://example.com/buy（留空则不显示购买按钮）"
+            />
+          </div>
+          <Space>
+            <Button type="primary" loading={savingSite} onClick={saveSite}>
+              保存商城设置
+            </Button>
+          </Space>
+          <p className="text-[11px] text-[#86909c]">
+            配置后会显示在「充值 / 兑换」页面，引导用户跳转购买兑换码。
           </p>
         </div>
       </Card>
