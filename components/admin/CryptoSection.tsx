@@ -11,7 +11,6 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
@@ -215,14 +214,19 @@ export function CryptoSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Tabs className="recharge-tabs" defaultActiveTab="config" animation={true} lazyload={false} destroyOnHide={false}>
-        <Tabs.TabPane key="config" title="配置" lazyload={false} destroyOnHide={false}>
-          <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
       <Card
         title="Bybit 配置"
         bordered={false}
         bodyStyle={{ padding: 16 }}
-        extra={<Tag color={data.configured ? "green" : "red"}>{data.configured ? "API 已配置" : "API 未配置"}</Tag>}
+        extra={
+          <Space>
+            <Tag color={data.configured ? "green" : "red"}>{data.configured ? "API 已配置" : "API 未配置"}</Tag>
+            <Button size="small" loading={busy} onClick={() => post({ action: "checkOrders" }, "已检查进行中订单")}>
+              检查进行中订单
+            </Button>
+          </Space>
+        }
       >
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <div>
@@ -382,10 +386,7 @@ export function CryptoSection() {
         </div>
       </Modal>
 
-          </div>
-        </Tabs.TabPane>
-
-      </Tabs>
+      </div>
     </div>
   );
 }

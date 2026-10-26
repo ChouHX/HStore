@@ -12,7 +12,6 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
@@ -299,21 +298,7 @@ export function AlipaySection() {
         content="HStore 直接对接支付宝开放平台：用户扫经营码支付唯一应付金额，后端定时查询账务明细并按金额 + 时间窗口自动确认入账。无需部署 PerPay，也无需手机监听软件。"
       />
 
-      <div className="flex flex-wrap items-center gap-2 rounded border border-[#e5e6eb] bg-white p-2">
-        <Button size="small" onClick={() => setLedgerOpen(true)}>
-          查看支付宝流水（待匹配 {data.pendingLedger.length}）
-        </Button>
-        <Button size="small" loading={busy} onClick={() => post({ action: "expire" }, "已处理过期订单")}>
-          处理过期订单
-        </Button>
-        <span className="ml-2 text-[11px] text-[#86909c]">
-          支付订单统一在「订单管理」页查看；这里只做经营码配置与查账。
-        </span>
-      </div>
-
-      <Tabs className="recharge-tabs" defaultActiveTab="config" lazyload={false} destroyOnHide={false}>
-        <Tabs.TabPane key="config" title="经营码配置" lazyload={false} destroyOnHide={false}>
-          <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
             <Card
               title="支付宝开放平台"
               bordered={false}
@@ -323,6 +308,12 @@ export function AlipaySection() {
                   <Tag color={data.configured ? "green" : "red"}>{data.configured ? "已配置" : "未配置"}</Tag>
                   <Tag color={data.openOrders > 0 ? "orange" : "gray"}>待支付 {data.openOrders}</Tag>
                   <Tag color={data.unmatched > 0 ? "red" : "gray"}>待匹配 {data.unmatched}</Tag>
+                  <Button size="small" onClick={() => setLedgerOpen(true)}>
+                    查看流水
+                  </Button>
+                  <Button size="small" loading={busy} onClick={() => post({ action: "expire" }, "已处理过期订单")}>
+                    处理过期订单
+                  </Button>
                 </Space>
               }
             >
@@ -599,10 +590,7 @@ export function AlipaySection() {
                 <li>用户下单会生成唯一应付金额（申请金额 + 1–{data.config.amountOffsetMaxCents} 分），必须按页面金额支付。</li>
               </ol>
             </Card>
-          </div>
-        </Tabs.TabPane>
-
-      </Tabs>
+      </div>
 
       <Modal
         title={`支付宝流水（待匹配 ${data.pendingLedger.length} / 全部 ${data.recentLedger.length}）`}
