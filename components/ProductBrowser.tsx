@@ -104,6 +104,60 @@ function CategoryChips({
   );
 }
 
+/** 商品加载骨架：按当前布局渲染占位卡片，整体呼吸动画 */
+function ProductSkeleton({ mode, count = 8 }: { mode: "list" | "grid"; count?: number }) {
+  const items = Array.from({ length: count }, (_, i) => i);
+  const bar = "rounded bg-[#eef0f3]";
+
+  if (mode === "list") {
+    return (
+      <div className="flex flex-col gap-2">
+        {items.map((i) => (
+          <div key={i} className="flex animate-pulse items-center gap-3 rounded border border-[#e5e6eb] bg-white p-3">
+            <div className="h-12 w-12 shrink-0 rounded-full bg-[#eef0f3]" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className={`h-3 w-3/5 ${bar}`} />
+              <div className={`h-3 w-2/5 ${bar}`} />
+              <div className="flex gap-1.5 pt-0.5">
+                <div className={`h-4 w-10 ${bar}`} />
+                <div className={`h-4 w-14 ${bar}`} />
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <div className={`h-5 w-14 ${bar}`} />
+              <div className={`h-6 w-14 ${bar}`} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {items.map((i) => (
+        <div key={i} className="flex animate-pulse flex-col gap-2 rounded border border-[#e5e6eb] bg-white p-3">
+          <div className="flex gap-2">
+            <div className="h-12 w-12 shrink-0 rounded-full bg-[#eef0f3]" />
+            <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+              <div className={`h-3 w-full ${bar}`} />
+              <div className={`h-3 w-2/3 ${bar}`} />
+            </div>
+          </div>
+          <div className="mt-1 flex gap-1.5">
+            <div className={`h-4 w-10 ${bar}`} />
+            <div className={`h-4 w-14 ${bar}`} />
+          </div>
+          <div className="mt-auto flex items-end justify-between pt-1">
+            <div className={`h-5 w-16 ${bar}`} />
+            <div className={`h-6 w-14 ${bar}`} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProductCard({
   p,
   discount,
@@ -483,7 +537,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                   </div>
 
                   {loading ? (
-                    <div className="flex h-40 items-center justify-center text-[13px] text-[#86909c]">加载中…</div>
+                    <ProductSkeleton mode={layout === "list" ? "list" : "grid"} />
                   ) : items.length === 0 ? (
                     <div className="flex h-40 items-center justify-center text-[13px] text-[#86909c]">
                       该分类暂无商品
