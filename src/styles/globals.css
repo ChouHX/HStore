@@ -78,6 +78,15 @@ body {
   }
 }
 
+/* 移动端横向滚动条：板块 / 分类胶囊一行滑完，不占高度 */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* 充值设置 Tab：保留下划线动画，仅关闭内容区的位移动画 */
 .recharge-tabs .arco-tabs-header-ink {
   will-change: left, width;

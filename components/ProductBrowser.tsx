@@ -85,7 +85,7 @@ function CategoryChips({
         : "border-[#e5e6eb] bg-white text-[#4e5969] hover:border-[#c9cdd4]"
     }`;
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
       <button type="button" onClick={() => onPick(0)} className={cls(dirFilter === 0)}>
         全部商品
       </button>
@@ -331,7 +331,10 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
             {/* 板块卡片 */}
             {!searching && (
               <>
-            <div id="store-products" className="mb-1 grid grid-cols-4 gap-1 sm:flex sm:flex-wrap sm:gap-1">
+            <div
+              id="store-products"
+              className="no-scrollbar -mx-4 mb-1 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
+            >
               {boards.map((b) => {
                 const active = b.id === boardId;
                 return (
@@ -339,32 +342,24 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                     key={b.id}
                     type="button"
                     onClick={() => pickBoard(b.id)}
-                    className={`flex w-full flex-col items-center gap-0 rounded-md px-1 py-1.5 text-center transition sm:w-auto sm:flex-row sm:gap-2 sm:px-2 sm:py-1.5 sm:text-left ${
-                      active ? "bg-[#e8f3ff] text-[#165dff]" : "text-[#1d2129] hover:bg-[#f2f3f5]"
+                    title={b.name}
+                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-[12px] transition ${
+                      active
+                        ? "border-[#165dff] bg-[#e8f3ff] font-medium text-[#165dff]"
+                        : "border-[#e5e6eb] bg-white text-[#1d2129] hover:border-[#c9cdd4]"
                     }`}
                   >
-                    {catImg(b.img) ? (
+                    {catImg(b.img) && (
                       <img
                         src={catImg(b.img)!}
                         alt=""
-                        className="mb-1 h-9 w-9 shrink-0 rounded-full object-cover sm:mb-0 sm:h-7 sm:w-7"
+                        className="h-5 w-5 shrink-0 rounded-full object-cover"
                         loading="lazy"
                       />
-                    ) : (
-                      <div className="mb-1 h-9 w-9 shrink-0 rounded-full bg-[#f2f3f5] sm:mb-0 sm:h-7 sm:w-7" />
                     )}
-                    <span className="flex w-full min-w-0 flex-col items-center leading-tight sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-                      <span
-                        className="w-full break-words px-0.5 text-[12px] leading-snug sm:line-clamp-1 sm:w-auto sm:px-0 sm:text-[13px]"
-                        title={b.name}
-                      >
-                        {cleanBoardName(b.name)}
-                      </span>
-                      <span
-                        className={`hidden text-[10px] sm:inline sm:text-[11px] ${active ? "text-[#165dff]" : "text-[#86909c]"}`}
-                      >
-                        {b.total}
-                      </span>
+                    <span>{cleanBoardName(b.name)}</span>
+                    <span className={`text-[11px] ${active ? "text-[#165dff]/70" : "text-[#86909c]"}`}>
+                      {b.total}
                     </span>
                   </button>
                 );
