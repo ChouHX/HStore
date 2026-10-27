@@ -176,6 +176,9 @@ func withStatic(api http.Handler) http.Handler {
 			if strings.HasPrefix(name, "assets/") {
 				// 文件名带内容 hash，可长期缓存
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else if strings.HasSuffix(name, ".svg") || strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".ico") {
+				// favicon / 支付图标等静态小图缓存一周，避免反复回源
+				w.Header().Set("Cache-Control", "public, max-age=604800")
 			}
 			files.ServeHTTP(w, r)
 			return

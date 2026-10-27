@@ -165,7 +165,8 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
           )}
         </div>
 
-        <div className="md:hidden">
+        <div className="flex items-center gap-2 md:hidden">
+          <Button size="small" icon={<IconSearch />} aria-label="搜索" onClick={() => setSearchOpen(true)} />
           <Dropdown
             trigger="click"
             position="br"
@@ -178,11 +179,6 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
                   </div>
                 )}
                 <Menu onClickMenuItem={onMenu} style={{ border: "none" }}>
-                  <Menu.Item key="search">
-                    <span className="inline-flex items-center gap-2">
-                      <IconSearch /> 搜索商品
-                    </span>
-                  </Menu.Item>
                   <Menu.Item key="notice">
                     <span className="inline-flex items-center gap-2">
                       <IconNotification /> 公告{announcements.length > 0 ? `（${announcements.length}）` : ""}

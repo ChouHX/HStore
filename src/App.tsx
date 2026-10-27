@@ -1,12 +1,12 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
 import { Suspense, lazy } from "react";
 
-const HomePage = lazy(() => import("@/src/pages/HomePage").then((m) => ({ default: m.HomePage })));
-const LoginPage = lazy(() => import("@/src/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
-const RegisterPage = lazy(() => import("@/src/pages/RegisterPage").then((m) => ({ default: m.RegisterPage })));
+import { HomePage } from "@/src/pages/HomePage";
+import { LoginPage } from "@/src/pages/LoginPage";
+import { RegisterPage } from "@/src/pages/RegisterPage";
+import { OrderQueryPage } from "@/src/pages/OrderQueryPage";
 const PickupPage = lazy(() => import("@/src/pages/PickupPage").then((m) => ({ default: m.PickupPage })));
 const CheckoutPage = lazy(() => import("@/src/pages/CheckoutPage").then((m) => ({ default: m.CheckoutPage })));
-const OrderQueryPage = lazy(() => import("@/src/pages/OrderQueryPage").then((m) => ({ default: m.OrderQueryPage })));
 const OrderDetailPage = lazy(() => import("@/src/pages/OrderDetailPage").then((m) => ({ default: m.OrderDetailPage })));
 
 const AdminLayout = lazy(() => import("@/src/layouts/AdminLayout").then((m) => ({ default: m.AdminLayout })));

@@ -33,5 +33,17 @@ export default defineConfig({
     outDir: "backend/web/dist",
     emptyOutDir: true,
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // 把框架与 UI 库合并成稳定的大块，避免被拆成几十个小请求；
+        // 业务页面仍按路由懒加载。
+        manualChunks(id: string) {
+          // 第三方依赖整体打包成一个 vendor，避免拆出循环依赖与几十个小请求；
+          // 业务页面仍按路由懒加载。
+          if (id.includes("node_modules")) return "vendor";
+          return undefined;
+        },
+      },
+    },
   },
 });
