@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  Alert,
   Button,
   Card,
   Input,
   InputNumber,
   Message,
   Modal,
+  Radio,
   Select,
   Space,
   Switch,
@@ -124,10 +124,21 @@ function copyText(text: string) {
   Message.success("已复制");
 }
 
+function GroupTitle({ children }: { children: string }) {
+  return (
+    <div className="col-span-full flex items-center gap-2 pt-1 text-[12px] font-medium text-[#4e5969]">
+      <span>{children}</span>
+      <span className="h-px flex-1 bg-[#f2f3f5]" />
+    </div>
+  );
+}
+
 export function AlipaySection() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(false);
+  const [ledgerFilter, setLedgerFilter] = useState<"ALL" | AlipayLedgerView["state"]>("ALL");
   const [matchEntry, setMatchEntry] = useState<AlipayLedgerView | null>(null);
   const [matchOrderID, setMatchOrderID] = useState<number | undefined>();
   const [form, setForm] = useState({
@@ -216,17 +227,21 @@ export function AlipaySection() {
   const pendingOrders = data.orders.filter((o) => o.paymentStatus === "UNPAID");
 
   const ledgerColumns = [
-    { title: "ID", dataIndex: "id", width: 60 },
     {
       title: "到账时间",
       dataIndex: "occurredAt",
-      width: 170,
-      render: (_: unknown, r: AlipayLedgerView) => new Date(r.occurredAt).toLocaleString("zh-CN"),
+      width: 160,
+      render: (_: unknown, r: AlipayLedgerView) => (
+        <span className="whitespace-nowrap text-[12px] tabular-nums">
+          {new Date(r.occurredAt).toLocaleString("zh-CN")}
+        </span>
+      ),
     },
     {
       title: "金额",
       dataIndex: "amountCents",
       width: 100,
+      align: "right" as const,
       render: (_: unknown, r: AlipayLedgerView) => (
         <span className={r.direction === "CREDIT" ? "text-[#00b42a]" : "text-[#f53f3f]"}>
           {r.direction === "CREDIT" ? "+" : "-"}
@@ -237,7 +252,7 @@ export function AlipaySection() {
     {
       title: "支付宝订单号",
       dataIndex: "alipayOrderNo",
-      width: 190,
+      width: 180,
       render: (_: unknown, r: AlipayLedgerView) => (
         <span className="font-mono text-[11px]">{r.alipayOrderNo || "-"}</span>
       ),
@@ -255,7 +270,7 @@ export function AlipaySection() {
     {
       title: "状态",
       dataIndex: "state",
-      width: 100,
+      width: 92,
       render: (_: unknown, r: AlipayLedgerView) => (
         <Tag size="small" color={LEDGER_TAG[r.state]?.color}>
           {LEDGER_TAG[r.state]?.text ?? r.state}
@@ -263,15 +278,15 @@ export function AlipaySection() {
       ),
     },
     {
-      title: "关联订单",
+      title: "订单",
       dataIndex: "orderId",
-      width: 90,
+      width: 70,
       render: (_: unknown, r: AlipayLedgerView) => r.orderId ?? "-",
     },
     {
       title: "操作",
       dataIndex: "op",
-      width: 110,
+      width: 100,
       render: (_: unknown, r: AlipayLedgerView) =>
         r.direction === "CREDIT" && r.state !== "ALLOCATED" ? (
           <Button
@@ -293,13 +308,7 @@ export function AlipaySection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Alert
-        type="info"
-        content="HStore 直接对接支付宝开放平台：用户扫经营码支付唯一应付金额，后端定时查询账务明细并按金额 + 时间窗口自动确认入账。无需部署 PerPay，也无需手机监听软件。"
-      />
-
-      <div className="flex flex-col gap-4">
-            <Card
+      <Card
               title="支付宝开放平台"
               bordered={false}
               bodyStyle={{ padding: 16 }}
@@ -311,18 +320,24 @@ export function AlipaySection() {
                   <Button size="small" onClick={() => setLedgerOpen(true)}>
                     查看流水
                   </Button>
+                  <Button size="small" onClick={() => setStepsOpen(true)}>
+                    接入步骤
+                  </Button>
                   <Button size="small" loading={busy} onClick={() => post({ action: "expire" }, "已处理过期订单")}>
                     处理过期订单
                   </Button>
                 </Space>
               }
             >
-              <div className="grid gap-3 lg:grid-cols-3">
-                <div className="flex items-center gap-3">
-                  <Switch checked={form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} />
-                  <div>
-                    <div className="text-[12px] text-[#4e5969]">启用支付宝充值</div>
-                    <div className="text-[11px] text-[#86909c]">关闭后仅停止新订单，已有订单继续查账</div>
+              <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+                <GroupTitle>接入状态</GroupTitle>
+                <div>
+                  <div className="mb-1 text-[12px] text-[#4e5969]">
+                    启用支付宝充值 <span className="text-[11px] text-[#86909c]">关闭仅停止新订单</span>
+                  </div>
+                  <div className="flex h-8 items-center gap-2">
+                    <Switch checked={form.enabled} onChange={(v) => setForm({ ...form, enabled: v })} />
+                    <span className="text-[11px] text-[#86909c]">{form.enabled ? "已启用" : "已停用"}</span>
                   </div>
                 </div>
                 <div>
@@ -344,7 +359,8 @@ export function AlipaySection() {
                     placeholder="开放平台应用 App ID"
                   />
                 </div>
-                <div className="lg:col-span-2">
+                <GroupTitle>密钥凭证</GroupTitle>
+                <div className="sm:col-span-2">
                   <div className="mb-1 text-[12px] text-[#4e5969]">
                     应用私钥 {data.config.hasPrivateKey && <span className="text-[#86909c]">已配置</span>}
                   </div>
@@ -355,7 +371,7 @@ export function AlipaySection() {
                     placeholder={data.config.hasPrivateKey ? "已配置，留空则不修改" : "粘贴应用私钥 PEM 或一行 base64"}
                   />
                 </div>
-                <div className="lg:col-span-2">
+                <div className="sm:col-span-2">
                   <div className="mb-1 text-[12px] text-[#4e5969]">
                     支付宝公钥 {data.config.hasPublicKey && <span className="text-[#86909c]">已配置</span>}
                   </div>
@@ -366,8 +382,11 @@ export function AlipaySection() {
                     placeholder={data.config.hasPublicKey ? "已配置，留空则不修改" : "粘贴支付宝公钥（不是应用公钥）"}
                   />
                 </div>
-                <div className="lg:col-span-2">
-                  <div className="mb-1 text-[12px] text-[#4e5969]">经营码链接</div>
+                <GroupTitle>收款与金额</GroupTitle>
+                <div className="sm:col-span-2">
+                  <div className="mb-1 text-[12px] text-[#4e5969]">
+                    经营码链接 <span className="text-[11px] text-[#86909c]">仅接受 qr.alipay.com</span>
+                  </div>
                   <div className="flex gap-2">
                     <Input
                       value={form.collectionCode}
@@ -378,11 +397,8 @@ export function AlipaySection() {
                       复制
                     </Button>
                   </div>
-                  <div className="mt-1 text-[11px] text-[#86909c]">
-                    支付宝「收钱码/经营码」的二维码内容，只接受 qr.alipay.com。
-                  </div>
                 </div>
-                <div>
+                <div className="sm:col-span-2">
                   <div className="mb-1 text-[12px] text-[#4e5969]">商品名称</div>
                   <Input
                     value={form.productName}
@@ -390,29 +406,27 @@ export function AlipaySection() {
                     maxLength={200}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <div className="mb-1 text-[12px] text-[#4e5969]">最小充值</div>
-                    <InputNumber
-                      value={form.minCny}
-                      min={0.01}
-                      step={1}
-                      precision={2}
-                      style={{ width: "100%" }}
-                      onChange={(v) => setForm({ ...form, minCny: Number(v) || 0 })}
-                    />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-[12px] text-[#4e5969]">最大充值</div>
-                    <InputNumber
-                      value={form.maxCny}
-                      min={0.01}
-                      step={100}
-                      precision={2}
-                      style={{ width: "100%" }}
-                      onChange={(v) => setForm({ ...form, maxCny: Number(v) || 0 })}
-                    />
-                  </div>
+                <div>
+                  <div className="mb-1 text-[12px] text-[#4e5969]">最小充值（元）</div>
+                  <InputNumber
+                    value={form.minCny}
+                    min={0.01}
+                    step={1}
+                    precision={2}
+                    style={{ width: "100%" }}
+                    onChange={(v) => setForm({ ...form, minCny: Number(v) || 0 })}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-[12px] text-[#4e5969]">最大充值（元）</div>
+                  <InputNumber
+                    value={form.maxCny}
+                    min={0.01}
+                    step={100}
+                    precision={2}
+                    style={{ width: "100%" }}
+                    onChange={(v) => setForm({ ...form, maxCny: Number(v) || 0 })}
+                  />
                 </div>
                 <div>
                   <div className="mb-1 text-[12px] text-[#4e5969]">收银台有效期（秒）</div>
@@ -436,6 +450,7 @@ export function AlipaySection() {
                     onChange={(v) => setForm({ ...form, amountOffsetMaxCents: Number(v) || 99 })}
                   />
                 </div>
+                <GroupTitle>订单与查账</GroupTitle>
                 <div>
                   <div className="mb-1 text-[12px] text-[#4e5969]">金额复用冷却（秒）</div>
                   <InputNumber
@@ -491,9 +506,12 @@ export function AlipaySection() {
                     onChange={(v) => setForm({ ...form, lookbackSeconds: Number(v) || 3600 })}
                   />
                 </div>
+                <p className="self-end pb-2 text-[11px] leading-relaxed text-[#86909c] sm:col-span-2 lg:col-span-3">
+                  有等待订单时按活跃间隔轮询，空闲时自动降频，避免触发开放平台限流。
+                </p>
               </div>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#f2f3f5] pt-3">
                 <Button
                   type="primary"
                   loading={busy}
@@ -530,12 +548,14 @@ export function AlipaySection() {
                 <Button loading={busy} onClick={() => post({ action: "scan" }, "查账完成")}>
                   立即查账
                 </Button>
-                <Button loading={busy} onClick={() => post({ action: "reconcilePending" }, "已重新匹配")}>
-                  重新匹配待处理流水
-                </Button>
-                <Button loading={busy} onClick={() => post({ action: "resetScan" }, "已重置查账游标")}>
-                  重置查账游标
-                </Button>
+                <div className="ml-auto flex items-center gap-2">
+                  <Button type="text" loading={busy} onClick={() => post({ action: "reconcilePending" }, "已重新匹配")}>
+                    重新匹配待处理流水
+                  </Button>
+                  <Button type="text" loading={busy} onClick={() => post({ action: "resetScan" }, "已重置查账游标")}>
+                    重置查账游标
+                  </Button>
+                </div>
               </div>
             </Card>
 
@@ -581,19 +601,8 @@ export function AlipaySection() {
               </div>
             </Card>
 
-            <Card title="接入步骤" bordered={false} bodyStyle={{ padding: 16 }}>
-              <ol className="ml-4 list-decimal space-y-1 text-[12px] leading-relaxed text-[#4e5969]">
-                <li>在支付宝开放平台创建应用，开通「账务明细查询」权限，并配置应用公钥。</li>
-                <li>当前使用公钥模式：这里填 App ID、应用私钥、支付宝公钥；应用公钥由你上传到支付宝，不要填到这里。</li>
-                <li>获取你的支付宝经营码/收钱码链接（qr.alipay.com），填入经营码链接。</li>
-                <li>保存后点「测试连接」，成功后再启用支付宝充值。</li>
-                <li>用户下单会生成唯一应付金额（申请金额 + 1–{data.config.amountOffsetMaxCents} 分），必须按页面金额支付。</li>
-              </ol>
-            </Card>
-      </div>
-
       <Modal
-        title={`支付宝流水（待匹配 ${data.pendingLedger.length} / 全部 ${data.recentLedger.length}）`}
+        title="支付宝流水"
         visible={ledgerOpen}
         onCancel={() => setLedgerOpen(false)}
         footer={
@@ -609,33 +618,55 @@ export function AlipaySection() {
             <Button onClick={() => setLedgerOpen(false)}>关闭</Button>
           </Space>
         }
-        style={{ width: 1080 }}
+        style={{ width: 1120 }}
         unmountOnExit
       >
         <div className="flex flex-col gap-3">
-          <div>
-            <div className="mb-2 text-[13px] font-medium">待匹配流水</div>
-            <Table
-              rowKey="id"
-              columns={ledgerColumns}
-              data={data.pendingLedger}
-              pagination={{ pageSize: 5 }}
-              scroll={{ x: 1100 }}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Radio.Group
+              type="button"
               size="small"
-            />
+              value={ledgerFilter}
+              onChange={(v) => setLedgerFilter(v as "ALL" | AlipayLedgerView["state"])}
+            >
+              <Radio value="ALL">全部 {data.recentLedger.length}</Radio>
+              <Radio value="UNALLOCATED">待匹配 {data.recentLedger.filter((r) => r.state === "UNALLOCATED").length}</Radio>
+              <Radio value="CANDIDATE">多候选 {data.recentLedger.filter((r) => r.state === "CANDIDATE").length}</Radio>
+              <Radio value="ALLOCATED">已关联 {data.recentLedger.filter((r) => r.state === "ALLOCATED").length}</Radio>
+              <Radio value="IGNORED">已忽略 {data.recentLedger.filter((r) => r.state === "IGNORED").length}</Radio>
+            </Radio.Group>
+            <span className="text-[11px] text-[#86909c]">仅展示最近 100 条账务流水</span>
           </div>
-          <div>
-            <div className="mb-2 text-[13px] font-medium">全部流水</div>
-            <Table
-              rowKey="id"
-              columns={ledgerColumns}
-              data={data.recentLedger}
-              pagination={{ pageSize: 8 }}
-              scroll={{ x: 1100 }}
-              size="small"
-            />
-          </div>
+          <Table
+            rowKey="id"
+            columns={ledgerColumns}
+            data={ledgerFilter === "ALL" ? data.recentLedger : data.recentLedger.filter((r) => r.state === ledgerFilter)}
+            pagination={{ pageSize: 10 }}
+            scroll={{ x: 1000 }}
+            size="small"
+          />
         </div>
+      </Modal>
+
+      <Modal
+        title="接入步骤"
+        visible={stepsOpen}
+        onCancel={() => setStepsOpen(false)}
+        footer={
+          <Button type="primary" onClick={() => setStepsOpen(false)}>
+            知道了
+          </Button>
+        }
+        style={{ width: 560 }}
+        unmountOnExit
+      >
+        <ol className="ml-4 list-decimal space-y-2 text-[13px] leading-relaxed text-[#4e5969]">
+          <li>在支付宝开放平台创建应用，开通「账务明细查询」权限，并配置应用公钥。</li>
+          <li>当前使用公钥模式：这里填 App ID、应用私钥、支付宝公钥；应用公钥由你上传到支付宝，不要填到这里。</li>
+          <li>获取你的支付宝经营码/收钱码链接（qr.alipay.com），填入经营码链接。</li>
+          <li>保存后点「测试连接」，成功后再启用支付宝充值。</li>
+          <li>用户下单会生成唯一应付金额（申请金额 + 1–{data.config.amountOffsetMaxCents} 分），必须按页面金额支付。</li>
+        </ol>
       </Modal>
 
       <Modal
