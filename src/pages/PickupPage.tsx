@@ -25,7 +25,6 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MailboxPanel, type MailboxTarget } from "@/components/MailboxPanel";
-import { formatPrice } from "@/lib/format";
 import { useSession } from "@/src/hooks/useSession";
 
 interface MailboxItem {
@@ -348,9 +347,6 @@ export function PickupPage() {
             </Button>
             {user ? (
               <>
-                <span className="hidden text-[12px] text-[#4e5969] sm:inline">
-                  余额 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(user.balance)}</span>
-                </span>
                 <Button size="mini" type="primary" onClick={() => navigate("/account/overview")}>
                   个人中心
                 </Button>

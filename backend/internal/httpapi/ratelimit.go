@@ -155,3 +155,42 @@ func allowQuery(ip string) bool {
 	b.used++
 	return true
 }
+
+// 注册验证码限流：防止脚本批量发信耗尽当天配额。
+const (
+	registerWindow   = time.Minute
+	registerMaxPerIP = 5
+)
+
+var (
+	registerMu      sync.Mutex
+	registerBuckets = map[string]*ipBucket{}
+	registerCalls   int
+)
+
+func allowRegisterCode(ip string) bool {
+	if ip == "" {
+		ip = "-"
+	}
+	now := time.Now()
+	registerMu.Lock()
+	defer registerMu.Unlock()
+	registerCalls++
+	if registerCalls%pickupSweepEach == 0 {
+		for k, b := range registerBuckets {
+			if now.After(b.reset) {
+				delete(registerBuckets, k)
+			}
+		}
+	}
+	b := registerBuckets[ip]
+	if b == nil || now.After(b.reset) {
+		registerBuckets[ip] = &ipBucket{used: 1, reset: now.Add(registerWindow)}
+		return true
+	}
+	if b.used >= registerMaxPerIP {
+		return false
+	}
+	b.used++
+	return true
+}

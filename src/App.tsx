@@ -22,6 +22,7 @@ import { LoginPage } from "@/src/pages/LoginPage";
 import { OrderDetailPage } from "@/src/pages/OrderDetailPage";
 import { OrderQueryPage } from "@/src/pages/OrderQueryPage";
 import { PickupPage } from "@/src/pages/PickupPage";
+import { RegisterPage } from "@/src/pages/RegisterPage";
 
 function NotFound() {
   return (
@@ -40,6 +41,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         {/* 取件是公开页面，不放在 /account 下，无需登录 */}
         <Route path="/pickup" element={<PickupPage />} />
         <Route path="/pay/:token" element={<CheckoutPage />} />

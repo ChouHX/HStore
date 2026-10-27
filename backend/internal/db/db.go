@@ -406,6 +406,19 @@ CREATE TABLE IF NOT EXISTS sync_meta (
   value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS email_codes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  email      TEXT NOT NULL,
+  code       TEXT NOT NULL,
+  ip         TEXT NOT NULL DEFAULT '',
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  consumed   INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, created_at);
+
 CREATE INDEX IF NOT EXISTS idx_products_platform ON products(platform);
 CREATE INDEX IF NOT EXISTS idx_cards_order ON cards(order_number);
 CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);

@@ -613,15 +613,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             </details>
           )}
 
-          <div className="rounded bg-[#f7f8fa] px-3 py-2 text-[12px] text-[#4e5969]">
-            单价 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(unitPrice)}</span>
-            {discount < 1 && user && (
-              <span className="ml-1">（原价 ¥{formatPrice(product?.finalPrice)}，会员 {Math.round(discount * 100)} 折）</span>
-            )}
-            ，下单后自动发货。
-          </div>
-
-
           {templates.length > 0 && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {templates.map((t) => (

@@ -8,6 +8,8 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/auth/login", a.handleLogin)
 	a.mux.HandleFunc("POST /api/auth/logout", a.handleLogout)
 	a.mux.HandleFunc("GET /api/auth/me", a.handleMe)
+	a.mux.HandleFunc("POST /api/auth/register/code", a.handleRegisterCode)
+	a.mux.HandleFunc("POST /api/auth/register", a.handleRegister)
 
 	// 公开信息
 	a.mux.HandleFunc("GET /api/announcements", a.handleAnnouncements)
@@ -89,6 +91,8 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/admin/settings", a.handleAdminSettingsPost)
 	a.mux.HandleFunc("POST /api/admin/settings/cookie", a.handleAdminCookieRefresh)
 	a.mux.HandleFunc("POST /api/admin/settings/test", a.handleAdminSettingsTest)
+	a.mux.HandleFunc("GET /api/admin/smtp", a.handleAdminSMTPGet)
+	a.mux.HandleFunc("POST /api/admin/smtp", a.handleAdminSMTPPost)
 	a.mux.HandleFunc("GET /api/admin/crypto", a.handleAdminCrypto)
 	a.mux.HandleFunc("POST /api/admin/crypto", a.handleAdminCryptoPost)
 	a.mux.HandleFunc("GET /api/admin/alipay", a.handleAdminAlipay)

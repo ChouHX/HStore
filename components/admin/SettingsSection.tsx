@@ -2,6 +2,7 @@
 
 import { Button, Card, Input, Message, Space, Tag } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
+import { SmtpSection } from "@/components/admin/SmtpSection";
 
 interface SettingsData {
   baseUrl: string;
@@ -201,6 +202,9 @@ export function SettingsSection() {
         </div>
       </Card>
 
+      <div className="lg:col-span-2">
+        <SmtpSection />
+      </div>
     </div>
   );
 }

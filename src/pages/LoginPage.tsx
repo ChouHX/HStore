@@ -63,10 +63,9 @@ export function LoginPage() {
           </Button>
         </Form>
 
-        <div style={{ marginTop: 12, textAlign: "center" }}>
-          <Link to="/" style={{ fontSize: 12 }}>
-            返回商城
-          </Link>
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+          <Link to="/register">没有账号？立即注册</Link>
+          <Link to="/">返回商城</Link>
         </div>
       </Card>
     </div>
