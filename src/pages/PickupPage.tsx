@@ -1,10 +1,9 @@
 import {
   Alert,
-  Avatar,
   Button,
   Card,
+  Drawer,
   Empty,
-  Grid,
   Input,
   List,
   Message,
@@ -18,6 +17,7 @@ import {
   IconArrowLeft,
   IconDelete,
   IconEmail,
+  IconMenu,
   IconPlus,
   IconRefresh,
   IconUser,
@@ -54,13 +54,6 @@ interface ParsedRow {
 
 const PAGE_SIZE = 7;
 const STORAGE_KEY = "hstore:pickup:accounts";
-
-function fmtDate(ms: number): string {
-  if (!ms) return "";
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
-}
 
 /**
  * 批量解析账号数据，每行一个：
@@ -129,6 +122,81 @@ function saveImported(list: PickupAccount[]) {
   }
 }
 
+function AccountList({
+  accounts,
+  rows,
+  loading,
+  selectedId,
+  onSelect,
+  onRemove,
+  page,
+  onChangePage,
+}: {
+  accounts: PickupAccount[];
+  rows: PickupAccount[];
+  loading: boolean;
+  selectedId: string | null;
+  onSelect: (account: PickupAccount) => void;
+  onRemove: (account: PickupAccount) => void;
+  page: number;
+  onChangePage: (page: number) => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {accounts.length === 0 ? (
+          <Empty style={{ marginTop: 72 }} description={loading ? "加载中…" : "还没有账号，导入后显示在这里"} />
+        ) : (
+          <List
+            dataSource={rows}
+            split
+            render={(item) => (
+              <List.Item
+                key={item.id}
+                style={{
+                  cursor: "pointer",
+                  padding: "7px 12px",
+                  background: item.id === selectedId ? "#e8f3ff" : undefined,
+                }}
+                onClick={() => onSelect(item)}
+                actions={
+                  item.source === "import"
+                    ? [
+                        <Button
+                          key="remove"
+                          size="mini"
+                          type="text"
+                          icon={<IconDelete />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemove(item);
+                          }}
+                        />,
+                      ]
+                    : undefined
+                }
+              >
+                <span className="block truncate font-mono text-[12px]">{item.email}</span>
+              </List.Item>
+            )}
+          />
+        )}
+      </div>
+      {accounts.length > 0 && (
+        <div className="flex shrink-0 justify-center border-t border-[#f2f3f5] py-2">
+          <Pagination
+            size="small"
+            total={accounts.length}
+            pageSize={PAGE_SIZE}
+            current={page}
+            onChange={onChangePage}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * 独立取件页（公开，无需登录）。
  * 左侧账号列表，右侧读取邮箱；账号来自已购邮箱与手动批量导入。
@@ -148,6 +216,7 @@ export function PickupPage() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const loggedIn = !!user;
 
@@ -255,30 +324,30 @@ export function PickupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8]">
-      <header className="border-b border-[#e5e6eb] bg-white">
-        <div className="mx-auto flex h-14 max-w-[1180px] items-center justify-between gap-3 px-4">
-          <Link to="/" className="flex shrink-0 items-center gap-2 text-[16px] font-semibold">
-            <img src="/favicon.svg" alt="HShop" className="h-7 w-7" />
+    <div className="flex h-dvh flex-col overflow-hidden bg-[#f5f6f8]">
+      <header className="shrink-0 border-b border-[#e5e6eb] bg-white">
+        <div className="mx-auto flex h-12 max-w-[1440px] items-center justify-between gap-3 px-4">
+          <Link to="/" className="flex shrink-0 items-center gap-2 text-[15px] font-semibold">
+            <img src="/favicon.svg" alt="HShop" className="h-6 w-6" />
             HShop
-            <span className="text-[13px] font-normal text-[#86909c]">微软取件</span>
+            <span className="text-[12px] font-normal text-[#86909c]">微软取件</span>
           </Link>
 
-          <Space>
-            <Button size="small" icon={<IconArrowLeft />} onClick={() => navigate("/")}>
+          <Space size={8}>
+            <Button size="mini" icon={<IconArrowLeft />} onClick={() => navigate("/")}>
               返回商城
             </Button>
             {user ? (
               <>
-                <span className="hidden text-[13px] text-[#4e5969] sm:inline">
+                <span className="hidden text-[12px] text-[#4e5969] sm:inline">
                   余额 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(user.balance)}</span>
                 </span>
-                <Button size="small" type="primary" onClick={() => navigate("/account/overview")}>
+                <Button size="mini" type="primary" onClick={() => navigate("/account/overview")}>
                   个人中心
                 </Button>
               </>
             ) : (
-              <Button size="small" type="primary" icon={<IconUser />} onClick={() => navigate("/login")}>
+              <Button size="mini" type="primary" icon={<IconUser />} onClick={() => navigate("/login")}>
                 登录
               </Button>
             )}
@@ -286,113 +355,52 @@ export function PickupPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1180px] px-4 py-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <Typography.Title heading={5} style={{ margin: 0 }}>
-              微软取件
-            </Typography.Title>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              选择左侧账号，点击右侧「取件」读取邮箱，无需登录
-            </Typography.Text>
+      <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col gap-3 px-4 py-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[15px] font-semibold">微软取件</span>
+            <span className="hidden text-[12px] text-[#86909c] sm:inline">
+              选择账号后点击「取件」读取邮箱，无需登录
+            </span>
           </div>
-          <Space>
+          <Space size={8}>
+            <Button className="lg:hidden!" size="mini" icon={<IconMenu />} onClick={() => setDrawerOpen(true)}>
+              账号列表
+            </Button>
             {loggedIn && (
-              <Button icon={<IconRefresh />} loading={loadingMine} onClick={loadMine}>
-                刷新已购
+              <Button size="mini" icon={<IconRefresh />} loading={loadingMine} onClick={loadMine}>
+                刷新
               </Button>
             )}
-            <Button type="primary" icon={<IconPlus />} onClick={() => setImportOpen(true)}>
+            <Button size="mini" type="primary" icon={<IconPlus />} onClick={() => setImportOpen(true)}>
               导入账号
             </Button>
           </Space>
         </div>
 
-        <Grid.Row gutter={[12, 12]}>
-          <Grid.Col xs={24} lg={7}>
+        <div className="flex min-h-0 flex-1 gap-3">
+          <aside className="hidden w-[300px] shrink-0 lg:block">
             <Card
               bordered={false}
               title="账号列表"
-              extra={<Tag>{accounts.length} 个</Tag>}
-              bodyStyle={{ padding: 0 }}
+              extra={<Tag size="small">{accounts.length} 个</Tag>}
+              style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+              bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
             >
-              <div className="h-[280px] overflow-y-auto lg:h-[512px]">
-                {accounts.length === 0 ? (
-                  <Empty
-                    style={{ marginTop: 72 }}
-                    description={loadingMine ? "加载中…" : "还没有账号，导入后显示在这里"}
-                  />
-                ) : (
-                  <List
-                    dataSource={pageRows}
-                    split
-                    render={(item) => (
-                      <List.Item
-                        key={item.id}
-                        style={{
-                          cursor: "pointer",
-                          padding: "6px 16px",
-                          background: item.id === selectedId ? "#e8f3ff" : undefined,
-                        }}
-                        onClick={() => selectAccount(item)}
-                        actions={
-                          item.source === "import"
-                            ? [
-                                <Button
-                                  key="remove"
-                                  size="mini"
-                                  type="text"
-                                  icon={<IconDelete />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeImported(item);
-                                  }}
-                                />,
-                              ]
-                            : undefined
-                        }
-                      >
-                        <List.Item.Meta
-                          avatar={
-                            <Avatar size={28} style={{ background: "#f2f3f5", color: "#4e5969", fontSize: 12 }}>
-                              {(item.email[0] || "?").toUpperCase()}
-                            </Avatar>
-                          }
-                          title={<span className="font-mono text-[12px]">{item.email}</span>}
-                          description={
-                            <span className="text-[11px]">
-                              {item.source === "mine" ? "已购邮箱" : "手动导入"}
-                              {item.createdAt ? " · " + fmtDate(item.createdAt) : ""}
-                            </span>
-                          }
-                        />
-                      </List.Item>
-                    )}
-                  />
-                )}
-              </div>
-              {accounts.length > 0 && (
-                <div
-                  style={{
-                    padding: "8px 12px",
-                    borderTop: "1px solid #f2f3f5",
-                    display: "flex",
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  <Pagination
-                    size="small"
-                    total={accounts.length}
-                    pageSize={PAGE_SIZE}
-                    current={currentPage}
-                    onChange={setPage}
-                  />
-                </div>
-              )}
+              <AccountList
+                accounts={accounts}
+                rows={pageRows}
+                loading={loadingMine}
+                selectedId={selectedId}
+                onSelect={selectAccount}
+                onRemove={removeImported}
+                page={currentPage}
+                onChangePage={setPage}
+              />
             </Card>
-          </Grid.Col>
+          </aside>
 
-          <Grid.Col xs={24} lg={17}>
+          <section className="min-w-0 flex-1">
             <Card
               bordered={false}
               title={
@@ -403,26 +411,49 @@ export function PickupPage() {
                 )
               }
               extra={
-                <Button type="primary" icon={<IconEmail />} disabled={!selected} onClick={pickup}>
+                <Button size="mini" type="primary" icon={<IconEmail />} disabled={!selected} onClick={pickup}>
                   取件
                 </Button>
               }
-              bodyStyle={{ padding: 16 }}
+              style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+              bodyStyle={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
             >
-              <div className="h-[420px] overflow-auto lg:h-[552px]">
+              <div className="min-h-0 flex-1 overflow-auto">
                 {target ? (
                   <MailboxPanel key={"pickup-" + nonce} target={target} />
                 ) : (
-                  <Empty
-                    style={{ marginTop: 120 }}
-                    description={selected ? "点击右上角「取件」读取邮箱" : "选择左侧账号后点击「取件」"}
-                  />
+                  <div className="flex h-full items-center justify-center">
+                    <Empty description={selected ? "点击右上角「取件」读取邮箱" : "选择账号后点击「取件」"} />
+                  </div>
                 )}
               </div>
             </Card>
-          </Grid.Col>
-        </Grid.Row>
-      </main>
+          </section>
+        </div>
+      </div>
+
+      <Drawer
+        title="账号列表"
+        visible={drawerOpen}
+        width={320}
+        footer={null}
+        onCancel={() => setDrawerOpen(false)}
+        bodyStyle={{ padding: 0, display: "flex", flexDirection: "column" }}
+      >
+        <AccountList
+          accounts={accounts}
+          rows={pageRows}
+          loading={loadingMine}
+          selectedId={selectedId}
+          onSelect={(account) => {
+            selectAccount(account);
+            setDrawerOpen(false);
+          }}
+          onRemove={removeImported}
+          page={currentPage}
+          onChangePage={setPage}
+        />
+      </Drawer>
 
       <Modal
         title="导入账号"

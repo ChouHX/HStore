@@ -576,6 +576,43 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         </div>
       ) : detail ? (
         <div className="flex flex-col gap-3">
+          <div className="flex gap-3 rounded border border-[#e5e6eb] p-3">
+            {detail.imgUrl && (
+              <img
+                src={`/api/image?url=${encodeURIComponent(detail.imgUrl)}`}
+                alt=""
+                className="h-14 w-14 shrink-0 rounded object-cover"
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-medium">{product?.customName || detail.name}</div>
+              {(product?.customDesc || detail.goodsDescribe) && (
+                <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#86909c]">
+                  {product?.customDesc || detail.goodsDescribe}
+                </div>
+              )}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
+                <span>库存 {detail.stockCount}</span>
+                <span>限购 {detail.minQuantity} ~ {detail.maxQuantity}</span>
+                {(detail.warrantyDays ?? 0) > 0 && <span>质保 {detail.warrantyDays} 天</span>}
+              </div>
+            </div>
+          </div>
+
+          {(detail.goodsDetail || detail.buyNotice) && (
+            <details className="rounded border border-[#e5e6eb] px-3 py-2">
+              <summary className="cursor-pointer text-[12px] text-[#4e5969]">商品详情 / 购买须知</summary>
+              <div className="mt-2 max-h-[200px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969]">
+                {detail.goodsDetail && (
+                  <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
+                )}
+                {detail.buyNotice && (
+                  <div className="mt-2 whitespace-pre-wrap">购买须知：{detail.buyNotice}</div>
+                )}
+              </div>
+            </details>
+          )}
+
           <div className="rounded bg-[#f7f8fa] px-3 py-2 text-[12px] text-[#4e5969]">
             单价 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(unitPrice)}</span>
             {discount < 1 && user && (
