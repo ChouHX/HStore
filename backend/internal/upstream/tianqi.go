@@ -201,15 +201,37 @@ func GetList(page int, dirID string) (*GoodsListData, error) {
 	return &out, nil
 }
 
-// GetDetail 拉取商品详情。
-func GetDetail(goodsID int) (*model.GoodsDetail, error) {
-	var out model.GoodsDetail
+// GetDetailRaw 拉取商品详情原始 JSON，保留上游全部字段。
+//
+// 上游返回的字段比 model.GoodsDetail 声明的多（正文 HTML、购买须知、充值模板…），
+// 所以缓存一律存原始字节，需要时才按需解析。
+func GetDetailRaw(goodsID int) (json.RawMessage, error) {
+	var out json.RawMessage
 	if e := request("/api/v3/goods/getDetail", map[string]any{"goodsId": goodsID}, &out); e != nil {
 		return nil, e
+	}
+	if len(out) == 0 || string(out) == "null" {
+		return nil, &APIError{Code: -1, Message: "商品详情为空"}
+	}
+	return out, nil
+}
+
+// GetDetail 拉取商品详情（解析成结构体），顺带把原始 JSON 写入本地缓存。
+//
+// 同步商品、刷新库存这些后台流程都走这里，所以缓存会跟着同步自动更新。
+func GetDetail(goodsID int) (*model.GoodsDetail, error) {
+	raw, e := GetDetailRaw(goodsID)
+	if e != nil {
+		return nil, e
+	}
+	var out model.GoodsDetail
+	if e := json.Unmarshal(raw, &out); e != nil {
+		return nil, fmt.Errorf("解析商品详情失败: %w", e)
 	}
 	if out.GoodsID == 0 {
 		out.GoodsID = goodsID
 	}
+	store.SaveProductDetail(goodsID, raw)
 	return &out, nil
 }
 

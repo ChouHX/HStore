@@ -256,6 +256,26 @@ func SyncFromRemote() (SyncResult, error) {
 	}
 
 	d := db.Must()
+
+	// 同步是「先删后插」，这里把已有详情缓存带过去。
+	// 否则刚同步完所有商品的详情缓存都会变空，用户点开商品又要一个个回源。
+	type detailSnap struct {
+		json string
+		at   int64
+	}
+	cached := map[int]detailSnap{}
+	if rows, e := d.Query("SELECT goods_id, detail_json, detail_synced_at FROM products WHERE platform IN ('microsoft','google')"); e == nil {
+		for rows.Next() {
+			var gid int
+			var js string
+			var at int64
+			if rows.Scan(&gid, &js, &at) == nil && js != "" {
+				cached[gid] = detailSnap{json: js, at: at}
+			}
+		}
+		_ = rows.Close()
+	}
+
 	if _, e := d.Exec("DELETE FROM products WHERE platform IN ('microsoft','google')"); e != nil {
 		return SyncResult{}, e
 	}
@@ -300,11 +320,12 @@ func SyncFromRemote() (SyncResult, error) {
 					} else if r, ok := dirRoot[dirID]; ok {
 						rootID = r
 					}
+					snap := cached[p.GoodsID]
 					_, _ = d.Exec(`INSERT INTO products(
 						goods_id, name, face_value, sales_price, cost_price, final_price, goods_type, warranty_days, status,
 						multiple, is_repeat, is_ref_order, is_ref_money, sku_type, img_url, dir_ids,
-						platform, root_category_id, updated_at)
-						VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+						platform, root_category_id, updated_at, detail_json, detail_synced_at)
+						VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 						ON CONFLICT(goods_id) DO UPDATE SET
 						  name=excluded.name, face_value=excluded.face_value, sales_price=excluded.sales_price,
 						  cost_price=excluded.cost_price, final_price=excluded.final_price,
@@ -312,11 +333,13 @@ func SyncFromRemote() (SyncResult, error) {
 						  multiple=excluded.multiple, is_repeat=excluded.is_repeat, is_ref_order=excluded.is_ref_order,
 						  is_ref_money=excluded.is_ref_money, sku_type=excluded.sku_type, img_url=excluded.img_url,
 						  dir_ids=excluded.dir_ids, platform=excluded.platform,
-						  root_category_id=excluded.root_category_id, updated_at=excluded.updated_at`,
+						  root_category_id=excluded.root_category_id, updated_at=excluded.updated_at,
+						  detail_json=CASE WHEN excluded.detail_json<>'' THEN excluded.detail_json ELSE products.detail_json END,
+						  detail_synced_at=CASE WHEN excluded.detail_json<>'' THEN excluded.detail_synced_at ELSE products.detail_synced_at END`,
 						p.GoodsID, p.Name, p.FaceValue, p.SalesPrice, p.SalesPrice, p.SalesPrice,
 						defInt(p.GoodsType, 1), store.NormalizeWarranty(p), defInt(p.Status, 1),
 						defInt(p.Multiple, 1), p.IsRepeat, p.IsRefOrder, p.IsRefMoney, p.SkuType,
-						p.ImgURL, string(dirJSON), platform, nullInt(rootID), ts)
+						p.ImgURL, string(dirJSON), platform, nullInt(rootID), ts, snap.json, snap.at)
 					count++
 				}
 				totalPages = data.AllPage

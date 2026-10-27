@@ -1,5 +1,7 @@
 package model
 
+import "encoding/json"
+
 // ===== 上游（天启开放平台） =====
 
 type RemoteCategory struct {
@@ -30,10 +32,22 @@ type RemoteProduct struct {
 }
 
 // GoodsDetail 是商品详情（字段比列表多库存/购买限制）。
+//
+// 上游返回的字段远多于列表，且以后还可能新增；未显式声明的复杂结构统一用
+// json.RawMessage 原样承接，避免像早期那样把 goodsDescribe / goodsDetail /
+// rechargeTemplates 直接丢掉（前端商品弹窗当时就是空的）。
 type GoodsDetail struct {
 	RemoteProduct
 	MinQuantity int `json:"minQuantity"`
 	MaxQuantity int `json:"maxQuantity"`
+
+	GoodsDescribe     string          `json:"goodsDescribe,omitempty"`
+	GoodsDetail       string          `json:"goodsDetail,omitempty"`
+	BuyNotice         string          `json:"buyNotice,omitempty"`
+	LimitBalance      float64         `json:"limitBalance,omitempty"`
+	RechargeTemplates json.RawMessage `json:"rechargeTemplates,omitempty"`
+	GoodsTags         json.RawMessage `json:"goodsTags,omitempty"`
+	ServiceTags       json.RawMessage `json:"serviceTags,omitempty"`
 }
 
 type CreateOrderResult struct {

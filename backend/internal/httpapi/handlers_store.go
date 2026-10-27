@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -66,6 +68,10 @@ func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"stocks": stocks})
 }
 
+// handleGoodsDetail 商品详情：直接返回本地缓存的原始 JSON。
+//
+// 缓存由「同步商品 / 刷新库存」写入（见 upstream.GetDetail），所以正常情况这里
+// 一次上游请求都不发；只有从没同步过的新商品才会同步回源一次。
 func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 	id := queryInt(r, "id")
 	if id == 0 {
@@ -76,13 +82,40 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "未配置 App-Id")
 		return
 	}
-	detail, e := upstream.GetDetail(id)
+	raw, e := upstream.DetailCached(id)
 	if e != nil {
 		fail(w, http.StatusInternalServerError, e.Error())
 		return
 	}
-	store.UpdateStock(id, detail.StockCount)
-	ok(w, map[string]any{"detail": detail})
+	ok(w, map[string]any{"detail": withLocalStock(id, raw)})
+}
+
+// withLocalStock 用本地库存覆盖详情缓存里的旧值。
+//
+// 本地 stock_count 由商品列表加载时的 60 秒节流刷新维护，比 10 分钟 TTL 的
+// 详情缓存更新，所以前端看到的库存以本地为准。
+func withLocalStock(goodsID int, raw json.RawMessage) json.RawMessage {
+	p := store.GetProduct(goodsID)
+	if p == nil || p.StockCount < 0 {
+		return raw
+	}
+	// UseNumber：避免 float64 往返把大整数或小数写成科学计数法
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var obj map[string]any
+	if e := dec.Decode(&obj); e != nil {
+		return raw
+	}
+	if cur, ok := obj["stockCount"].(json.Number); ok {
+		if n, e := cur.Int64(); e == nil && int(n) == p.StockCount {
+			return raw
+		}
+	}
+	obj["stockCount"] = p.StockCount
+	if b, e := json.Marshal(obj); e == nil {
+		return b
+	}
+	return raw
 }
 
 // handleImageProxy 代理上游商品图片（带 Cookie / Referer 绕过防盗链）。

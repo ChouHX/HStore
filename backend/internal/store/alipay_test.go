@@ -16,13 +16,19 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	_ = os.Setenv("FAKA_DB_PATH", filepath.Join(dir, "store-test.db"))
+	// 提前打开：db.Open 是 sync.Once 单例，这里定好路径，各测试共用同一个库。
+	if _, err := db.Open(); err != nil {
+		panic(err)
+	}
 	code := m.Run()
+	// Windows 上不关连接池就删不掉临时文件，TempDir 清理会直接报错。
+	_ = db.Close()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
 
 func TestAlipayOrderFlow(t *testing.T) {
-	t.Setenv("FAKA_DB_PATH", filepath.Join(t.TempDir(), "alipay-test.db"))
+	// 复用 TestMain 打开的测试库（db.Open 是单例，这里再设路径也没用）。
 	if _, err := db.Open(); err != nil {
 		t.Fatal(err)
 	}

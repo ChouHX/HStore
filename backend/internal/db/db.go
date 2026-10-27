@@ -67,6 +67,15 @@ func Open() (*sql.DB, error) {
 	return conn, err
 }
 
+// Close 关闭连接池。主要给测试用：Windows 上不关闭连接，临时目录删不掉。
+// 注意 Open 是 sync.Once 单例，Close 之后不能再 Open。
+func Close() error {
+	if conn == nil {
+		return nil
+	}
+	return conn.Close()
+}
+
 // Must 打开数据库，失败直接 panic。
 func Must() *sql.DB {
 	c, e := Open()
@@ -108,7 +117,9 @@ CREATE TABLE IF NOT EXISTS products (
   custom_desc  TEXT,
   custom_img   TEXT,
   root_category_id INTEGER,
-  stock_synced_at INTEGER NOT NULL DEFAULT 0
+  stock_synced_at INTEGER NOT NULL DEFAULT 0,
+  detail_json  TEXT    NOT NULL DEFAULT '',
+  detail_synced_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -458,6 +469,10 @@ func migrate(db *sql.DB) error {
 		{"custom_img", "TEXT"},
 		{"root_category_id", "INTEGER"},
 		{"stock_synced_at", "INTEGER NOT NULL DEFAULT 0"},
+		// 上游商品详情原始 JSON 缓存：同步商品时写入，商详接口直接读本地，
+		// 不再每次点击都回源（上游有 WAF 挑战，单次 0.7s+）。
+		{"detail_json", "TEXT NOT NULL DEFAULT ''"},
+		{"detail_synced_at", "INTEGER NOT NULL DEFAULT 0"},
 	}); e != nil {
 		return e
 	}
