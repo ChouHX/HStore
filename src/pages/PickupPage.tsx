@@ -112,8 +112,9 @@ function loadImported(): PickupAccount[] {
       .filter((item): item is PickupAccount => Boolean(item && item.email && item.account))
       .map((item) => {
         // 兼容旧版本：当时把整行「账号----密码----...」存进了 email，这里统一只保留邮箱
-        const email = item.account.split("----")[0].trim() || item.email.trim();
-        return { ...item, email };
+        const account = item.account ?? "";
+        const email = account.split("----")[0].trim() || item.email.trim();
+        return { ...item, account, email };
       });
     if (JSON.stringify(list) !== JSON.stringify(parsed)) saveImported(list);
     return list;
