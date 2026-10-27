@@ -1,44 +1,109 @@
 "use client";
 
 import { Button, Card, Carousel, Tag } from "@arco-design/web-react";
+import { IconArrowRight, IconEmail, IconGift, IconThunderbolt } from "@arco-design/web-react/icon";
+import { useNavigate } from "react-router-dom";
 import { BANNERS } from "@/lib/site";
 import type { Announcement } from "@/lib/api-types";
 
+const ICONS = { mail: IconEmail, bolt: IconThunderbolt, gift: IconGift };
+
 export function HeroSection({ announcements }: { announcements: Announcement[] }) {
+  const navigate = useNavigate();
+
+  function scrollToProducts() {
+    document.getElementById("store-products")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <section className="mb-4 grid gap-3 lg:grid-cols-3">
-      <div className="overflow-hidden rounded lg:col-span-2">
+      <div className="overflow-hidden rounded-xl shadow-[0_8px_24px_rgba(29,33,41,0.08)] lg:col-span-2">
         <Carousel
-          className="h-[140px] sm:h-[200px]"
-          autoPlay={{ interval: 4500 }}
+          className="h-[184px] sm:h-[248px]"
+          autoPlay={{ interval: 5000 }}
           animation="slide"
           showArrow="hover"
-          indicatorType="dot"
+          indicatorType="line"
         >
-          {BANNERS.map((b) => (
-            <div key={b.title} className="h-[140px] sm:h-[200px]" style={{ background: b.bg }}>
-              {/* 内层负责垂直居中，避免 Arco 切换动画把 display 改成 block 导致文字跳动 */}
-              <div className="flex h-full flex-col justify-center px-5 text-white sm:px-8">
-                <div className="text-[20px] font-semibold leading-tight sm:text-[22px]">{b.title}</div>
-                <div className="mt-0.5 text-[12px] opacity-90 sm:mt-1 sm:text-[13px]">{b.subtitle}</div>
-                <div className="mt-2 sm:mt-3">
-                  <Button size="small" type="primary" style={{ background: "#fff", color: "#1d2129", border: "none" }}>
-                    立即选购
-                  </Button>
+          {BANNERS.map((b) => {
+            const Icon = ICONS[b.icon] ?? IconEmail;
+            return (
+              <div
+                key={b.title}
+                className="relative h-[184px] overflow-hidden sm:h-[248px]"
+                style={{ background: b.bg }}
+              >
+                <div
+                  className="pointer-events-none absolute inset-0 opacity-[0.14]"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)",
+                    backgroundSize: "30px 30px",
+                  }}
+                />
+                <div className="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-white/20 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-28 right-24 h-56 w-56 rounded-full bg-black/20 blur-3xl" />
+
+                <div className="pointer-events-none absolute right-8 top-1/2 hidden -translate-y-1/2 lg:block">
+                  <div className="relative flex h-[104px] w-[104px] rotate-3 items-center justify-center rounded-3xl border border-white/25 bg-white/10 backdrop-blur-sm">
+                    <Icon style={{ fontSize: 46, color: "#fff" }} />
+                    <span className="absolute -right-2 -top-2 h-3 w-3 rounded-full bg-white/70" />
+                  </div>
+                </div>
+
+                <div className="relative flex h-full flex-col justify-center px-5 pb-5 text-white sm:px-8 sm:pb-6">
+                  <span className="w-fit rounded-full border border-white/30 bg-white/15 px-2.5 py-[3px] text-[11px] font-medium tracking-wide">
+                    {b.badge}
+                  </span>
+                  <div className="mt-2 text-[19px] font-semibold leading-snug sm:text-[26px]">{b.title}</div>
+                  <div className="mt-1 max-w-[92%] text-[12px] leading-relaxed text-white/85 sm:max-w-[80%] sm:text-[13px]">
+                    {b.subtitle}
+                  </div>
+
+                  <div className="mt-2.5 hidden items-center gap-3 text-[11px] text-white/80 sm:flex">
+                    {b.highlights.map((h) => (
+                      <span key={h} className="flex items-center gap-1">
+                        <span className="h-1 w-1 rounded-full bg-white/80" />
+                        {h}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2">
+                    <Button
+                      size="small"
+                      style={{ background: "#fff", color: "#1d2129", border: "none", fontWeight: 500 }}
+                      onClick={scrollToProducts}
+                    >
+                      立即选购
+                      <IconArrowRight style={{ marginLeft: 4 }} />
+                    </Button>
+                    <Button
+                      size="small"
+                      style={{ background: "transparent", color: "#fff", borderColor: "rgba(255,255,255,0.55)" }}
+                      onClick={() => navigate("/pickup")}
+                    >
+                      微软取件
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </Carousel>
       </div>
 
       <Card
-        className="hidden overflow-hidden lg:flex lg:flex-col"
-        title="公告"
+        className="hidden overflow-hidden lg:flex lg:h-full lg:flex-col"
+        title={
+          <span className="flex items-center gap-2">
+            公告
+            {announcements.length > 0 && <Tag size="small">{announcements.length}</Tag>}
+          </span>
+        }
         bordered={false}
         headerStyle={{ flexShrink: 0 }}
         bodyStyle={{ padding: 12, flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}
-        style={{ height: 200 }}
       >
         <div className="flex flex-col gap-2.5">
           {announcements.length === 0 ? (

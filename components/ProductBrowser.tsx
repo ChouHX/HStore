@@ -334,7 +334,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
             {/* 板块卡片 */}
             {!searching && (
               <>
-            <div className="mb-1 grid grid-cols-4 gap-1 sm:flex sm:flex-wrap sm:gap-1">
+            <div id="store-products" className="mb-1 grid grid-cols-4 gap-1 sm:flex sm:flex-wrap sm:gap-1">
               {boards.map((b) => {
                 const active = b.id === boardId;
                 return (
