@@ -3,14 +3,15 @@ import { formatPrice } from "@/lib/format";
 
 import {
   Button,
+  Checkbox,
   Message,
   Pagination,
   Popconfirm,
-  Space,
   Table,
   Tag,
   Tree,
 } from "@arco-design/web-react";
+import { IconDown } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CategoryNode } from "@/lib/api-types";
 import type { RemoteProduct } from "@/lib/types";
@@ -34,6 +35,7 @@ export function CatalogSection() {
   const [selected, setSelected] = useState<(string | number)[]>([]);
   const [fullSyncing, setFullSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [treeOpen, setTreeOpen] = useState(false);
 
   const loadTree = useCallback(async () => {
     setTreeLoading(true);
@@ -201,25 +203,45 @@ export function CatalogSection() {
     [tree],
   );
 
+  function toggleOne(id: number, checked: boolean) {
+    setSelected((prev) => (checked ? [...prev, id] : prev.filter((k) => Number(k) !== id)));
+  }
+
+  const selectedIds = new Set(selected.map(Number));
+  const pageAllSelected = items.length > 0 && items.every((it) => selectedIds.has(it.goodsId));
+
   return (
-    <div className="flex gap-4">
-      <div className="w-[300px] shrink-0 rounded border border-[#e5e6eb] bg-white p-3">
+    <div className="flex flex-col gap-3 md:flex-row md:gap-4">
+      <div className="w-full shrink-0 rounded border border-[#e5e6eb] bg-white p-3 md:w-[300px]">
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-[13px] font-medium">
+          <button
+            type="button"
+            className="flex items-center gap-1 text-left text-[13px] font-medium"
+            onClick={() => setTreeOpen((o) => !o)}
+          >
+            <IconDown
+              className="transition-transform md:hidden"
+              style={{ transform: treeOpen ? "rotate(0deg)" : "rotate(-90deg)" }}
+            />
             上游板块分类
             {tree.length > 0 && <span className="ml-1 text-[11px] text-[#86909c]">{tree.length} 个板块</span>}
-          </div>
+          </button>
           <Button size="mini" loading={treeLoading} onClick={loadTree}>
             刷新
           </Button>
         </div>
+        {dirName && !treeOpen && (
+          <div className="mb-1 text-[12px] text-[#86909c] md:hidden">
+            当前：<span className="text-[#1d2129]">{dirName}</span>
+          </div>
+        )}
         {treeSource === "cache" && (
           <div className="mb-2 text-[11px] text-[#ff7d00]">上游不可达，当前为本地缓存</div>
         )}
         {tree.length === 0 && !treeLoading && (
           <div className="py-6 text-center text-[12px] text-[#86909c]">暂无分类，点击「刷新」从上游拉取</div>
         )}
-        <div className="max-h-[70vh] overflow-auto">
+        <div className={`max-h-[40vh] overflow-auto md:max-h-[70vh] ${treeOpen ? "block" : "hidden"} md:block`}>
           <Tree
             treeData={treeData}
             blockNode
@@ -241,6 +263,7 @@ export function CatalogSection() {
               };
               const node = findNode(tree);
               onSelectDir(id, node?.title ?? "", Boolean(node?.children?.length));
+              setTreeOpen(false);
             }}
           />
         </div>
@@ -258,7 +281,7 @@ export function CatalogSection() {
               <span className="text-[#86909c]">请选择左侧分类查看上游商品</span>
             )}
           </div>
-          <Space>
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               size="small"
               type="primary"
@@ -279,7 +302,7 @@ export function CatalogSection() {
                 全量同步
               </Button>
             </Popconfirm>
-          </Space>
+          </div>
         </div>
 
         <div className="mb-2 text-[11px] text-[#86909c]">
@@ -292,15 +315,72 @@ export function CatalogSection() {
           </div>
         )}
 
-        <Table
-          rowKey="goodsId"
-          loading={loading || importing}
-          columns={columns}
-          data={items}
-          scroll={{ x: 850 }}
-          rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys) }}
-          pagination={false}
-        />
+        <div className="hidden md:block">
+          <Table
+            rowKey="goodsId"
+            loading={loading || importing}
+            columns={columns}
+            data={items}
+            scroll={{ x: 850 }}
+            rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys) }}
+            pagination={false}
+          />
+        </div>
+
+        {/* 移动端：表格列太多会挤压，改成卡片列表 */}
+        <div className="flex flex-col gap-2 md:hidden">
+          <div className="flex items-center justify-between text-[12px] text-[#86909c]">
+            <Checkbox
+              checked={pageAllSelected}
+              indeterminate={!pageAllSelected && items.some((it) => selectedIds.has(it.goodsId))}
+              onChange={(checked) =>
+                setSelected(checked ? items.map((it) => it.goodsId) : [])
+              }
+            >
+              全选本页
+            </Checkbox>
+            <span>已选 {selected.length} 个</span>
+          </div>
+          {items.map((it) => {
+            const stock = it.stockCount ?? -1;
+            return (
+              <label
+                key={it.goodsId}
+                className="flex cursor-pointer items-start gap-2 rounded border border-[#e5e6eb] bg-white p-3"
+              >
+                <Checkbox
+                  checked={selectedIds.has(it.goodsId)}
+                  onChange={(checked) => toggleOne(it.goodsId, checked)}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] leading-snug">{it.name}</div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[#86909c]">
+                    <span className="font-mono">#{it.goodsId}</span>
+                    <span>成本 ¥{formatPrice(it.salesPrice)}</span>
+                    <span>
+                      库存{" "}
+                      {stock < 0 ? (
+                        "未知"
+                      ) : (
+                        <span className={stock === 0 ? "font-medium text-[#f53f3f]" : "font-medium text-[#00b42a]"}>
+                          {stock}
+                        </span>
+                      )}
+                    </span>
+                    {it.imported ? (
+                      <Tag size="small" color="green">已同步</Tag>
+                    ) : (
+                      <Tag size="small" color="gray">未同步</Tag>
+                    )}
+                  </div>
+                </div>
+              </label>
+            );
+          })}
+          {loading && (
+            <div className="py-4 text-center text-[12px] text-[#86909c]">加载中…</div>
+          )}
+        </div>
 
         {dirId && !loading && items.length === 0 && (
           <div className="mt-3 rounded bg-[#f7f8fa] px-3 py-2 text-[12px] text-[#86909c]">
