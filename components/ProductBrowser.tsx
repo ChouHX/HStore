@@ -50,7 +50,8 @@ const SORTS: { value: SortKey; label: string }[] = [
 
 function catImg(img: string | undefined | null): string | null {
   if (!img) return null;
-  return img.startsWith("http") ? `/api/image?url=${encodeURIComponent(img)}` : img;
+  // 后端已把上游图片换成本地缓存地址；不再把上游 URL 透传给浏览器
+  return img.startsWith("http") ? null : img;
 }
 function cleanBoardName(name: string): string {
   const cleaned = name.replace(/[（(][^（）()]*[）)]\s*$/, "").trim();
@@ -121,7 +122,15 @@ function ProductCard({
       <div className="flex items-center gap-3 rounded border border-[#e5e6eb] bg-white p-3 transition hover:shadow-md">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[#f7f8fa]">
           {imgSrc && (
-            <img src={imgSrc} alt="" loading="lazy" className="h-full w-full object-cover" />
+            <img
+              src={imgSrc}
+              alt=""
+              loading="lazy"
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -158,7 +167,15 @@ function ProductCard({
       <div className="flex gap-2">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded bg-[#f7f8fa]">
           {imgSrc && (
-            <img src={imgSrc} alt="" loading="lazy" className="h-full w-full object-cover" />
+            <img
+              src={imgSrc}
+              alt=""
+              loading="lazy"
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
           )}
         </div>
         <div className="min-w-0 flex-1">

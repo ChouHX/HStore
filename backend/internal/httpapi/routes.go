@@ -20,7 +20,7 @@ func (a *API) routes() {
 	a.mux.HandleFunc("GET /api/store/products", a.handleStoreProducts)
 	a.mux.HandleFunc("GET /api/store/stock", a.handleStoreStock)
 	a.mux.HandleFunc("GET /api/goods/detail", a.handleGoodsDetail)
-	a.mux.HandleFunc("GET /api/image", a.handleImageProxy)
+	a.mux.HandleFunc("GET /api/img/{key}", a.handleCachedImage)
 
 	// 账户
 	a.mux.HandleFunc("GET /api/account", a.handleUpstreamAccount)

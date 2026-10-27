@@ -3,13 +3,13 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
 	"hstore/backend/internal/db"
+	"hstore/backend/internal/imagecache"
+	"hstore/backend/internal/model"
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
 )
@@ -34,6 +34,7 @@ func (a *API) handleStoreProducts(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 	}
 	items, total := store.ListStoreProducts(q)
+	localizeProductImages(items)
 	ok(w, paged(items, total, page, pageSize))
 }
 
@@ -87,7 +88,7 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, e.Error())
 		return
 	}
-	ok(w, map[string]any{"detail": withLocalStock(id, raw)})
+	ok(w, map[string]any{"detail": withLocalImage(withLocalStock(id, raw))})
 }
 
 // withLocalStock 用本地库存覆盖详情缓存里的旧值。
@@ -118,76 +119,57 @@ func withLocalStock(goodsID int, raw json.RawMessage) json.RawMessage {
 	return raw
 }
 
-// handleImageProxy 代理上游商品图片（带 Cookie / Referer 绕过防盗链）。
-func (a *API) handleImageProxy(w http.ResponseWriter, r *http.Request) {
-	raw := r.URL.Query().Get("url")
-	if raw == "" {
-		http.Error(w, "missing url", http.StatusBadRequest)
-		return
+// withLocalImage 把详情里的 imgUrl 换成本地缓存地址，避免泄露上游域名。
+func withLocalImage(raw json.RawMessage) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var obj map[string]any
+	if e := dec.Decode(&obj); e != nil {
+		return raw
 	}
-	target, e := url.Parse(raw)
-	if e != nil {
-		http.Error(w, "bad url", http.StatusBadRequest)
-		return
+	v, ok := obj["imgUrl"].(string)
+	if !ok || v == "" {
+		return raw
 	}
-	cfg := store.GetTianqiSettings()
-	base, e := url.Parse(cfg.BaseURL)
-	if e != nil {
-		http.Error(w, "host not allowed", http.StatusForbidden)
-		return
+	obj["imgUrl"] = imagecache.LocalURL(v)
+	if b, e := json.Marshal(obj); e == nil {
+		return b
 	}
-	host := target.Hostname()
-	if host != base.Hostname() && !strings.HasSuffix(host, "."+base.Hostname()) {
-		http.Error(w, "host not allowed", http.StatusForbidden)
-		return
-	}
-	target.Scheme = "https"
+	return raw
+}
 
-	fetch := func(cookie string) (*http.Response, string) {
-		req, e := http.NewRequest(http.MethodGet, target.String(), nil)
-		if e != nil {
-			return nil, ""
+// localizeBoards 把板块 / 子分类图标换成本地缓存地址。
+func localizeBoards(boards []model.StoreBoard) {
+	for i := range boards {
+		boards[i].Img = imagecache.LocalURL(boards[i].Img)
+		for j := range boards[i].Children {
+			boards[i].Children[j].Img = imagecache.LocalURL(boards[i].Children[j].Img)
 		}
-		req.Header.Set("Referer", cfg.BaseURL+"/")
-		req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-		if cookie != "" {
-			req.Header.Set("Cookie", cookie)
-		}
-		res, e := (&http.Client{}).Do(req)
-		if e != nil {
-			return nil, ""
-		}
-		return res, res.Header.Get("Content-Type")
 	}
+}
 
-	cookie := store.GetCookie()
-	if cookie == "" {
-		if r := upstream.RefreshWafCookieOnce(cfg.BaseURL); r.OK {
-			cookie = r.Cookie
-			store.SaveCookie(cookie)
-		}
-	}
-	res, ct := fetch(cookie)
-	if res == nil || res.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") {
-		if r := upstream.RefreshWafCookieOnce(cfg.BaseURL); r.OK {
-			store.SaveCookie(r.Cookie)
-			if res != nil {
-				res.Body.Close()
-			}
-			res, ct = fetch(r.Cookie)
-		}
-	}
-	if res == nil || res.StatusCode != http.StatusOK || !strings.HasPrefix(ct, "image/") {
-		if res != nil {
-			res.Body.Close()
-		}
-		http.Error(w, "upstream blocked", http.StatusBadGateway)
+// handleCachedImage 返回本地缓存的商品图，前台不再接触上游地址。
+func (a *API) handleCachedImage(w http.ResponseWriter, r *http.Request) {
+	key := r.PathValue("key")
+	e, err := imagecache.Open(key)
+	if err != nil {
+		http.Error(w, "image not found", http.StatusNotFound)
 		return
 	}
-	defer res.Body.Close()
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
-	_, _ = io.Copy(w, res.Body)
+	w.Header().Set("Content-Type", e.ContentType)
+	w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
+	http.ServeFile(w, r, e.Path())
+}
+
+// localizeProductImages 把商品图地址替换成本地缓存地址。
+func localizeProductImages(items []model.Product) {
+	for i := range items {
+		items[i].ImgURL = imagecache.LocalURL(items[i].ImgURL)
+		if items[i].CustomImg != nil {
+			v := imagecache.LocalURL(*items[i].CustomImg)
+			items[i].CustomImg = &v
+		}
+	}
 }
 
 // handleStoreHome 首页一次性数据：板块树、商品数、上游配置状态、最后同步时间、
@@ -205,8 +187,10 @@ func (a *API) handleStoreHome(w http.ResponseWriter, r *http.Request) {
 			lastSync = n
 		}
 	}
+	boards := store.StoreBoards()
+	localizeBoards(boards)
 	ok(w, map[string]any{
-		"boards":        store.StoreBoards(),
+		"boards":        boards,
 		"productCount":  store.CountStoreProducts(),
 		"configured":    upstream.IsConfigured(),
 		"lastSync":      lastSync,

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"hstore/backend/internal/db"
+	"hstore/backend/internal/imagecache"
 	"hstore/backend/internal/model"
 	"hstore/backend/internal/service"
 	"hstore/backend/internal/store"
@@ -987,6 +988,7 @@ func (a *API) handleSync(w http.ResponseWriter, r *http.Request) {
 		res := upstream.RefreshProducts(body.IDs)
 		if res.Updated > 0 {
 			store.RecomputeAllPrices()
+			go imagecache.WarmAll()
 		}
 		parts := "已更新 " + itoa(res.Updated) + " 个商品的上游信息"
 		if res.Failed > 0 {
@@ -1007,6 +1009,7 @@ func (a *API) handleSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "source": "remote", "message": e.Error()})
 		return
 	}
+	go imagecache.WarmAll()
 	writeJSON(w, http.StatusOK, res)
 }
 

@@ -19,12 +19,14 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/httpapi"
+	"hstore/backend/internal/imagecache"
 	"hstore/backend/internal/service"
 	"hstore/backend/web"
 )
@@ -35,6 +37,9 @@ func main() {
 	}
 	// 提前初始化会话/收银台 token 密钥，避免首次在 SQLite 事务内回查配置。
 	_ = db.SessionSecret()
+	if err := imagecache.Init(filepath.Join(filepath.Dir(db.DBPath()), "images")); err != nil {
+		log.Printf("[hstore] 图片缓存目录初始化失败: %v", err)
+	}
 	log.Printf("[hstore] 数据库: %s", db.DBPath())
 
 	addr := getenv("FAKA_ADDR", "127.0.0.1")

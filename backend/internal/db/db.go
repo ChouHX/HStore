@@ -419,6 +419,15 @@ CREATE TABLE IF NOT EXISTS email_codes (
 
 CREATE INDEX IF NOT EXISTS idx_email_codes_email ON email_codes(email, created_at);
 
+CREATE TABLE IF NOT EXISTS image_cache (
+  key          TEXT PRIMARY KEY,
+  url          TEXT NOT NULL,
+  file         TEXT NOT NULL DEFAULT '',
+  content_type TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_products_platform ON products(platform);
 CREATE INDEX IF NOT EXISTS idx_cards_order ON cards(order_number);
 CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);

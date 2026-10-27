@@ -577,11 +577,14 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       ) : detail ? (
         <div className="flex flex-col gap-3">
           <div className="flex gap-3 rounded border border-[#e5e6eb] p-3">
-            {detail.imgUrl && (
+            {detail.imgUrl && !detail.imgUrl.startsWith("http") && (
               <img
-                src={`/api/image?url=${encodeURIComponent(detail.imgUrl)}`}
+                src={detail.imgUrl}
                 alt=""
                 className="h-14 w-14 shrink-0 rounded object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
             )}
             <div className="min-w-0 flex-1">
