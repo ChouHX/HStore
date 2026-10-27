@@ -369,7 +369,9 @@ type AlipayOrder struct {
 	UpdatedAt      int64    `json:"updatedAt"`
 	PaidAt         *int64   `json:"paidAt"`
 	// Kind 区分用途：recharge=余额充值，purchase=游客购物（由 guest_purchases 反查得到）
-	Kind           string `json:"kind"`
+	Kind string `json:"kind"`
+	// RelatedOrderNo 是购物对应的业务订单号（用户端看到的订单号），充值为空
+	RelatedOrderNo string `json:"relatedOrderNo"`
 	LastError      string `json:"lastError"`
 	CheckoutToken  string `json:"-"`
 	CheckoutHash   string `json:"-"`

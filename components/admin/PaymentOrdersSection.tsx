@@ -19,6 +19,7 @@ interface AlipayOrder {
   createdAt: number;
   paidAt: number | null;
   kind?: string;
+  relatedOrderNo?: string;
   lastError?: string;
 }
 
@@ -48,6 +49,8 @@ interface Row {
   uid: number;
   username: string;
   orderNo: string;
+  /** 游客购物对应的业务订单号（用户端显示的订单号） */
+  relatedOrderNo?: string;
   payText: string;
   paySub: string;
   receiveText: string;
@@ -135,6 +138,7 @@ export function PaymentOrdersSection() {
           uid: o.uid,
           username: o.username,
           orderNo: o.orderNo,
+          relatedOrderNo: o.relatedOrderNo,
           payText: cents(o.payableCents),
           paySub: `申请 ¥${formatPrice(o.requestedCny)}`,
           receiveText: cents(o.receivedCents),
@@ -212,6 +216,7 @@ export function PaymentOrdersSection() {
       if (!kw) return true;
       return (
         r.orderNo.toLowerCase().includes(kw) ||
+        (r.relatedOrderNo || "").toLowerCase().includes(kw) ||
         String(r.uid) === kw ||
         (r.username || "").toLowerCase().includes(kw) ||
         r.extraValue.toLowerCase().includes(kw)
@@ -252,8 +257,18 @@ export function PaymentOrdersSection() {
     {
       title: "订单号",
       dataIndex: "orderNo",
-      width: 200,
-      render: (_: unknown, r: Row) => <Ellipsis text={r.orderNo} width={190} />,
+      width: 220,
+      render: (_: unknown, r: Row) =>
+        r.relatedOrderNo ? (
+          <div>
+            <Ellipsis text={r.relatedOrderNo} width={205} />
+            <div className="mt-0.5 truncate text-[11px] text-[#86909c]" title={r.orderNo} style={{ maxWidth: 205 }}>
+              支付单 {r.orderNo}
+            </div>
+          </div>
+        ) : (
+          <Ellipsis text={r.orderNo} width={190} />
+        ),
     },
     {
       title: "用户",
@@ -431,7 +446,10 @@ export function PaymentOrdersSection() {
             data={[
               { label: "类型", value: KIND[detail.kind].text },
               { label: "渠道", value: detail.channel === "alipay" ? "支付宝经营码" : "USDT 链上转账" },
-              { label: "订单号", value: <span className="font-mono">{detail.orderNo}</span> },
+              ...(detail.relatedOrderNo
+                ? [{ label: "业务订单号", value: <span className="font-mono">{detail.relatedOrderNo}</span> }]
+                : []),
+              { label: "支付单号", value: <span className="font-mono">{detail.orderNo}</span> },
               { label: "用户", value: detail.username || `UID ${detail.uid}` },
               {
                 label: "金额",

@@ -183,6 +183,26 @@ func MarkGuestPurchaseFailed(id int, message string) {
 
 // GuestPaymentIDs 返回某个支付渠道下「游客购物」的支付订单 ID 集合，
 // 用来把支付订单区分成充值 / 购物两类。
+// GuestPaymentOrderNumbers 返回支付单 id → 业务订单号（游客购物后生成的订单号）。
+func GuestPaymentOrderNumbers(channel string) map[int]string {
+	out := map[int]string{}
+	rows, err := db.Must().Query(`SELECT gp.payment_order_id, COALESCE(NULLIF(gp.upstream_order_no,''), o.order_number, '')
+		FROM guest_purchases gp LEFT JOIN orders o ON o.outer_number = gp.outer_number
+		WHERE gp.channel = ? AND gp.payment_order_id > 0`, channel)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var no string
+		if rows.Scan(&id, &no) == nil && no != "" {
+			out[id] = no
+		}
+	}
+	return out
+}
+
 func GuestPaymentIDs(channel string) map[int]bool {
 	out := map[int]bool{}
 	rows, err := db.Must().Query(
