@@ -3,7 +3,7 @@ import { IconArrowLeft, IconSearch } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { formatPrice } from "@/lib/format";
-import { loadLastContact, loadSavedOrders, removeSavedOrder, type SavedOrder } from "@/lib/orderStorage";
+import { loadSavedOrders } from "@/lib/orderStorage";
 
 interface OrderItem {
   kind: "order" | "guest";
@@ -62,12 +62,9 @@ export function OrderQueryPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [page, setPage] = useState(1);
-  const [fromLocal, setFromLocal] = useState(false);
-  const [saved, setSaved] = useState<SavedOrder[]>([]);
 
   const loadLocal = useCallback(async () => {
     const local = loadSavedOrders();
-    setSaved(local);
     if (local.length === 0) return;
     setLoading(true);
     try {
@@ -77,7 +74,6 @@ export function OrderQueryPage() {
       );
       if (j.ok) {
         setItems(j.items ?? []);
-        setFromLocal(true);
         setSearched(true);
         setPage(1);
       }
@@ -99,7 +95,6 @@ export function OrderQueryPage() {
       return;
     }
     setLoading(true);
-    setFromLocal(false);
     try {
       const j = await fetch(`/api/orders/query?keyword=${encodeURIComponent(v)}`).then((r) => r.json());
       if (!j.ok) {
@@ -129,11 +124,6 @@ export function OrderQueryPage() {
 
   const pageItems = useMemo(() => items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [items, page]);
 
-  function forget(orderNumber: string) {
-    removeSavedOrder(orderNumber);
-    setSaved(loadSavedOrders());
-  }
-
   return (
     <div className="min-h-screen bg-[#f7f8fa]">
       <header className="sticky top-0 z-20 border-b border-[#e5e6eb] bg-white">
@@ -149,16 +139,16 @@ export function OrderQueryPage() {
         </div>
       </header>
 
-      <main className="mx-auto flex max-w-[1000px] flex-col gap-4 px-4 py-5">
+      <main className="mx-auto flex w-full max-w-[820px] flex-col gap-4 px-4 py-5">
         <Card bordered={false}>
           <div className="flex flex-col gap-3">
-            <div>
+            <div className="text-center">
               <div className="text-[15px] font-medium text-[#1d2129]">查订单</div>
               <div className="mt-1 text-[12px] text-[#86909c]">
                 输入订单号或下单时填写的联系方式（手机 / 邮箱 / QQ），游客也能查。
               </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="mx-auto flex w-full max-w-[520px] flex-col gap-2 sm:flex-row">
               <Input
                 allowClear
                 size="large"
@@ -166,43 +156,24 @@ export function OrderQueryPage() {
                 onChange={setKeyword}
                 onPressEnter={() => search()}
                 placeholder="订单号 或 联系方式"
-                style={{ maxWidth: 460 }}
               />
               <Button type="primary" size="large" icon={<IconSearch />} loading={loading} onClick={() => search()}>
                 查询
               </Button>
             </div>
-            {saved.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-2 text-[12px] text-[#86909c]">
-                <span>本机记录 {saved.length} 笔</span>
-                <Button size="mini" onClick={loadLocal}>
-                  重新载入
-                </Button>
-                {loadLastContact() ? (
-                  <Button size="mini" onClick={() => search(loadLastContact())}>
-                    按联系方式 {loadLastContact()} 查
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         </Card>
 
         <Card
           bordered={false}
-          title={
-            <span className="text-[14px]">
-              订单列表
-              {fromLocal ? <span className="ml-2 text-[12px] font-normal text-[#86909c]">来自本机记录</span> : null}
-            </span>
-          }
+          title={<span className="text-[14px]">订单列表</span>}
           extra={<span className="text-[12px] text-[#86909c]">共 {items.length} 笔</span>}
         >
           <Spin loading={loading} style={{ width: "100%" }}>
             {items.length === 0 ? (
               <Empty
                 description={
-                  searched ? "没有查到订单，换个订单号或联系方式试试" : "输入订单号或联系方式后点查询；本机买过的订单会自动出现在这里"
+                  searched ? "没有查到订单，换个订单号或联系方式试试" : "输入订单号或联系方式后点查询"
                 }
               />
             ) : (
@@ -214,7 +185,7 @@ export function OrderQueryPage() {
                   >
                     <div className="flex min-w-0 flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-[13px] font-medium text-[#1d2129]">{it.goodsName}</span>
+                        <span className="break-words text-[13px] font-medium text-[#1d2129]">{it.goodsName}</span>
                         <Tag size="small" color={STATUS_COLOR[it.status] ?? "gray"}>
                           {it.statusText}
                         </Tag>
@@ -262,29 +233,6 @@ export function OrderQueryPage() {
           </Spin>
         </Card>
 
-        {saved.length > 0 ? (
-          <Card bordered={false} title={<span className="text-[14px]">本机保存的订单号</span>}>
-            <div className="flex flex-wrap gap-2">
-              {saved.map((o) => (
-                <Tag
-                  key={o.orderNumber}
-                  closable
-                  onClose={(e) => {
-                    e.preventDefault();
-                    forget(o.orderNumber);
-                  }}
-                  onClick={() => search(o.orderNumber)}
-                  style={{ cursor: "pointer" }}
-                >
-                  {o.orderNumber}
-                </Tag>
-              ))}
-            </div>
-            <div className="mt-2 text-[11px] text-[#86909c]">
-              这些订单号只存在当前浏览器，清理浏览器数据会丢失；建议同时记住联系方式。
-            </div>
-          </Card>
-        ) : null}
       </main>
     </div>
   );

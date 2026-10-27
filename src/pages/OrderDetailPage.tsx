@@ -1,4 +1,4 @@
-import { Button, Card, Message, Spin, Tag } from "@arco-design/web-react";
+import { Button, Card, Message, Space, Spin, Tag } from "@arco-design/web-react";
 import { IconArrowLeft, IconCopy, IconDownload, IconRefresh } from "@arco-design/web-react/icon";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState } from "react";
@@ -106,13 +106,13 @@ function toGuestView(g: GuestOrderView): OrderView {
   };
 }
 
-/** 一行一个字段，内容不换行，超长横向滚动 */
-function InfoRow({ label, value }: { label: string; value: string }) {
+/** 一行一个字段，默认不换行；商品名等长文本允许换行 */
+function InfoRow({ label, value, wrap }: { label: string; value: string; wrap?: boolean }) {
   return (
     <div className="flex items-start gap-3 border-b border-[#f2f3f5] py-2 text-[12px] last:border-b-0">
       <span className="w-[76px] shrink-0 text-[#86909c]">{label}</span>
-      <div className="min-w-0 flex-1 overflow-x-auto">
-        <div className="whitespace-nowrap">{value || "—"}</div>
+      <div className={`min-w-0 flex-1 ${wrap ? "break-words" : "overflow-x-auto"}`}>
+        <div className={wrap ? "whitespace-pre-wrap" : "whitespace-nowrap"}>{value || "—"}</div>
       </div>
     </div>
   );
@@ -354,9 +354,6 @@ export function OrderDetailPage() {
                   <Button size="small" icon={<IconRefresh />} loading={refreshing} onClick={() => load("manual")}>
                     刷新
                   </Button>
-                  <Button size="small" icon={<IconDownload />} onClick={downloadTxt} disabled={view.cards.length === 0}>
-                    下载 TXT
-                  </Button>
                 </div>
               </div>
 
@@ -425,7 +422,7 @@ export function OrderDetailPage() {
                 <div className="mb-1 text-[13px] font-medium">订单信息</div>
                 <div className="rounded-lg bg-[#f7f8fa] px-3">
                   <InfoRow label="订单号" value={view.orderNumber} />
-                  <InfoRow label="商品" value={`${view.goodsName} × ${view.count}`} />
+                  <InfoRow label="商品" value={`${view.goodsName} × ${view.count}`} wrap />
                   <InfoRow label="金额" value={`¥${formatPrice(view.money)}`} />
                   <InfoRow label="状态" value={view.statusText} />
                   <InfoRow label="下单时间" value={fmtTime(view.createdAt)} />
@@ -438,13 +435,18 @@ export function OrderDetailPage() {
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[13px] font-medium">卡券（{view.cards.length}）</span>
                   {view.cards.length > 0 ? (
-                    <Button
-                      size="mini"
-                      icon={<IconCopy />}
-                      onClick={() => copy(view.cards.map(cardLine).join("\n"))}
-                    >
-                      复制全部
-                    </Button>
+                    <Space size={8}>
+                      <Button
+                        size="mini"
+                        icon={<IconCopy />}
+                        onClick={() => copy(view.cards.map(cardLine).join("\n"))}
+                      >
+                        复制全部
+                      </Button>
+                      <Button size="mini" icon={<IconDownload />} onClick={downloadTxt}>
+                        下载 TXT
+                      </Button>
+                    </Space>
                   ) : null}
                 </div>
                 {view.cards.length === 0 ? (
