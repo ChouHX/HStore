@@ -4,10 +4,10 @@ import { ceilToCents, formatPrice } from "@/lib/format";
 import { Button, Input, InputNumber, Message, Modal, Select, Space, Tag } from "@arco-design/web-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { GoodsDetail, LocalOrder, Product, RechargeTemplate, User } from "@/lib/types";
-import { CARD_STATUS, cardStatusColor, arcoColor } from "@/lib/status";
-import { PaymentMethodTags } from "@/components/PaymentMethodTags";
-import { loadLastContact, saveLastContact, saveOrder } from "@/lib/orderStorage";
+import { useNavigate } from "react-router-dom";
+import type { GoodsDetail, Product, RechargeTemplate, User } from "@/lib/types";
+import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
+import { clearGuestToken, loadLastContact, saveGuestToken, saveLastContact } from "@/lib/orderStorage";
 
 interface Props {
   product: Product | null;
@@ -33,16 +33,6 @@ interface CryptoPaymentCfg {
   chains: { code: string; label: string; display: string }[];
 }
 
-interface GuestOrderResult {
-  orderNumber: string;
-  goodsName: string;
-  count: number;
-  status: number;
-  result: string;
-  createdAt: number;
-  cards: LocalOrder["cards"];
-}
-
 interface GuestOrderView {
   token: string;
   status: "waiting" | "paid" | "fulfilling" | "fulfilled" | "failed" | "expired" | "closed" | "cancelled" | "disputed";
@@ -60,12 +50,7 @@ interface GuestOrderView {
   chainLabel: string;
   rate: number;
   creditCny: number;
-  order: GuestOrderResult | null;
   error?: string;
-}
-
-function guestStorageKey(goodsId: number) {
-  return `hstore:guest-purchase:${goodsId}`;
 }
 
 function TemplateField({
@@ -133,45 +118,13 @@ function copyText(text: string) {
   Message.success("已复制");
 }
 
-function OrderCards({ cards }: { cards: LocalOrder["cards"] }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {cards.length === 0 && (
-        <div className="text-[12px] text-[#86909c]">暂无卡券，上游可能仍在发货，请稍后刷新订单。</div>
-      )}
-      {cards.map((c) => (
-        <div
-          key={c.cardId}
-          className="flex items-center justify-between gap-2 rounded border border-[#e5e6eb] px-3 py-2"
-        >
-          <div className="min-w-0 font-mono text-[12px]">
-            <div className="truncate">{c.cardNo || "(无卡号)"}</div>
-            {c.cardPwd ? <div className="truncate text-[#86909c]">{c.cardPwd}</div> : null}
-          </div>
-          <Space>
-            <Tag color={arcoColor(cardStatusColor(c.status))}>{CARD_STATUS[c.status] ?? c.status}</Tag>
-            <Button
-              size="small"
-              onClick={() => {
-                copyText([c.cardNo, c.cardPwd].filter(Boolean).join("----"));
-              }}
-            >
-              复制
-            </Button>
-          </Space>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function PurchaseModal({ product, open, discount = 1, user, onOpenChange, onDone }: Props) {
   const [detail, setDetail] = useState<GoodsDetail | null>(null);
   const [count, setCount] = useState(1);
   const [attach, setAttach] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [order, setOrder] = useState<LocalOrder | null>(null);
+  const navigate = useNavigate();
   // 下单必填：联系方式（手机 / 邮箱 / QQ），用于事后凭订单号或联系方式找回订单
   const [contact, setContact] = useState("");
 
@@ -179,7 +132,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     alipay: null,
     crypto: null,
   });
-  const [guestChannel, setGuestChannel] = useState<"alipay" | "usdt">("alipay");
+  const [channel, setChannel] = useState<PaymentChannel>(user ? "balance" : "alipay");
   const [guestChain, setGuestChain] = useState("TRX");
   const [guestOrder, setGuestOrder] = useState<GuestOrderView | null>(null);
   const [guestBusy, setGuestBusy] = useState(false);
@@ -194,33 +147,14 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   useEffect(() => {
     if (!open || !product) return;
     setDetail(null);
-    setOrder(null);
     setGuestOrder(null);
     setGuestQr("");
     setCount(1);
     setAttach({});
+    setChannel(user ? "balance" : "alipay");
     // 优先用上次填过的，其次用账号里的手机号 / 邮箱
     setContact((prev) => prev || loadLastContact() || user?.phone || user?.email || "");
     setLoading(true);
-
-    if (!user) {
-      try {
-        const raw = localStorage.getItem(guestStorageKey(product.goodsId));
-        if (raw) {
-          const saved = JSON.parse(raw) as { token?: string; goodsId?: number; at?: number };
-          if (saved.token && saved.goodsId === product.goodsId) {
-            fetch(`/api/guest/order?token=${encodeURIComponent(saved.token)}`)
-              .then((r) => r.json())
-              .then((j) => {
-                if (j.ok && j.guest) setGuestOrder(j.guest as GuestOrderView);
-              })
-              .catch(() => {});
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
 
     fetch(`/api/goods/detail?id=${product.goodsId}`)
       .then((r) => r.json())
@@ -233,7 +167,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   }, [open, product, user]);
 
   const loadGuestCfg = useCallback(() => {
-    if (!isGuest) return;
     setGuestCfgLoading(true);
     Promise.all([
       fetch("/api/alipay/config").then((r) => r.json()).catch(() => null),
@@ -251,15 +184,21 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       }
       const aReady = Boolean(next.alipay?.enabled && next.alipay?.configured);
       const uReady = Boolean(next.crypto?.enabled && next.crypto?.configured);
-      if (!aReady && uReady) setGuestChannel("usdt");
-      else if (aReady) setGuestChannel("alipay");
+      // 保留用户当前选择；当前渠道不可用时才自动切换
+      setChannel((prev) => {
+        if (prev === "balance") return prev;
+        if (prev === "alipay" ? aReady : uReady) return prev;
+        if (aReady) return "alipay";
+        if (uReady) return "usdt";
+        return prev;
+      });
     }).finally(() => setGuestCfgLoading(false));
-  }, [isGuest]);
+  }, []);
 
   useEffect(() => {
-    if (!open || !isGuest) return;
+    if (!open) return;
     loadGuestCfg();
-  }, [open, isGuest, loadGuestCfg]);
+  }, [open, loadGuestCfg]);
 
   useEffect(() => {
     if (!guestOrder || !["waiting", "paid", "fulfilling"].includes(guestOrder.status)) return;
@@ -277,16 +216,10 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           const next = j.guest as GuestOrderView;
           setGuestOrder(next);
           if (next.status === "fulfilled") {
-            if (next.order?.orderNumber) {
-              saveOrder({
-                orderNumber: next.order.orderNumber,
-                contact: loadLastContact(),
-                goodsName: next.productName,
-                amount: next.amountCny,
-              });
-            }
             Message.success("支付成功，已自动发货");
             onDone();
+            onOpenChange(false);
+            navigate(`/g/${encodeURIComponent(next.token)}`);
             return;
           }
         }
@@ -324,43 +257,43 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   const total = unitPrice * count;
   // 支付宝只能支付到分：不足 1 分向上取整（0.064 → 0.07），展示与后端保持一致
   const alipayTotal = ceilToCents(total);
-  const payable = isGuest && guestChannel === "alipay" ? alipayTotal : total;
+  const payable = channel === "alipay" ? alipayTotal : total;
+  const balanceInsufficient = !!user && Number(total.toFixed(2)) > user.balance;
 
   // USDT 单笔至少 1 USDT：单价太低时自动把数量提上去（与后端 MinUsdtCountForGuest 一致）
   const usdtRate = guestCfg.crypto?.rate ?? 0;
   const usdtMinCount =
-    isGuest && usdtRate > 0 && unitPrice > 0 ? Math.max(1, Math.ceil(usdtRate / unitPrice)) : 1;
+    channel === "usdt" && usdtRate > 0 && unitPrice > 0
+      ? Math.max(1, Math.ceil(usdtRate / unitPrice))
+      : 1;
   const minCount =
-    isGuest && guestChannel === "usdt"
+    channel === "usdt"
       ? Math.max(detail?.minQuantity || 1, usdtMinCount)
       : detail?.minQuantity || 1;
 
   // 切到 USDT（或数量被改小）时，自动把数量抬到「至少 1 USDT」的下限
   useEffect(() => {
-    if (!isGuest || guestChannel !== "usdt") return;
+    if (channel !== "usdt") return;
     setCount((c) => (c < usdtMinCount ? usdtMinCount : c));
-  }, [isGuest, guestChannel, usdtMinCount]);
-
-  function saveGuestToken(token: string, goodsId: number) {
-    try {
-      localStorage.setItem(guestStorageKey(goodsId), JSON.stringify({ token, goodsId, at: Date.now() }));
-    } catch {
-      /* ignore */
-    }
-  }
+  }, [channel, usdtMinCount]);
 
   function clearGuestOrder() {
     setGuestOrder(null);
     setGuestQr("");
-    try {
-      if (product) localStorage.removeItem(guestStorageKey(product.goodsId));
-    } catch {
-      /* ignore */
-    }
+    if (product) clearGuestToken(product.goodsId);
+  }
+
+  function openOrderPage(token: string) {
+    onOpenChange(false);
+    navigate(`/g/${encodeURIComponent(token)}`);
   }
 
   async function submitBalance() {
-    if (!product) return;
+    if (!product || !user) return;
+    if (balanceInsufficient) {
+      Message.warning("余额不足，请选择其他支付方式");
+      return;
+    }
     if (!contact.trim()) {
       Message.warning("请填写联系方式，便于查询订单");
       return;
@@ -384,18 +317,11 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       });
       const j = await res.json();
       if (j.ok) {
-        setOrder(j.order);
         saveLastContact(contact.trim());
-        if (j.order?.orderNumber) {
-          saveOrder({
-            orderNumber: j.order.orderNumber,
-            contact: contact.trim(),
-            goodsName: j.order.goodsName,
-            amount: j.order.money,
-          });
-        }
         Message.success("下单成功");
         onDone();
+        onOpenChange(false);
+        if (j.order?.orderNumber) navigate(`/order/${encodeURIComponent(j.order.orderNumber)}`);
       } else {
         Message.error(j.message ?? "下单失败");
       }
@@ -407,12 +333,12 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   }
 
   async function submitGuest() {
-    if (!product) return;
-    if (guestChannel === "alipay" && !alipayReady) {
+    if (!product || channel === "balance") return;
+    if (channel === "alipay" && !alipayReady) {
       Message.warning("支付宝支付暂不可用");
       return;
     }
-    if (guestChannel === "usdt" && !usdtReady) {
+    if (channel === "usdt" && !usdtReady) {
       Message.warning("USDT 支付暂不可用");
       return;
     }
@@ -434,8 +360,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           goodsId: product.goodsId,
           count,
           attach: templates.map((t) => ({ name: t.title, value: attach[t.title] ?? "" })),
-          channel: guestChannel,
-          chain: guestChannel === "usdt" ? guestChain : "",
+          channel,
+          chain: channel === "usdt" ? guestChain : "",
           contact: contact.trim(),
         }),
       });
@@ -467,6 +393,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         if (next.status === "fulfilled") {
           Message.success("支付成功，已自动发货");
           onDone();
+          onOpenChange(false);
+          navigate(`/g/${encodeURIComponent(next.token)}`);
         } else if (["waiting", "paid", "fulfilling"].includes(next.status)) {
           Message.info(next.status === "waiting" ? "暂未查询到付款，请确认支付金额" : "已支付，正在等待上游发货");
         }
@@ -485,49 +413,11 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       : `${guestOrder.usdtAmount} USDT`
     : "";
 
-  // 商品信息在「已下单 / 待支付」状态下也要保留，避免点完购买就看不到买的是什么
-  const productInfo = detail ? (
-    <div className="flex flex-col gap-3">
-          <div className="flex gap-3">
-            {detail.imgUrl && (
-              <img
-                src={`/api/image?url=${encodeURIComponent(detail.imgUrl)}`}
-                alt=""
-                className="h-16 w-16 shrink-0 rounded object-cover"
-              />
-            )}
-            <div className="min-w-0">
-              <div className="text-[13px] font-medium">{product?.customName || detail.name}</div>
-              {(product?.customDesc || detail.goodsDescribe) && (
-                <div className="mt-1 text-[11px] text-[#86909c]">
-                  {product?.customDesc || detail.goodsDescribe}
-                </div>
-              )}
-              <Space size={12} style={{ marginTop: 6 }}>
-                <Tag size="small">库存 {detail.stockCount}</Tag>
-                <Tag size="small">限购 {detail.minQuantity} ~ {detail.maxQuantity}</Tag>
-              </Space>
-            </div>
-          </div>
-          {(detail.goodsDetail || detail.buyNotice) && (
-            <details open className="rounded border border-[#e5e6eb] px-3 py-2">
-              <summary className="cursor-pointer text-[12px] text-[#4e5969]">商品详情 / 购买须知</summary>
-              <div className="mt-2 max-h-[260px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969]">
-                {detail.goodsDetail && (
-                  <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
-                )}
-                {detail.buyNotice && <div className="mt-2 whitespace-pre-wrap">购买须知：{detail.buyNotice}</div>}
-              </div>
-            </details>
-          )}
-    </div>
-  ) : null;
-
   const footer = guestOrder ? (
     guestOrder.status === "fulfilled" ? (
       <Space>
         <Button onClick={clearGuestOrder}>重新购买</Button>
-        <Button type="primary" onClick={() => onOpenChange(false)}>完成</Button>
+        <Button type="primary" onClick={() => openOrderPage(guestOrder.token)}>查看订单详情</Button>
       </Space>
     ) : guestOrder.status === "failed" ? (
       <Space>
@@ -543,22 +433,24 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       </Space>
     ) : (
       <Space>
+        <Button onClick={() => openOrderPage(guestOrder.token)}>订单详情</Button>
         <Button onClick={() => onOpenChange(false)}>关闭</Button>
         <Button type="primary" loading={guestRefreshing} onClick={refreshGuest}>刷新状态</Button>
       </Space>
     )
-  ) : order ? (
-    <Button type="primary" onClick={() => onOpenChange(false)}>完成</Button>
   ) : (
     <Space>
       <Button onClick={() => onOpenChange(false)}>取消</Button>
       <Button
         type="primary"
-        loading={isGuest ? guestBusy : submitting}
-        disabled={!detail || (isGuest && !alipayReady && !usdtReady)}
-        onClick={isGuest ? submitGuest : submitBalance}
+        loading={channel === "balance" ? submitting : guestBusy}
+        disabled={
+          !detail ||
+          (channel === "balance" ? !user : channel === "alipay" ? !alipayReady : !usdtReady)
+        }
+        onClick={channel === "balance" ? submitBalance : submitGuest}
       >
-        {isGuest ? "确认支付" : "确认购买"}
+        {channel === "balance" ? "余额支付" : "确认支付"}
       </Button>
     </Space>
   );
@@ -575,21 +467,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     >
       {loading ? (
         <div className="py-10 text-center text-[13px] text-[#86909c]">加载中…</div>
-      ) : order ? (
-        <div className="flex flex-col gap-3">
-          {productInfo}
-          <div className="flex items-center gap-2">
-            <Tag color="green">下单成功</Tag>
-            <span className="font-mono text-[12px]">订单号 {order.orderNumber}</span>
-          </div>
-          <div className="text-[12px] text-[#86909c]">
-            {order.goodsName} × {order.count}，金额 ¥{formatPrice(order.money)}
-          </div>
-          <OrderCards cards={order.cards} />
-        </div>
       ) : guestOrder ? (
         <div className="flex flex-col gap-3">
-          {productInfo}
           <div className="flex flex-wrap items-center gap-2">
             <Tag color={guestStatus?.color}>{guestStatus?.text ?? guestOrder.status}</Tag>
             <Tag color={guestOrder.channel === "alipay" ? "arcoblue" : "orange"}>
@@ -621,9 +500,11 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                       二维码加载中…
                     </div>
                   )}
-                  <div className="mt-2 text-[12px] text-[#86909c]">
-                    支付剩余 <Countdown expiresAt={guestOrder.expiresAt} />
-                  </div>
+                  {guestOrder.expiresAt > 0 && (
+                    <div className="mt-2 text-[12px] text-[#86909c]">
+                      支付剩余 <Countdown expiresAt={guestOrder.expiresAt} />
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -654,7 +535,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               )}
 
               <div className="flex items-center justify-center gap-2 font-mono text-[11px] text-[#86909c]">
-                <span className="break-all">游客订单凭证：{guestOrder.token}</span>
+                <span className="break-all">{isGuest ? "游客订单凭证" : "订单凭证"}：{guestOrder.token}</span>
                 <Button size="mini" onClick={() => copyText(guestOrder.token)}>复制</Button>
               </div>
             </>
@@ -663,19 +544,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           {guestOrder.status === "fulfilled" && (
             <div className="flex flex-col gap-3">
               <div className="rounded border border-[#aff0b5] bg-[#e8ffea] px-3 py-2 text-[12px] text-[#00b42a]">
-                支付成功，已自动发货。
+                支付成功，已自动发货，正在打开订单详情…
               </div>
-              {guestOrder.order ? (
-                <>
-                  <div className="flex items-center justify-between text-[12px]">
-                    <span className="text-[#86909c]">订单号</span>
-                    <span className="font-mono">{guestOrder.order.orderNumber}</span>
-                  </div>
-                  <OrderCards cards={guestOrder.order.cards} />
-                </>
-              ) : (
-                <div className="text-[12px] text-[#86909c]">发货完成，但暂时没有取到卡券，请联系管理员。</div>
-              )}
             </div>
           )}
 
@@ -699,13 +569,13 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           )}
 
           <div className="text-[11px] leading-relaxed text-[#86909c]">
-            游客无需注册即可购买。支付成功后请在此窗口查看卡密；凭证会保存在本浏览器，重新打开同一商品即可继续查看，也可以复制凭证联系客服查询。
+            {isGuest
+              ? "游客无需注册即可购买。支付成功后可在「订单详情」页查看卡密；订单凭证会保存在本浏览器，关闭后也能继续查看。"
+              : "支付成功后可在「订单详情」页查看卡密；订单也会同步到「我的订单」。"}
           </div>
         </div>
       ) : detail ? (
         <div className="flex flex-col gap-3">
-          {productInfo}
-
           <div className="rounded bg-[#f7f8fa] px-3 py-2 text-[12px] text-[#4e5969]">
             单价 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(unitPrice)}</span>
             {discount < 1 && user && (
@@ -744,54 +614,61 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             </span>
           </div>
 
-          {isGuest && (
-            <div className="flex flex-col gap-2 rounded border border-[#e5e6eb] p-3">
-              <div className="text-[12px] font-medium">支付方式</div>
-              {guestCfgLoading ? (
-                <div className="text-[11px] text-[#86909c]">正在加载支付方式…</div>
-              ) : (
-                <PaymentMethodTags
-                  value={guestChannel}
-                  onChange={setGuestChannel}
-                  alipayReady={alipayReady}
-                  usdtReady={usdtReady}
-                />
-              )}
-              {guestChannel === "usdt" && (
-                <Select value={guestChain} onChange={(v) => setGuestChain(String(v))} style={{ width: "100%" }}>
-                  {(guestCfg.crypto?.chains ?? []).map((c) => (
-                    <Select.Option key={c.code} value={c.code}>{c.label}</Select.Option>
-                  ))}
-                </Select>
-              )}
-              {!guestCfgLoading && !alipayReady && !usdtReady && (
-                <div className="flex items-center gap-2 text-[11px] text-[#f53f3f]">
-                  暂未获取到可用的支付渠道
-                  <Button size="mini" onClick={loadGuestCfg}>
-                    重新加载
-                  </Button>
-                </div>
-              )}
-              {guestChannel === "alipay" && (
-                <div className="text-[11px] text-[#86909c]">
-                  支付宝按商品售价支付，只能支付到分，不足 1 分向上取整
-                  {alipayTotal !== Number(total.toFixed(2)) ? (
-                    <span className="text-[#d25f00]">
-                      （¥{formatPrice(total)} → ¥{formatPrice(alipayTotal)}）
-                    </span>
-                  ) : null}
-                  。
-                </div>
-              )}
-              {guestChannel === "usdt" && guestCfg.crypto?.rate ? (
-                <div className="text-[11px] text-[#86909c]">
-                  USDT 单笔至少 1 USDT，本商品至少买 {usdtMinCount} 件
-                  {usdtMinCount > 1 ? <span className="text-[#d25f00]">（已自动调整数量）</span> : null}；
-                  当前约 {((total || 0) / guestCfg.crypto.rate).toFixed(4)} USDT，实际金额以下单页面为准。
-                </div>
-              ) : null}
-            </div>
-          )}
+          <div className="flex flex-col gap-2 rounded border border-[#e5e6eb] p-3">
+            <div className="text-[12px] font-medium">支付方式</div>
+            <PaymentMethodTags
+              value={channel}
+              onChange={setChannel}
+              alipayReady={alipayReady}
+              usdtReady={usdtReady}
+              showBalance={!!user}
+              balanceReady={!!user}
+            />
+            {guestCfgLoading ? (
+              <div className="text-[11px] text-[#86909c]">正在加载在线支付方式…</div>
+            ) : null}
+            {!user && !guestCfgLoading && !alipayReady && !usdtReady ? (
+              <div className="flex items-center gap-2 text-[11px] text-[#f53f3f]">
+                暂未获取到可用的支付渠道
+                <Button size="mini" onClick={loadGuestCfg}>
+                  重新加载
+                </Button>
+              </div>
+            ) : null}
+            {channel === "balance" && user ? (
+              <div className={`text-[11px] ${balanceInsufficient ? "text-[#f53f3f]" : "text-[#86909c]"}`}>
+                当前余额 ¥{formatPrice(user.balance)}，本单应付 ¥{formatPrice(total)}
+                {balanceInsufficient
+                  ? "，余额不足，请选择其他支付方式"
+                  : "，确认后立即扣款并自动发货。"}
+              </div>
+            ) : null}
+            {channel === "usdt" ? (
+              <Select value={guestChain} onChange={(v) => setGuestChain(String(v))} style={{ width: "100%" }}>
+                {(guestCfg.crypto?.chains ?? []).map((c) => (
+                  <Select.Option key={c.code} value={c.code}>{c.label}</Select.Option>
+                ))}
+              </Select>
+            ) : null}
+            {channel === "alipay" ? (
+              <div className="text-[11px] text-[#86909c]">
+                支付宝按商品售价支付，只能支付到分，不足 1 分向上取整
+                {alipayTotal !== Number(total.toFixed(2)) ? (
+                  <span className="text-[#d25f00]">
+                    （¥{formatPrice(total)} → ¥{formatPrice(alipayTotal)}）
+                  </span>
+                ) : null}
+                。
+              </div>
+            ) : null}
+            {channel === "usdt" && guestCfg.crypto?.rate ? (
+              <div className="text-[11px] text-[#86909c]">
+                USDT 单笔至少 1 USDT，本商品至少买 {usdtMinCount} 件
+                {usdtMinCount > 1 ? <span className="text-[#d25f00]">（已自动调整数量）</span> : null}；
+                当前约 {((total || 0) / guestCfg.crypto.rate).toFixed(4)} USDT，实际金额以下单页面为准。
+              </div>
+            ) : null}
+          </div>
 
           <div className="flex items-end justify-between">
             <div className="flex items-center gap-2 text-[12px] text-[#86909c]">
@@ -809,11 +686,11 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             </div>
           </div>
 
-          {isGuest && (
-            <div className="text-[11px] leading-relaxed text-[#86909c]">
-              游客购买无需注册，支付成功后卡密会显示在当前窗口。请勿关闭支付窗口，或保留浏览器会话以便继续查看。
-            </div>
-          )}
+          <div className="text-[11px] leading-relaxed text-[#86909c]">
+            {isGuest
+              ? "游客购买无需注册，支付成功后可在订单详情页查看卡密；关闭窗口后仍可凭本机凭证继续查看。"
+              : "支付成功后可在订单详情页查看卡密；余额支付会立即从余额扣除，在线支付到账后自动发货。"}
+          </div>
         </div>
       ) : null}
     </Modal>

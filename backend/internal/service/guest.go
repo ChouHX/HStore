@@ -34,9 +34,11 @@ type GuestOrderView struct {
 	Token          string            `json:"token"`
 	Status         string            `json:"status"` // waiting / paid / fulfilling / fulfilled / failed / expired / closed
 	Channel        string            `json:"channel"`
+	GoodsID        int               `json:"goodsId"`
 	ProductName    string            `json:"productName"`
 	GoodsCount     int               `json:"goodsCount"`
 	AmountCny      float64           `json:"amountCny"`
+	CreatedAt      int64             `json:"createdAt"`
 	PaymentStatus  string            `json:"paymentStatus"`
 	ExpiresAt      int64             `json:"expiresAt"`
 	PayableCents   int64             `json:"payableCents"`
@@ -59,7 +61,7 @@ func newGuestToken() string {
 	return base64.RawURLEncoding.EncodeToString(buf)
 }
 
-func guestProduct(goodsID, count int) (*model.Product, *model.GoodsDetail, float64, error) {
+func guestProduct(goodsID, count int, discount float64) (*model.Product, *model.GoodsDetail, float64, error) {
 	if goodsID <= 0 {
 		return nil, nil, 0, errors.New("缺少商品编号")
 	}
@@ -93,7 +95,10 @@ func guestProduct(goodsID, count int) (*model.Product, *model.GoodsDetail, float
 	if detail.StockCount > 0 && count > detail.StockCount {
 		return nil, nil, 0, errors.New("库存不足")
 	}
-	amount := round4(product.FinalPrice * float64(count))
+	if discount <= 0 || discount > 1 {
+		discount = 1
+	}
+	amount := round4(product.FinalPrice * discount * float64(count))
 	if amount <= 0 {
 		return nil, nil, 0, errors.New("商品价格异常")
 	}
@@ -143,24 +148,34 @@ func MinUsdtCountForGuest(unitPrice, rate float64) int {
 	return n
 }
 
-// CreateGuestPurchase 创建游客直购订单；支付宝使用商品精确金额，不加价。
-func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel, chain, contact string) (*model.GuestPurchase, *model.AlipayOrder, *model.CryptoOrder, error) {
+// CreateGuestPurchase 创建直购订单；支付宝使用商品精确金额，不加价。
+// user 为空时是真正的游客单（自动建 guest 账号）；登录用户传自己的账号，
+// 订单履约后会直接落在该用户名下，同时仍保留游客 token 支付页。
+func CreateGuestPurchase(user *model.User, goodsID, count int, attach []map[string]string, channel, chain, contact string) (*model.GuestPurchase, *model.AlipayOrder, *model.CryptoOrder, error) {
 	channel = strings.ToLower(strings.TrimSpace(channel))
 	if channel != "alipay" && channel != "usdt" {
 		return nil, nil, nil, errors.New("请选择支付渠道")
+	}
+	if user != nil && user.Status != "active" {
+		return nil, nil, nil, errors.New("账号已被冻结")
 	}
 	contact, err := ValidateContact(contact)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	product, detail, amount, err := guestProduct(goodsID, count)
+	discount := 1.0
+	if user != nil {
+		discount = store.GetLevelDiscount(user.LevelID)
+	}
+	product, detail, amount, err := guestProduct(goodsID, count, discount)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	unitPrice := round4(product.FinalPrice * discount)
 	if channel == "usdt" {
 		// USDT 单笔到账太少无法核对（还要加唯一尾数），自动把数量提到至少 1 USDT。
 		cfg := store.GetCryptoConfig()
-		minCount := MinUsdtCountForGuest(product.FinalPrice, cfg.Rate)
+		minCount := MinUsdtCountForGuest(unitPrice, cfg.Rate)
 		if minCount > count {
 			maxQ := detail.MaxQuantity
 			if maxQ < 1 {
@@ -174,7 +189,7 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 				return nil, nil, nil, fmt.Errorf("USDT 支付至少需要 %d 件（约 1 USDT），当前库存不足", minCount)
 			}
 			count = minCount
-			amount = round4(product.FinalPrice * float64(count))
+			amount = round4(product.FinalPrice * discount * float64(count))
 		}
 	}
 	if channel == "alipay" {
@@ -192,18 +207,26 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 	if count < 1 {
 		count = 1
 	}
-	guestUser, err := store.CreateGuestUser()
-	if err != nil {
-		return nil, nil, nil, err
+	// 支付订单始终挂在临时 guest 账号上：到账结算会给该账号加余额，
+	// 真正的订单归属放在 gp.UID，避免登录用户既拿到余额又拿到商品。
+	payer, e := store.CreateGuestUser()
+	if e != nil {
+		return nil, nil, nil, e
+	}
+	ownerUID := payer.UID
+	guestFlag := 1
+	if user != nil {
+		ownerUID = user.UID
+		guestFlag = 0
 	}
 
 	var alipayOrder *model.AlipayOrder
 	var cryptoOrder *model.CryptoOrder
 	switch channel {
 	case "alipay":
-		alipayOrder, err = CreateGuestAlipayOrder(guestUser, amount)
+		alipayOrder, err = CreateGuestAlipayOrder(payer, amount)
 	case "usdt":
-		cryptoOrder, err = CreateGuestCryptoOrder(guestUser.UID, amount, chain)
+		cryptoOrder, err = CreateGuestCryptoOrder(payer.UID, amount, chain)
 	}
 	if err != nil {
 		return nil, nil, nil, err
@@ -219,8 +242,8 @@ func CreateGuestPurchase(goodsID, count int, attach []map[string]string, channel
 	token := newGuestToken()
 	gp := model.GuestPurchase{
 		Token:          token,
-		UID:            guestUser.UID,
-		GuestUser:      1,
+		UID:            ownerUID,
+		GuestUser:      guestFlag,
 		Channel:        channel,
 		PaymentOrderID: paymentID,
 		GoodsID:        goodsID,
@@ -305,7 +328,8 @@ func GetGuestOrder(ctx context.Context, token string, refresh bool) (*GuestOrder
 func guestOrderView(gp *model.GuestPurchase) (*GuestOrderView, error) {
 	view := &GuestOrderView{
 		Token: gp.Token, Status: gp.Status, Channel: gp.Channel,
-		ProductName: gp.GoodsName, GoodsCount: gp.GoodsCount, AmountCny: gp.AmountCny,
+		GoodsID: gp.GoodsID, ProductName: gp.GoodsName, GoodsCount: gp.GoodsCount,
+		AmountCny: gp.AmountCny, CreatedAt: gp.CreatedAt,
 		Error: gp.LastError,
 	}
 	if gp.Status == "fulfilled" {
@@ -424,15 +448,21 @@ func FulfillGuestPurchase(id int) error {
 	}
 	var attach []map[string]string
 	_ = json.Unmarshal([]byte(gp.AttachJSON), &attach)
-	// 游客的款已经通过支付宝 / USDT 收到，不能再从游客账户扣余额（余额恒为 0）。
+	// 款项已经通过支付宝 / USDT 收到，不能再扣余额（游客余额恒为 0，登录用户余额不动）。
+	remark := "在线直购"
+	source := "user"
+	if gp.GuestUser == 1 {
+		remark = "游客购买"
+		source = "guest"
+	}
 	res := PlaceOrder(PlaceOrderOptions{
 		User:      user,
 		GoodsID:   gp.GoodsID,
 		Count:     gp.GoodsCount,
-		Source:    "guest",
+		Source:    source,
 		Payment:   "external",
 		Attach:    attach,
-		Remark:    "游客购买",
+		Remark:    remark,
 		OuterNum:  gp.OuterNumber,
 		SaleMoney: &gp.AmountCny,
 		Contact:   gp.Contact,

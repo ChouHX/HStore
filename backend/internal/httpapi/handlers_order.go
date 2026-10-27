@@ -214,6 +214,7 @@ func (a *API) handleMailboxList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		Account     string `json:"account"`
 		Code        string `json:"code"`
 		OrderNumber string `json:"orderNumber"`
 		CardID      string `json:"cardId"`
@@ -232,6 +233,16 @@ func (a *API) handleMailboxList(w http.ResponseWriter, r *http.Request) {
 	if body.PageSize < 1 {
 		body.PageSize = 20
 	}
+	// 自定义导入账号：直接读取，不再依赖订单 / 兑换码
+	if strings.TrimSpace(body.Account) != "" {
+		res, e := service.MailListByAccount(body.Account, body.Folder, body.Page, body.PageSize, body.WithBody)
+		if e != nil {
+			fail(w, http.StatusBadRequest, e.Error())
+			return
+		}
+		ok(w, map[string]any{"result": res, "cardId": "", "email": res.Email})
+		return
+	}
 	res, card, e := service.MailList(uid, body.Code, body.OrderNumber, body.CardID,
 		body.Folder, body.Page, body.PageSize, body.WithBody, isAdmin)
 	if e != nil {
@@ -247,6 +258,7 @@ func (a *API) handleMailboxDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
+		Account     string `json:"account"`
 		Code        string `json:"code"`
 		OrderNumber string `json:"orderNumber"`
 		CardID      string `json:"cardId"`
@@ -255,6 +267,15 @@ func (a *API) handleMailboxDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	if e := readJSON(r, &body); e != nil || body.MessageID == "" {
 		fail(w, http.StatusBadRequest, "缺少邮件 ID")
+		return
+	}
+	if strings.TrimSpace(body.Account) != "" {
+		res, e := service.MailDetailByAccount(body.Account, body.Folder, body.MessageID)
+		if e != nil {
+			fail(w, http.StatusBadRequest, e.Error())
+			return
+		}
+		ok(w, map[string]any{"result": res})
 		return
 	}
 	res, _, e := service.MailDetail(uid, body.Code, body.OrderNumber, body.CardID,

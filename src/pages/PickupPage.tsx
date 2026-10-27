@@ -15,19 +15,25 @@ interface MailboxItem {
   status: number;
 }
 
-/**
- * 兑换码形如 XXXX-XXXX-XXXX-XXXX，分隔符可有可无。
- * 判断宽松一点没关系：后端会先按兑换码查，查不到再按订单号查。
- */
-function looksLikeCode(v: string): boolean {
-  return v.replace(/[^0-9A-Za-z]/g, "").length === 16;
-}
+type ParseResult = { ok: true; value: string } | { ok: false; message: string };
 
-/** 把用户输入规整成 XXXX-XXXX-XXXX-XXXX */
-function normalizeCode(v: string): string {
-  const digits = v.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
-  if (digits.length !== 16) return v.trim().toUpperCase();
-  return digits.replace(/(.{4})(?=.)/g, "$1-");
+/**
+ * 自定义导入账号数据，格式固定：
+ *   账号----密码----clientid----refreshtoken
+ * 只接受一行一个账号，避免把多行数据拼成一个错误账号。
+ */
+function parseAccount(raw: string): ParseResult {
+  const value = raw.trim();
+  if (!value) return { ok: false, message: "请粘贴账号数据" };
+  if (value.includes("\n")) return { ok: false, message: "一次只能导入一个账号，请检查是否有多行" };
+  const parts = value.split("----").map((s) => s.trim());
+  if (parts.length !== 4) {
+    return { ok: false, message: "格式错误，应为 账号----密码----clientid----refreshtoken" };
+  }
+  if (!parts[0]) return { ok: false, message: "账号不能为空" };
+  if (!parts[2]) return { ok: false, message: "clientid 不能为空" };
+  if (!parts[3]) return { ok: false, message: "refreshtoken 不能为空" };
+  return { ok: true, value: parts.join("----") };
 }
 
 function fmtTime(ms: number): string {
@@ -45,13 +51,13 @@ function fmtTime(ms: number): string {
 
 /**
  * 独立取件页（公开，无需登录）。
- * 未登录：凭兑换码取件；登录：额外可用订单号，并列出名下所有可取出邮箱。
+ * 只支持自定义导入账号数据；登录后额外列出名下所有可取出邮箱。
  */
 export function PickupPage() {
   const user = useSession();
   const navigate = useNavigate();
 
-  const [keyword, setKeyword] = useState("");
+  const [account, setAccount] = useState("");
   const [target, setTarget] = useState<MailboxTarget | null>(null);
   const [email, setEmail] = useState("");
 
@@ -82,21 +88,12 @@ export function PickupPage() {
   }, [loadMine]);
 
   function submit() {
-    const v = keyword.trim();
-    if (!v) {
-      Message.warning("请输入兑换码或订单号");
+    const parsed = parseAccount(account);
+    if (!parsed.ok) {
+      Message.warning(parsed.message);
       return;
     }
-    if (looksLikeCode(v)) {
-      setTarget({ code: normalizeCode(v) });
-      setEmail("");
-      return;
-    }
-    if (!loggedIn) {
-      Message.warning("未登录只能使用兑换码取件，订单号请登录后使用");
-      return;
-    }
-    setTarget({ orderNumber: v });
+    setTarget({ account: parsed.value });
     setEmail("");
   }
 
@@ -149,33 +146,35 @@ export function PickupPage() {
             <div>
               <div className="text-[15px] font-medium text-[#1d2129]">微软取件</div>
               <div className="mt-1 text-[12px] text-[#86909c]">
-                输入兑换码（XXXX-XXXX-XXXX-XXXX）
-                {loggedIn ? "或订单号" : ""}
-                ，直接打开对应邮箱读取邮件。兑换码不绑定账号，谁持有谁就能取件，无需登录。
+                粘贴账号数据直接读取邮箱，无需登录。格式：
+                <span className="font-mono text-[#4e5969]">账号----密码----clientid----refreshtoken</span>
+                ，一次导入一个账号。
               </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                allowClear
-                size="large"
-                value={keyword}
-                onChange={setKeyword}
-                onPressEnter={submit}
-                placeholder={loggedIn ? "兑换码 或 订单号" : "兑换码"}
-                style={{ maxWidth: 460 }}
-              />
-              <Button type="primary" size="large" icon={<IconEmail />} onClick={submit}>
-                取件
+            <Input.TextArea
+              value={account}
+              onChange={setAccount}
+              autoSize={{ minRows: 3, maxRows: 6 }}
+              placeholder="账号----密码----clientid----refreshtoken"
+              className="font-mono"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="primary" icon={<IconEmail />} onClick={submit}>
+                导入并取件
               </Button>
+              <Button
+                onClick={() => {
+                  setAccount("");
+                  setTarget(null);
+                  setEmail("");
+                }}
+              >
+                清空
+              </Button>
+              <span className="text-[11px] text-[#86909c]">
+                账号数据只用于本次读取，不会保存到浏览器。
+              </span>
             </div>
-            {!loggedIn ? (
-              <div className="text-[12px] text-[#86909c]">
-                想按订单号取件或查看名下所有邮箱？{" "}
-                <Link to="/login" className="text-[#165dff]">
-                  登录
-                </Link>
-              </div>
-            ) : null}
           </div>
         </Card>
 
@@ -212,9 +211,7 @@ export function PickupPage() {
             <Spin loading={loading} style={{ width: "100%" }}>
               {items.length === 0 ? (
                 <Empty
-                  description={
-                    loading ? "加载中…" : "暂无可取出的邮箱，购买邮箱类商品或兑换商品码后会自动出现在这里"
-                  }
+                  description={loading ? "加载中…" : "暂无可取出的邮箱，购买邮箱类商品后会自动出现在这里"}
                 />
               ) : (
                 <div className="flex flex-col divide-y divide-[#f2f3f5] rounded border border-[#e5e6eb]">

@@ -63,7 +63,8 @@ func MailProviderConfig() mail.ProviderConfig {
 var errNoCard = errors.New("卡券不存在")
 
 // AccountFromCard 把卡密内容解析成取件凭据。
-// 支持 "邮箱----密码" 与 "邮箱----密码----refresh_token" 两种格式。
+// 支持 "邮箱----密码"、"邮箱----密码----refresh_token" 与
+// "邮箱----密码----clientid----refresh_token" 三种格式。
 func AccountFromCard(card model.Card) (mail.Account, error) {
 	raw := card.CardNo
 	if card.CardPwd != "" {
@@ -74,11 +75,16 @@ func AccountFromCard(card model.Card) (mail.Account, error) {
 		return mail.Account{}, errors.New("卡密内容为空，无法取件")
 	}
 	acc := mail.Account{Email: fields[0]}
-	if len(fields) > 1 {
+	switch {
+	case len(fields) >= 4:
 		acc.Password = fields[1]
-	}
-	if len(fields) > 2 {
+		acc.ClientID = fields[2]
+		acc.RefreshToken = fields[3]
+	case len(fields) == 3:
+		acc.Password = fields[1]
 		acc.RefreshToken = fields[2]
+	case len(fields) == 2:
+		acc.Password = fields[1]
 	}
 	if acc.RefreshToken != "" {
 		acc.Protocol = "graph"
@@ -87,6 +93,46 @@ func AccountFromCard(card model.Card) (mail.Account, error) {
 	}
 	if acc.Email == "" {
 		return mail.Account{}, errors.New("卡密缺少邮箱账号")
+	}
+	return acc, nil
+}
+
+// ParseAccountData 解析「自定义导入」的账号数据，格式固定为：
+//
+//	账号----密码----clientid----refreshtoken
+//
+// 与卡密不同，这里字段顺序固定、必须一次导入一个账号，避免把 clientid 误当成 refresh token。
+func ParseAccountData(raw string) (mail.Account, error) {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\r", "\n"))
+	if raw == "" {
+		return mail.Account{}, errors.New("请输入账号数据")
+	}
+	if strings.Contains(raw, "\n") {
+		return mail.Account{}, errors.New("一次只能导入一个账号，请检查是否有多行")
+	}
+	parts := strings.Split(raw, "----")
+	if len(parts) != 4 {
+		return mail.Account{}, errors.New("格式错误，应为 账号----密码----clientid----refreshtoken")
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	acc := mail.Account{
+		Email:        parts[0],
+		Password:     parts[1],
+		ClientID:     parts[2],
+		RefreshToken: parts[3],
+		Protocol:     "graph",
+	}
+	if acc.Email == "" {
+		return mail.Account{}, errors.New("账号不能为空")
+	}
+	if acc.ClientID == "" {
+		return mail.Account{}, errors.New("clientid 不能为空")
+	}
+	if acc.RefreshToken == "" {
+		return mail.Account{}, errors.New("refreshtoken 不能为空")
 	}
 	return acc, nil
 }
@@ -189,6 +235,32 @@ func resolveTarget(uid int, code, orderNumber string, isAdmin bool) (*model.Loca
 		return nil, false, "无权查看该订单", false
 	}
 	return order, false, "", true
+}
+
+// MailListByAccount 直接使用导入的账号数据读取邮箱，不再经过订单 / 兑换码。
+func MailListByAccount(accountRaw, folder string, page, pageSize int, withBody bool) (*mail.ListResult, error) {
+	acc, e := ParseAccountData(accountRaw)
+	if e != nil {
+		return nil, e
+	}
+	res, e := mail.List(MailProviderConfig(), acc, folder, page, pageSize, withBody)
+	if e != nil {
+		return nil, e
+	}
+	return &res, nil
+}
+
+// MailDetailByAccount 直接使用导入的账号数据读取单封邮件。
+func MailDetailByAccount(accountRaw, folder, messageID string) (*mail.DetailResult, error) {
+	acc, e := ParseAccountData(accountRaw)
+	if e != nil {
+		return nil, e
+	}
+	res, e := mail.Detail(MailProviderConfig(), acc, folder, messageID)
+	if e != nil {
+		return nil, e
+	}
+	return &res, nil
 }
 
 // MailList 拉取邮箱邮件列表（取件核心）。

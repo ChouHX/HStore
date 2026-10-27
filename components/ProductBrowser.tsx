@@ -24,6 +24,7 @@ import type { Product, User } from "@/lib/types";
 import type { StoreBoard, StoreSubCategory } from "@/lib/api-types";
 import type { Announcement } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
+import { clearGuestToken, loadGuestToken } from "@/lib/orderStorage";
 import { PurchaseModal } from "./PurchaseModal";
 import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
@@ -280,7 +281,26 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     setDirFilter(id);
     setPage(1);
   }
-  function handleBuy(p: Product) {
+  async function handleBuy(p: Product) {
+    // 有旧订单时不再把它塞回商品详情弹窗：直接打开独立的订单详情页。
+    // 游客看所有未失效订单；登录用户只看待支付订单，已完成订单去「我的订单」看。
+    const token = loadGuestToken(p.goodsId);
+    if (token) {
+      try {
+        const j = await fetch(`/api/guest/order?token=${encodeURIComponent(token)}`).then((r) => r.json());
+        const status = j?.ok ? String(j.guest?.status ?? "") : "";
+        const pending = ["waiting", "paid", "fulfilling"].includes(status);
+        const guestBlocking =
+          !user && ["waiting", "paid", "fulfilling", "fulfilled", "failed", "disputed"].includes(status);
+        if (pending || guestBlocking) {
+          navigate(`/g/${encodeURIComponent(token)}`);
+          return;
+        }
+      } catch {
+        /* 网络异常时继续走正常购买流程 */
+      }
+      clearGuestToken(p.goodsId);
+    }
     setPurchaseProduct(p);
   }
 

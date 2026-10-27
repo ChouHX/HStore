@@ -41,8 +41,8 @@ interface DetailResponse {
 }
 
 export interface MailboxTarget {
-  /** 兑换码（与订单号二选一，便于直接按码取件） */
-  code?: string;
+  /** 自定义导入的账号数据：账号----密码----clientid----refreshtoken */
+  account?: string;
   /** 订单号 */
   orderNumber?: string;
   /** 指定卡券（多张卡时可精确到某一张） */
@@ -139,7 +139,7 @@ export function MailboxPanel({
   const payload = useCallback(() => {
     if (!target) return null;
     return {
-      code: target.code ?? "",
+      account: target.account ?? "",
       orderNumber: target.orderNumber ?? "",
       cardId: target.cardId ?? "",
       folder,
@@ -178,7 +178,7 @@ export function MailboxPanel({
     setActive(null);
     setPage(1);
     setFolder("inbox");
-  }, [target?.code, target?.orderNumber, target?.cardId]);
+  }, [target?.account, target?.orderNumber, target?.cardId]);
 
   useEffect(() => {
     load();

@@ -4,6 +4,7 @@ import { Button, Card, Grid, Message, Statistic, Table, Tag } from "@arco-design
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/format";
+import { ProductDistribution } from "./ProductDistribution";
 
 const { Row, Col } = Grid;
 
@@ -28,9 +29,6 @@ interface Stats {
   byPlatform: { platform: string; c: number }[];
   recentRecharges: RecentRecharge[];
 }
-
-const PLATFORM_LABEL: Record<string, string> = { microsoft: "微软", google: "谷歌", other: "其它" };
-const PLATFORM_COLOR: Record<string, string> = { microsoft: "#165dff", google: "#00b42a", other: "#ff7d00" };
 
 const RECHARGE_STATUS: Record<string, { color: string; text: string }> = {
   waiting: { color: "orange", text: "等待支付" },
@@ -63,10 +61,6 @@ export function OverviewSection() {
   }
 
   const totalProducts = stats.products.total || 0;
-  const platforms = [...stats.byPlatform]
-    .filter((p) => p.c > 0)
-    .sort((a, b) => b.c - a.c);
-  const platformTotal = platforms.reduce((sum, p) => sum + p.c, 0) || totalProducts || 1;
 
   return (
     <div className="flex flex-col gap-4">
@@ -108,71 +102,18 @@ export function OverviewSection() {
       </Row>
 
       <Row gutter={[12, 12]}>
-        <Col xs={24} lg={12}>
-          <Card
-            title="商品分布"
-            bordered={false}
-            extra={<span className="text-[12px] text-[#86909c]">共 {totalProducts} 件</span>}
-          >
-            {totalProducts === 0 ? (
-              <div className="py-10 text-center text-[12px] text-[#86909c]">暂无商品数据</div>
-            ) : (
-              <>
-                <div className="flex h-3 w-full overflow-hidden rounded-full bg-[#f2f3f5]">
-                  {platforms.map((p) => (
-                    <div
-                      key={p.platform}
-                      title={`${PLATFORM_LABEL[p.platform] ?? p.platform} ${p.c}`}
-                      style={{
-                        width: `${Math.max(2, (p.c / platformTotal) * 100)}%`,
-                        background: PLATFORM_COLOR[p.platform] ?? "#86909c",
-                      }}
-                    />
-                  ))}
-                </div>
-
-                <div className="mt-4 flex flex-col gap-2">
-                  {platforms.map((p) => {
-                    const percent = Math.round((p.c / platformTotal) * 100);
-                    return (
-                      <div
-                        key={p.platform}
-                        className="flex items-center justify-between gap-3 rounded border border-[#f2f3f5] px-3 py-2"
-                      >
-                        <div className="flex min-w-0 items-center gap-2 text-[13px]">
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: PLATFORM_COLOR[p.platform] ?? "#86909c" }}
-                          />
-                          <span className="truncate">{PLATFORM_LABEL[p.platform] ?? p.platform}</span>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-3 text-[12px]">
-                          <span className="text-[#4e5969]">{p.c} 件</span>
-                          <span className="w-10 text-right text-[#86909c]">{percent}%</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {platforms.length === 0 && (
-                    <div className="text-[12px] text-[#86909c]">暂无平台分布数据</div>
-                  )}
-                </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#86909c]">
-                  <Tag size="small" color="green">在售 {stats.products.enabled}</Tag>
-                  <Tag size="small" color="gray">下架 {stats.products.disabled}</Tag>
-                </div>
-              </>
-            )}
-            <div className="mt-4 flex gap-2">
-              <Link to="/admin/products"><Button size="small" type="primary">商品管理</Button></Link>
-              <Link to="/admin/pricing"><Button size="small">定价规则</Button></Link>
-              <Link to="/admin/redeem"><Button size="small">兑换码</Button></Link>
-            </div>
-          </Card>
+        <Col span={24}>
+          <ProductDistribution
+            total={totalProducts}
+            enabled={stats.products.enabled}
+            disabled={stats.products.disabled}
+            byPlatform={stats.byPlatform}
+          />
         </Col>
+      </Row>
 
-        <Col xs={24} lg={12}>
+      <Row gutter={[12, 12]}>
+        <Col span={24}>
           <Card
             title="最近充值订单"
             bordered={false}

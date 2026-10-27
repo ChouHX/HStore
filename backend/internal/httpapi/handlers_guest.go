@@ -24,7 +24,8 @@ func (a *API) handleGuestOrderCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "参数错误")
 		return
 	}
-	gp, _, _, err := service.CreateGuestPurchase(body.GoodsID, body.Count, body.Attach, body.Channel, body.Chain, body.Contact)
+	// 已登录用户走同一套直购流程，但订单归到自己名下；游客则自动建 guest 账号。
+	gp, _, _, err := service.CreateGuestPurchase(sessionUser(r), body.GoodsID, body.Count, body.Attach, body.Channel, body.Chain, body.Contact)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err.Error())
 		return

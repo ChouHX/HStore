@@ -447,6 +447,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                   alipayReady={alipayReady}
                   usdtReady={usdtReady}
                   onChange={(next) => {
+                    if (next === "balance") return;
                     setChannel(next);
                     const nextMin = next === "alipay" ? (alipayCfg?.minCny ?? 1) : (cryptoCfg?.minCny ?? 14.4);
                     if (amount < nextMin) setAmount(nextMin);

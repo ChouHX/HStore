@@ -85,3 +85,39 @@ export function loadLastContact(): string {
     return "";
   }
 }
+
+// ===== 游客购买凭证 =====
+// 每个商品只保留最近一笔游客单的 token，用于「再次点击购买」时直接打开订单页。
+
+const GUEST_PREFIX = "hstore:guest-purchase:";
+
+function guestKey(goodsId: number) {
+  return `${GUEST_PREFIX}${goodsId}`;
+}
+
+export function saveGuestToken(token: string, goodsId: number) {
+  try {
+    localStorage.setItem(guestKey(goodsId), JSON.stringify({ token, goodsId, at: Date.now() }));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadGuestToken(goodsId: number): string {
+  try {
+    const raw = localStorage.getItem(guestKey(goodsId));
+    if (!raw) return "";
+    const saved = JSON.parse(raw) as { token?: string; goodsId?: number };
+    return saved.goodsId === goodsId && saved.token ? saved.token : "";
+  } catch {
+    return "";
+  }
+}
+
+export function clearGuestToken(goodsId: number) {
+  try {
+    localStorage.removeItem(guestKey(goodsId));
+  } catch {
+    /* ignore */
+  }
+}

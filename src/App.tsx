@@ -19,7 +19,7 @@ import { AccountLayout } from "@/src/layouts/AccountLayout";
 import { HomePage } from "@/src/pages/HomePage";
 import { CheckoutPage } from "@/src/pages/CheckoutPage";
 import { LoginPage } from "@/src/pages/LoginPage";
-import { GuestPayPage } from "@/src/pages/GuestPayPage";
+import { OrderDetailPage } from "@/src/pages/OrderDetailPage";
 import { OrderQueryPage } from "@/src/pages/OrderQueryPage";
 import { PickupPage } from "@/src/pages/PickupPage";
 
@@ -45,8 +45,9 @@ export function App() {
         <Route path="/pay/:token" element={<CheckoutPage />} />
         {/* 订单查询：公开页，游客凭订单号或联系方式查 */}
         <Route path="/orders" element={<OrderQueryPage />} />
-        {/* 游客支付页：凭 token 打开，关掉购买弹窗后还能继续扫码 */}
-        <Route path="/g/:token" element={<GuestPayPage />} />
+        {/* 订单详情：游客单凭 token，登录单凭订单号；两个入口共用同一页面 */}
+        <Route path="/g/:token" element={<OrderDetailPage />} />
+        <Route path="/order/:orderNumber" element={<OrderDetailPage />} />
 
         <Route path="/account" element={<AccountLayout />}>
           <Route index element={<Navigate to="/account/overview" replace />} />
