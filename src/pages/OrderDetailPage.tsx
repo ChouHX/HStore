@@ -3,10 +3,9 @@ import { IconArrowLeft, IconCopy, IconDownload, IconRefresh } from "@arco-design
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { MailboxDrawer, type MailboxTarget } from "@/components/MailboxDrawer";
 import { formatPrice } from "@/lib/format";
 import { clearGuestToken, loadLastContact, saveOrder } from "@/lib/orderStorage";
-import { CARD_STATUS, ORDER_STATUS, arcoColor, cardStatusColor, orderStatusColor } from "@/lib/status";
+import { ORDER_STATUS, arcoColor, orderStatusColor } from "@/lib/status";
 import { useSession } from "@/src/hooks/useSession";
 
 interface CardItem {
@@ -137,8 +136,6 @@ export function OrderDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [qr, setQr] = useState("");
 
-  const [mailOpen, setMailOpen] = useState(false);
-  const [mailTarget, setMailTarget] = useState<MailboxTarget | null>(null);
 
   const load = useCallback(
     async (mode: "initial" | "silent" | "manual" = "silent") => {
@@ -252,12 +249,6 @@ export function OrderDetailPage() {
       ? `¥${formatPrice(guest.payableCents / 100)}`
       : `${guest.usdtAmount} USDT`
     : `¥${formatPrice(view?.money ?? 0)}`;
-
-  function openMailbox(card: CardItem) {
-    if (!view?.orderNumber) return;
-    setMailTarget({ orderNumber: view.orderNumber, cardId: card.cardId, email: card.cardNo });
-    setMailOpen(true);
-  }
 
   function downloadTxt() {
     if (!view) return;
@@ -463,14 +454,6 @@ export function OrderDetailPage() {
                         <div className="min-w-0 flex-1 overflow-x-auto">
                           <div className="whitespace-nowrap font-mono text-[12px]">{cardLine(c)}</div>
                         </div>
-                        <Tag color={arcoColor(cardStatusColor(c.status))}>
-                          {CARD_STATUS[c.status] ?? c.status}
-                        </Tag>
-                        {user && (c.cardNo ?? "").includes("@") && view.orderNumber ? (
-                          <Button size="mini" type="primary" onClick={() => openMailbox(c)}>
-                            取件
-                          </Button>
-                        ) : null}
                         <Button size="mini" icon={<IconCopy />} onClick={() => copy(cardLine(c))} />
                         {user && c.cancelRequest === 1 && c.status !== 2 ? (
                           <Button size="mini" status="danger" onClick={() => voidCard(c.cardId)}>
@@ -493,8 +476,6 @@ export function OrderDetailPage() {
           </Card>
         )}
       </main>
-
-      <MailboxDrawer visible={mailOpen} target={mailTarget} onClose={() => setMailOpen(false)} />
     </div>
   );
 }

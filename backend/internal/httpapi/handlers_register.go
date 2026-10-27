@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	stdhtml "html"
 	"log"
 	"net/http"
 	"regexp"
@@ -60,7 +61,8 @@ func (a *API) handleRegisterCode(w http.ResponseWriter, r *http.Request) {
 	}
 	subject := "【" + cfg.FromName + "】注册验证码"
 	text := "您正在注册 " + cfg.FromName + " 账号。\n\n验证码：" + code + "\n\n验证码 10 分钟内有效，请勿泄露给他人。如果这不是您的操作，请忽略本邮件。"
-	if err := mail.SMTPSend(cfg.Host, cfg.Port, cfg.Security, cfg.Username, cfg.Password, cfg.FromName, email, subject, text); err != nil {
+	html := registerMailHTML(cfg.FromName, code, email)
+	if err := mail.SMTPSendRich(cfg.Host, cfg.Port, cfg.Security, cfg.Username, cfg.Password, cfg.FromName, email, subject, text, html); err != nil {
 		store.DeleteRegisterCode(email, code)
 		if mail.IsSMTPDailyLimit(err) {
 			fail(w, http.StatusTooManyRequests, "当日注册量已达上限，请明日再试")
@@ -192,4 +194,43 @@ func (a *API) handleAdminSMTPPost(w http.ResponseWriter, r *http.Request) {
 	}
 	store.WriteAudit(&admin.UID, "settings_smtp", "", "", nil, nil, "更新 SMTP 发信配置")
 	ok(w, nil)
+}
+
+// registerMailHTML 生成注册验证码邮件的富文本版本（内联样式，兼容 Gmail / Outlook）。
+func registerMailHTML(brand, code, email string) string {
+	b := stdhtml.EscapeString(brand)
+	return `<!doctype html>
+<html lang="zh-CN">
+<body style="margin:0;padding:0;background:#f2f3f5;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">您的验证码是 ` + code + `，10 分钟内有效。</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f3f5;padding:32px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:14px;border:1px solid #e5e6eb;">
+        <tr><td style="padding:28px 32px 8px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;">
+          <div style="font-size:18px;font-weight:700;color:#1d2129;letter-spacing:.2px;">` + b + `</div>
+          <div style="margin-top:6px;font-size:12px;color:#86909c;">邮箱验证码 · 注册账号</div>
+        </td></tr>
+        <tr><td style="padding:8px 32px 0 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;">
+          <p style="margin:16px 0 0 0;font-size:14px;line-height:1.7;color:#4e5969;">你好，</p>
+          <p style="margin:6px 0 0 0;font-size:14px;line-height:1.7;color:#4e5969;">你正在使用 <strong style="color:#1d2129;">` + email + `</strong> 注册 ` + b + `，请在页面中输入以下验证码完成验证：</p>
+        </td></tr>
+        <tr><td style="padding:20px 32px 0 32px;">
+          <div style="background:#f2f7ff;border:1px solid #bedaff;border-radius:10px;padding:18px 12px;text-align:center;">
+            <div style="font-family:'SFMono-Regular',Consolas,monospace;font-size:34px;font-weight:700;letter-spacing:10px;color:#165dff;line-height:1.2;">` + code + `</div>
+            <div style="margin-top:8px;font-size:12px;color:#86909c;">验证码 10 分钟内有效</div>
+          </div>
+        </td></tr>
+        <tr><td style="padding:18px 32px 0 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;">
+          <p style="margin:0;font-size:12px;line-height:1.7;color:#86909c;">为了账号安全，请勿将验证码转发或告知他人。如果这不是你的操作，请直接忽略本邮件，你的邮箱不会被注册。</p>
+        </td></tr>
+        <tr><td style="padding:22px 32px 28px 32px;">
+          <div style="border-top:1px solid #f2f3f5;padding-top:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;font-size:11px;color:#a9aeb8;">
+            此邮件由系统自动发送，请勿直接回复。
+          </div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
 }

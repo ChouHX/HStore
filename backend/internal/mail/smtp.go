@@ -16,11 +16,16 @@ import (
 // SMTPSend 通过 SMTP 发送纯文本邮件。
 // security 为 starttls 时使用 587 + STARTTLS，其余按 465 隐式 SSL 处理。
 func SMTPSend(host string, port int, security, username, password, fromName, to, subject, body string) error {
+	return SMTPSendRich(host, port, security, username, password, fromName, to, subject, body, "")
+}
+
+// SMTPSendRich 发送邮件；html 非空时生成 text + html 的 multipart 正文。
+func SMTPSendRich(host string, port int, security, username, password, fromName, to, subject, text, html string) error {
 	if host == "" || port <= 0 || username == "" || password == "" {
 		return errors.New("SMTP 未配置完整")
 	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	msg := buildSMTPMessage(fromName, username, to, subject, body)
+	msg := buildSMTPMessage(fromName, username, to, subject, text, html)
 	auth := smtp.PlainAuth("", username, password, host)
 	dialer := &net.Dialer{Timeout: 15 * time.Second}
 
@@ -84,7 +89,7 @@ func SMTPSend(host string, port int, security, username, password, fromName, to,
 	return client.Quit()
 }
 
-func buildSMTPMessage(fromName, from, to, subject, body string) []byte {
+func buildSMTPMessage(fromName, from, to, subject, text, html string) []byte {
 	name := strings.NewReplacer("\r", "", "\n", "").Replace(fromName)
 	fromHeader := from
 	if name != "" {
@@ -96,17 +101,39 @@ func buildSMTPMessage(fromName, from, to, subject, body string) []byte {
 	fmt.Fprintf(&b, "Subject: %s\r\n", mime.QEncoding.Encode("utf-8", subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
 	b.WriteString("MIME-Version: 1.0\r\n")
+
+	if html == "" {
+		b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+		b.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+		b.WriteString(base64Wrap(text))
+		b.WriteString("\r\n")
+		return []byte(b.String())
+	}
+
+	boundary := "hstore-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	b.WriteString("Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n\r\n")
+	b.WriteString("--" + boundary + "\r\n")
 	b.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 	b.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
-	encoded := base64.StdEncoding.EncodeToString([]byte(body))
+	b.WriteString(base64Wrap(text))
+	b.WriteString("\r\n--" + boundary + "\r\n")
+	b.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: base64\r\n\r\n")
+	b.WriteString(base64Wrap(html))
+	b.WriteString("\r\n--" + boundary + "--\r\n")
+	return []byte(b.String())
+}
+
+func base64Wrap(s string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(s))
+	var b strings.Builder
 	for len(encoded) > 76 {
 		b.WriteString(encoded[:76])
 		b.WriteString("\r\n")
 		encoded = encoded[76:]
 	}
 	b.WriteString(encoded)
-	b.WriteString("\r\n")
-	return []byte(b.String())
+	return b.String()
 }
 
 // IsSMTPDailyLimit 判断是否为 Gmail 当日发信配额耗尽（500 封/天）。

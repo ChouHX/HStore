@@ -1,6 +1,7 @@
 "use client";
 
 import { Button, Empty, Message, Pagination, Spin, Tag } from "@arco-design/web-react";
+import { IconCopy } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** 后端 internal/mail.Message 的子集 */
@@ -66,6 +67,16 @@ function fmtTime(v: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function senderName(a?: MailAddress): string {
+  if (!a) return "";
+  return a.emailAddress?.name?.trim() || a.emailAddress?.address?.trim() || "";
+}
+
+function copyEmail(email: string) {
+  navigator.clipboard?.writeText(email);
+  Message.success("已复制邮箱");
 }
 
 function addr(a?: MailAddress): string {
@@ -209,7 +220,16 @@ export function MailboxPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           {email ? (
-            <span className="truncate font-mono text-[12px] text-[#86909c]">{email}</span>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="truncate font-mono text-[12px] text-[#4e5969]">{email}</span>
+              <Button
+                size="mini"
+                type="text"
+                icon={<IconCopy />}
+                aria-label="复制邮箱"
+                onClick={() => copyEmail(email)}
+              />
+            </span>
           ) : null}
           <Tag size="small">{total} 封</Tag>
         </div>
@@ -275,26 +295,26 @@ export function MailboxPanel({
             {items.length === 0 ? (
               <Empty description={loading ? "读取中…" : "暂无邮件"} />
             ) : (
-              <div className="flex flex-col divide-y divide-[#f2f3f5] rounded border border-[#e5e6eb]">
+              <div className="flex flex-col divide-y divide-[#f2f3f5] overflow-hidden rounded-lg border border-[#e5e6eb]">
                 {items.map((m) => (
                   <button
                     key={m.id}
                     type="button"
                     onClick={() => openMessage(m)}
-                    className="flex flex-col gap-1 px-3 py-2 text-left hover:bg-[#f7f8fa]"
+                    className="flex w-full flex-col gap-0.5 bg-white px-3 py-2.5 text-left transition-colors hover:bg-[#f2f6fc] sm:flex-row sm:items-center sm:gap-3"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium">
-                        {m.subject || "(无主题)"}
-                      </span>
-                      <span className="shrink-0 text-[11px] text-[#86909c]">
-                        {fmtTime(m.receivedDateTime)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Tag size="small">{addr(m.sender || m.from) || "未知发件人"}</Tag>
-                    </div>
-                    <div className="line-clamp-2 text-[12px] text-[#86909c]">{m.bodyPreview}</div>
+                    <span className="truncate text-[12px] text-[#1d2129] sm:w-[150px] sm:shrink-0">
+                      {senderName(m.sender || m.from) || "未知发件人"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px]">
+                      <span className="font-medium text-[#1d2129]">{m.subject || "(无主题)"}</span>
+                      {m.bodyPreview ? (
+                        <span className="text-[#86909c]"> — {m.bodyPreview}</span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-[#86909c]">
+                      {fmtTime(m.receivedDateTime)}
+                    </span>
                   </button>
                 ))}
               </div>

@@ -101,6 +101,15 @@ function parseBatch(raw: string, existing: Set<string>) {
   return { rows, errors, duplicates };
 }
 
+/** 从「账号----密码----clientid----refreshtoken」中提取邮箱，兼容只存了整行的情况 */
+function emailOf(item: PickupAccount): string {
+  const raw = (item.account || item.email || "").trim();
+  const first = raw.split("----")[0].trim();
+  if (first.includes("@")) return first;
+  const matched = raw.match(/[^\s@]+@[^\s@]+\.[^\s@]+/);
+  return (matched?.[0] ?? item.email ?? "").trim();
+}
+
 function loadImported(): PickupAccount[] {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -112,8 +121,7 @@ function loadImported(): PickupAccount[] {
       .map((item) => {
         // 兼容旧版本：当时把整行「账号----密码----...」存进了 email，这里统一只保留邮箱
         const account = item.account ?? "";
-        const email = account.split("----")[0].trim() || item.email.trim();
-        return { ...item, account, email };
+        return { ...item, account, email: emailOf({ ...item, account }) };
       });
     if (JSON.stringify(list) !== JSON.stringify(parsed)) saveImported(list);
     return list;
@@ -184,7 +192,7 @@ function AccountList({
                     : undefined
                 }
               >
-                <span className="block truncate font-mono text-[12px]">{item.email}</span>
+                <span className="block truncate font-mono text-[12px]">{emailOf(item)}</span>
               </List.Item>
             )}
           />
@@ -256,7 +264,7 @@ export function PickupPage() {
       if (!key) continue;
       map.set(key, {
         id: "mine-" + item.orderNumber + "-" + item.cardId,
-        email: item.email,
+        email: emailOf({ id: "", email: item.email, source: "mine", createdAt: item.createdAt }),
         source: "mine",
         orderNumber: item.orderNumber,
         cardId: item.cardId,
@@ -264,8 +272,9 @@ export function PickupPage() {
       });
     }
     for (const item of imported) {
-      const key = item.email.toLowerCase();
-      if (!map.has(key)) map.set(key, item);
+      const email = emailOf(item);
+      const key = email.toLowerCase();
+      if (!map.has(key)) map.set(key, { ...item, email });
     }
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [items, imported]);

@@ -139,7 +139,7 @@ export function OrderQueryPage() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-[820px] flex-col gap-4 px-4 py-5">
+      <main className="mx-auto flex w-full max-w-[1000px] flex-col gap-4 px-4 py-5">
         <Card bordered={false}>
           <div className="flex flex-col gap-3">
             <div className="text-center">
