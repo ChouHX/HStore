@@ -9,6 +9,7 @@ import {
   IconNotification,
   IconSearch,
   IconList,
+  IconMenu,
   IconPoweroff,
   IconSettings,
   IconUser,
@@ -46,7 +47,11 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
   }
 
   function onMenu(key: string) {
-    if (key === "account") navigate("/account/overview");
+    if (key === "search") setSearchOpen(true);
+    else if (key === "notice") setNoticeOpen(true);
+    else if (key === "pickup") navigate("/pickup");
+    else if (key === "login") navigate("/login");
+    else if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
     else if (key === "query") navigate("/orders");
     else if (key === "recharge") navigate("/account/overview?focus=recharge");
@@ -78,10 +83,7 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
           />
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="md:hidden">
-            <Button size="small" icon={<IconSearch />} aria-label="搜索" onClick={() => setSearchOpen(true)} />
-          </span>
+        <div className="hidden items-center gap-3 md:flex">
           <span className="lg:hidden">
             <Button size="small" icon={<IconNotification />} aria-label="公告" onClick={() => setNoticeOpen(true)} />
           </span>
@@ -161,6 +163,84 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
               </Button>
             </Link>
           )}
+        </div>
+
+        <div className="md:hidden">
+          <Dropdown
+            trigger="click"
+            position="br"
+            droplist={
+              <div className="min-w-[190px] rounded bg-white py-1 shadow-lg">
+                {user && (
+                  <div className="mb-1 flex items-center justify-between gap-2 border-b border-[#e5e6eb] px-3 py-2 text-[12px] text-[#86909c]">
+                    <span className="truncate">{user.nickname || user.username}</span>
+                    <span className="shrink-0 font-semibold text-[#f53f3f]">¥{formatPrice(user.balance)}</span>
+                  </div>
+                )}
+                <Menu onClickMenuItem={onMenu} style={{ border: "none" }}>
+                  <Menu.Item key="search">
+                    <span className="inline-flex items-center gap-2">
+                      <IconSearch /> 搜索商品
+                    </span>
+                  </Menu.Item>
+                  <Menu.Item key="notice">
+                    <span className="inline-flex items-center gap-2">
+                      <IconNotification /> 公告{announcements.length > 0 ? `（${announcements.length}）` : ""}
+                    </span>
+                  </Menu.Item>
+                  <Menu.Item key="pickup">
+                    <span className="inline-flex items-center gap-2">
+                      <IconEmail /> 微软取件
+                    </span>
+                  </Menu.Item>
+                  <Menu.Item key="query">
+                    <span className="inline-flex items-center gap-2">
+                      <IconFile /> 订单查询
+                    </span>
+                  </Menu.Item>
+                  {user ? (
+                    <>
+                      <Menu.Item key="account">
+                        <span className="inline-flex items-center gap-2">
+                          <IconUser /> 个人中心
+                        </span>
+                      </Menu.Item>
+                      <Menu.Item key="orders">
+                        <span className="inline-flex items-center gap-2">
+                          <IconList /> 我的订单
+                        </span>
+                      </Menu.Item>
+                      <Menu.Item key="recharge">
+                        <span className="inline-flex items-center gap-2">
+                          <IconGift /> 充值 / 兑换
+                        </span>
+                      </Menu.Item>
+                      {isAdmin && (
+                        <Menu.Item key="admin">
+                          <span className="inline-flex items-center gap-2">
+                            <IconSettings /> 管理后台
+                          </span>
+                        </Menu.Item>
+                      )}
+                      <Menu.Item key="logout">
+                        <span className="inline-flex items-center gap-2">
+                          <IconPoweroff /> 退出登录
+                        </span>
+                      </Menu.Item>
+                    </>
+                  ) : (
+                    <Menu.Item key="login">
+                      <span className="inline-flex items-center gap-2">
+                        <IconUser /> 登录 / 注册
+                      </span>
+                    </Menu.Item>
+                  )}
+                </Menu>
+              </div>
+            }
+          >
+            <Button size="small" icon={<IconMenu />} aria-label="菜单" />
+          </Dropdown>
         </div>
       </div>
 

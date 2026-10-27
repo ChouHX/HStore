@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { vitePluginForArco } from "@arco-plugins/vite-react";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +14,7 @@ const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const API_TARGET = (process.env.GO_API_ORIGIN ?? "http://127.0.0.1:3001").replace(/\/$/, "");
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), vitePluginForArco({ style: "css" })],
   resolve: {
     alias: { "@": ROOT },
   },

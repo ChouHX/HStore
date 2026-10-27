@@ -18,12 +18,15 @@ import {
   IconSort,
   IconUnorderedList,
 } from "@arco-design/web-react/icon";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import type { Product, User } from "@/lib/types";
 import type { StoreBoard, StoreSubCategory } from "@/lib/api-types";
 import type { Announcement } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
-import { PurchaseModal } from "./PurchaseModal";
+
+const PurchaseModal = lazy(() =>
+  import("./PurchaseModal").then((m) => ({ default: m.PurchaseModal })),
+);
 import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
 import { PopupAnnouncement } from "./store/PopupAnnouncement";
@@ -528,16 +531,20 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
 
       <PopupAnnouncement popup={popup} />
 
-      <PurchaseModal
-        product={purchaseProduct}
-        open={purchaseProduct !== null}
-        discount={discount}
-        user={user}
-        onOpenChange={(o) => {
-          if (!o) setPurchaseProduct(null);
-        }}
-        onDone={() => load()}
-      />
+      {purchaseProduct && (
+        <Suspense fallback={null}>
+          <PurchaseModal
+            product={purchaseProduct}
+            open
+            discount={discount}
+            user={user}
+            onOpenChange={(o) => {
+              if (!o) setPurchaseProduct(null);
+            }}
+            onDone={() => load()}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

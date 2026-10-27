@@ -1,28 +1,57 @@
 import { BrowserRouter, Link, Navigate, Route, Routes } from "react-router-dom";
+import { Suspense, lazy } from "react";
 
-import { AnnouncementsSection } from "@/components/admin/AnnouncementsSection";
-import { CatalogSection } from "@/components/admin/CatalogSection";
-import { LogsSection } from "@/components/admin/LogsSection";
-import { OverviewSection as AdminOverview } from "@/components/admin/OverviewSection";
-import { PaymentOrdersSection } from "@/components/admin/PaymentOrdersSection";
-import { PaymentSettingsSection } from "@/components/admin/PaymentSettingsSection";
-import { ProductsSection } from "@/components/admin/ProductsSection";
-import { RedeemSection } from "@/components/admin/RedeemSection";
-import { SettingsSection } from "@/components/admin/SettingsSection";
-import { UsersSection } from "@/components/admin/UsersSection";
-import { MyLedgerSection } from "@/components/account/MyLedgerSection";
-import { MyOrdersSection } from "@/components/account/MyOrdersSection";
-import { OverviewSection as AccountOverview } from "@/components/account/OverviewSection";
-import { SecuritySection } from "@/components/account/SecuritySection";
-import { AdminLayout } from "@/src/layouts/AdminLayout";
-import { AccountLayout } from "@/src/layouts/AccountLayout";
-import { HomePage } from "@/src/pages/HomePage";
-import { CheckoutPage } from "@/src/pages/CheckoutPage";
-import { LoginPage } from "@/src/pages/LoginPage";
-import { OrderDetailPage } from "@/src/pages/OrderDetailPage";
-import { OrderQueryPage } from "@/src/pages/OrderQueryPage";
-import { PickupPage } from "@/src/pages/PickupPage";
-import { RegisterPage } from "@/src/pages/RegisterPage";
+const HomePage = lazy(() => import("@/src/pages/HomePage").then((m) => ({ default: m.HomePage })));
+const LoginPage = lazy(() => import("@/src/pages/LoginPage").then((m) => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import("@/src/pages/RegisterPage").then((m) => ({ default: m.RegisterPage })));
+const PickupPage = lazy(() => import("@/src/pages/PickupPage").then((m) => ({ default: m.PickupPage })));
+const CheckoutPage = lazy(() => import("@/src/pages/CheckoutPage").then((m) => ({ default: m.CheckoutPage })));
+const OrderQueryPage = lazy(() => import("@/src/pages/OrderQueryPage").then((m) => ({ default: m.OrderQueryPage })));
+const OrderDetailPage = lazy(() => import("@/src/pages/OrderDetailPage").then((m) => ({ default: m.OrderDetailPage })));
+
+const AdminLayout = lazy(() => import("@/src/layouts/AdminLayout").then((m) => ({ default: m.AdminLayout })));
+const AccountLayout = lazy(() => import("@/src/layouts/AccountLayout").then((m) => ({ default: m.AccountLayout })));
+const AdminOverview = lazy(() =>
+  import("@/components/admin/OverviewSection").then((m) => ({ default: m.OverviewSection })),
+);
+const ProductsSection = lazy(() =>
+  import("@/components/admin/ProductsSection").then((m) => ({ default: m.ProductsSection })),
+);
+const CatalogSection = lazy(() =>
+  import("@/components/admin/CatalogSection").then((m) => ({ default: m.CatalogSection })),
+);
+const UsersSection = lazy(() =>
+  import("@/components/admin/UsersSection").then((m) => ({ default: m.UsersSection })),
+);
+const RedeemSection = lazy(() =>
+  import("@/components/admin/RedeemSection").then((m) => ({ default: m.RedeemSection })),
+);
+const AnnouncementsSection = lazy(() =>
+  import("@/components/admin/AnnouncementsSection").then((m) => ({ default: m.AnnouncementsSection })),
+);
+const LogsSection = lazy(() => import("@/components/admin/LogsSection").then((m) => ({ default: m.LogsSection })));
+const PaymentSettingsSection = lazy(() =>
+  import("@/components/admin/PaymentSettingsSection").then((m) => ({ default: m.PaymentSettingsSection })),
+);
+const PaymentOrdersSection = lazy(() =>
+  import("@/components/admin/PaymentOrdersSection").then((m) => ({ default: m.PaymentOrdersSection })),
+);
+const SettingsSection = lazy(() =>
+  import("@/components/admin/SettingsSection").then((m) => ({ default: m.SettingsSection })),
+);
+
+const AccountOverview = lazy(() =>
+  import("@/components/account/OverviewSection").then((m) => ({ default: m.OverviewSection })),
+);
+const MyOrdersSection = lazy(() =>
+  import("@/components/account/MyOrdersSection").then((m) => ({ default: m.MyOrdersSection })),
+);
+const MyLedgerSection = lazy(() =>
+  import("@/components/account/MyLedgerSection").then((m) => ({ default: m.MyLedgerSection })),
+);
+const SecuritySection = lazy(() =>
+  import("@/components/account/SecuritySection").then((m) => ({ default: m.SecuritySection })),
+);
 
 function NotFound() {
   return (
@@ -38,7 +67,12 @@ function NotFound() {
 export function App() {
   return (
     <BrowserRouter>
-      <Routes>
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center text-[13px] text-[#86909c]">加载中…</div>
+        }
+      >
+        <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
@@ -80,8 +114,9 @@ export function App() {
           <Route path="levels" element={<Navigate to="/admin/users" replace />} />
         </Route>
 
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
