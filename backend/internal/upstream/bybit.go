@@ -51,6 +51,22 @@ func IsBybitConfigured() bool {
 	return c.APIKey != "" && c.APISecret != ""
 }
 
+// bybitClient 是 Bybit 专用客户端，强制直连、忽略 HTTP(S)_PROXY。
+//
+// 容器为绕过上游 WAF 配置了 HTTPS_PROXY 指向家宽 SOCKS5 隧道，而该隧道
+// 只放行天启域名，连接 Bybit 会被代理直接关闭。若沿用默认 Transport
+// （http.ProxyFromEnvironment），查单会全部失败且错误被静默吞掉，
+// 表现为「链上已到账但系统一直显示未到账」。
+var bybitClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		Proxy:               nil,
+		MaxIdleConns:        16,
+		MaxIdleConnsPerHost: 8,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 type bybitEnvelope struct {
 	RetCode int             `json:"retCode"`
 	RetMsg  string          `json:"retMsg"`
@@ -73,7 +89,7 @@ func signedGet(path string, params map[string]string) (json.RawMessage, error) {
 	}
 	qs := strings.Join(pairs, "&")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := bybitClient
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		ts := fmt.Sprintf("%d", time.Now().UnixMilli())

@@ -83,9 +83,21 @@ journalctl --user -u waf-tunnel -n 50
    ```
 
 > `NO_PROXY` 很重要：家宽上行带宽小，支付宝/邮件等不应绕道家宽，否则会超时。
+>
+> **Bybit 也必须直连**：家宽 SOCKS5 隧道只放行天启域名，连 `api.bybit.com` 会被
+> 直接关闭（`socks connect ... EOF`）。若漏配，USDT 查单会全部失败。
 
 ## 代码改动
 
+- `backend/internal/upstream/bybit.go`
+  - 新增 `bybitClient`：`Transport.Proxy = nil` 强制直连，不继承 `HTTPS_PROXY`。
+    即使运维漏配 `NO_PROXY`，Bybit 查单也不会被隧道劫持。
+- `backend/internal/service/crypto.go`
+  - `CheckCryptoOrder` 查单失败不再静默返回，改为写日志（过去这类故障完全无痕）。
+  - 支持对 `expired` 订单补结算，但仅限 `successAt <= expiresAt`（有效期内付款），
+    避免地址回收复用后把晚到账算到别人订单上。
+- `backend/cmd/server/main.go`
+  - `pendingCryptoOrders` 额外带上 24 小时内过期的订单，轮询中断恢复后能补结算。
 - `backend/internal/upstream/tianqi.go`
   - `httpClient` 使用 `http.Transport{Proxy: http.ProxyFromEnvironment}`，支持 `HTTPS_PROXY`
   - 修正「成功但仍被拦截」的误导文案
@@ -113,6 +125,7 @@ docker run --rm --network container:hstore --entrypoint sh alpine:3.21 -c \
 | 服务器无 18080 监听 | 隧道断开 / `GatewayPorts` 未配 | 家宽重启 `waf-tunnel`；检查 sshd 配置 |
 | 又出现滑块页 | 家宽 IP 变了（动态 IP） | 确认家宽出口 IP，必要时重新加白 |
 | 支付宝查账超时 | 走了家宽代理 | 检查 `NO_PROXY` 是否包含 alipay 域名 |
+| USDT 链上已到账但不入账 | `NO_PROXY` 缺 `bybit.com`，查单被隧道关闭 | 补上 `,.bybit.com`；日志会打印 `查询 Bybit 充值记录失败` |
 
 ## 风险
 

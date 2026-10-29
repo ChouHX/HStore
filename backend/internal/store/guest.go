@@ -136,10 +136,13 @@ func ListPendingGuestPurchases(limit int) []model.GuestPurchase {
 }
 
 // ClaimGuestPurchase 原子占用履约任务，避免重复向上游下单。
+//
+// 包含 'expired'：USDT 订单过期后仍可能补查到「有效期内已付款」的链上记录
+// （轮询中断过），此时钱已经真实收到，必须继续发货而不是卡在过期状态。
 func ClaimGuestPurchase(id int) bool {
 	nowMs := now()
 	res, err := db.Must().Exec(`UPDATE guest_purchases SET status='fulfilling', updated_at=?
-		WHERE id=? AND (status IN ('waiting','failed') OR (status='fulfilling' AND updated_at < ?))`,
+		WHERE id=? AND (status IN ('waiting','failed','expired') OR (status='fulfilling' AND updated_at < ?))`,
 		nowMs, id, nowMs-2*60*1000)
 	if err != nil {
 		return false

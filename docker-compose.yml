@@ -12,6 +12,12 @@ services:
       FAKA_ADDR: "0.0.0.0"
       FAKA_DB_PATH: "/data/faka.db"
       TZ: "${TZ:-Asia/Shanghai}"
+      # 绕过上游 WAF：经家宽 SOCKS5 隧道出网（见 docs/waf-tunnel.md）
+      HTTPS_PROXY: "${HTTPS_PROXY:-socks5://172.20.0.1:18080}"
+      HTTP_PROXY: "${HTTP_PROXY:-socks5://172.20.0.1:18080}"
+      # 只有上游天启需要走代理。支付宝 / 邮件 / Bybit 必须直连：
+      # 隧道只放行天启域名，Bybit 走代理会被直接关闭，导致链上已到账却查不到。
+      NO_PROXY: "127.0.0.1,localhost,172.20.0.1,.alipay.com,.alipayobjects.com,.aliyuncs.com,.qq.com,.microsoft.com,.office.com,.outlook.com,.live.com,.bybit.com"
     volumes:
       - hstore-data:/data
     healthcheck:

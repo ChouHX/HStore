@@ -131,9 +131,16 @@ func alipayLoop(ctx context.Context) {
 }
 
 // pendingCryptoOrders 返回仍在等待中的链上订单 ID。
+//
+// 同时带上最近 24 小时内过期、但仍未支付的订单：轮询中断（例如查单接口
+// 持续报错）期间用户可能已经真实付款，恢复后应该能补结算，而不是让用户
+// 的钱白白卡在过期单里。补结算只认「有效期内完成」的链上记录，见 CheckCryptoOrder。
 func pendingCryptoOrders() []int {
 	rows, err := db.Must().Query(
-		"SELECT id FROM crypto_orders WHERE status = 'waiting' ORDER BY id DESC LIMIT 50")
+		`SELECT id FROM crypto_orders
+		 WHERE status = 'waiting'
+		    OR (status = 'expired' AND expires_at > ?)
+		 ORDER BY id DESC LIMIT 50`, time.Now().Add(-24*time.Hour).UnixMilli())
 	if err != nil {
 		return nil
 	}

@@ -354,7 +354,7 @@ func SettleCryptoOrder(order *model.CryptoOrder, txid, received, remark string) 
 		return order
 	}
 	defer tx.Rollback()
-	res, e := tx.Exec("UPDATE crypto_orders SET status='paid', txid=?, received_usdt=?, credited=?, paid_at=? WHERE id=? AND status='waiting'",
+	res, e := tx.Exec("UPDATE crypto_orders SET status='paid', txid=?, received_usdt=?, credited=?, paid_at=? WHERE id=? AND status IN ('waiting','expired')",
 		txid, received, credited, now(), order.ID)
 	if e != nil {
 		return order

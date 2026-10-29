@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -157,7 +158,7 @@ func CheckCryptoOrder(id int) *model.CryptoOrder {
 		_ = FulfillGuestPurchaseByPayment("usdt", order.ID)
 		return order
 	}
-	if order.Status != "waiting" {
+	if order.Status != "waiting" && order.Status != "expired" {
 		return order
 	}
 	if !upstream.IsBybitConfigured() {
@@ -165,6 +166,10 @@ func CheckCryptoOrder(id int) *model.CryptoOrder {
 	}
 	rows, e := upstream.SubMemberDeposits(order.SubUID, "USDT", order.CreatedAt-10*60*1000)
 	if e != nil {
+		// 查单失败必须留下痕迹：过去这里静默 return，导致链上已到账
+		// 却因为代理不可用而永远无法结算，且日志里毫无线索。
+		log.Printf("[hstore] 查询 Bybit 充值记录失败 (订单 %d / 子账户 %s): %s",
+			order.ID, order.SubUID, e.Error())
 		return order
 	}
 	for _, r := range rows {
@@ -174,13 +179,19 @@ func CheckCryptoOrder(id int) *model.CryptoOrder {
 		if !strings.EqualFold(r.Chain, order.Chain) {
 			continue
 		}
-		if r.ToAddress != order.Address {
+		if !strings.EqualFold(r.ToAddress, order.Address) {
 			continue
 		}
 		if math.Abs(parseFloatSafe(r.Amount)-parseFloatSafe(order.UsdtAmount)) > 1e-8 {
 			continue
 		}
-		if r.SuccessAt != "" && parseFloatSafe(r.SuccessAt) > 0 && parseFloatSafe(r.SuccessAt) < float64(order.CreatedAt-120000) {
+		successAt := parseFloatSafe(r.SuccessAt)
+		if successAt > 0 && successAt < float64(order.CreatedAt-120000) {
+			continue
+		}
+		// 已过期订单只补「在有效期内完成付款」的单：地址在过期后会被回收给
+		// 新订单复用，若放宽到任意时间，晚到账可能被算到别人的订单上。
+		if order.Status == "expired" && (successAt <= 0 || successAt > float64(order.ExpiresAt)) {
 			continue
 		}
 		if store.TxidUsed(r.TxID, order.ID) {
