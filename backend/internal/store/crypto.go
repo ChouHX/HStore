@@ -23,21 +23,30 @@ type CryptoChain struct {
 	Contract string `json:"contract"`
 	// EVM 为 true 时复用地址池的 address_evm（所有 EVM 链同一地址）。
 	EVM bool `json:"evm"`
+	// SlowConfirm 为 true 表示该链到账较慢，前端要提示用户耐心等待。
+	SlowConfirm bool `json:"slowConfirm"`
+	// ETA 是预计到账时间文案，仅 SlowConfirm 时使用。
+	ETA string `json:"eta,omitempty"`
 }
 
 // CryptoChains 是支持的链列表。
 //
 // 注意：Arbitrum 与 Polygon 在 Bybit 上的 chainType 都是 USDT0，
 // 链上 USDT 合约地址已固定写在这里，结算时用它防止同名不同币。
+//
+// Arbitrum / Polygon 的充值需要更多区块确认，实测到账明显慢于 TRC20，
+// 所以标记为 SlowConfirm，前端会提示用户等待 5~10 分钟。
 var CryptoChains = []CryptoChain{
 	{Code: "TRX", Label: "TRON (TRC20)", Display: "TRC20",
 		Contract: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"},
 	{Code: "BSC", Label: "BSC (BEP20)", Display: "BEP20", EVM: true,
 		Contract: "0x55d398326f99059fF775485246999027B3197955"},
 	{Code: "ARBI", Label: "Arbitrum One (USDT0)", Display: "Arbitrum", EVM: true,
-		Contract: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9"},
+		Contract: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+		SlowConfirm: true, ETA: "5~10 分钟"},
 	{Code: "MATIC", Label: "Polygon PoS (USDT0)", Display: "Polygon", EVM: true,
-		Contract: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F"},
+		Contract: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+		SlowConfirm: true, ETA: "5~10 分钟"},
 }
 
 // ChainInfo 按 code 取链配置，找不到返回 nil。
@@ -277,6 +286,8 @@ func scanCryptoOrder(sc interface{ Scan(...any) error }) (model.CryptoOrder, err
 	for _, c := range CryptoChains {
 		if c.Code == o.Chain {
 			o.ChainLabel = c.Label
+			o.ChainSlowConfirm = c.SlowConfirm
+			o.ChainEta = c.ETA
 		}
 	}
 	if txid.Valid {

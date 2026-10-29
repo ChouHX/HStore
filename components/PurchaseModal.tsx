@@ -30,7 +30,15 @@ interface CryptoPaymentCfg {
   configured: boolean;
   rate: number;
   minCny: number;
-  chains: { code: string; label: string; display: string }[];
+  chains: {
+    code: string;
+    label: string;
+    display: string;
+    contract?: string;
+    evm?: boolean;
+    slowConfirm?: boolean;
+    eta?: string;
+  }[];
 }
 
 interface GuestOrderView {
@@ -48,6 +56,9 @@ interface GuestOrderView {
   usdtAmount: string;
   chain: string;
   chainLabel: string;
+  /** 该链到账较慢（Arbitrum / Polygon），需要提示等待 */
+  chainSlowConfirm?: boolean;
+  chainEta?: string;
   rate: number;
   creditCny: number;
   error?: string;
@@ -524,6 +535,13 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                   <div className="mt-1 text-[11px] text-[#d25f00]">
                     必须使用完全相同的 {guestOrder.usdtAmount} USDT 转账
                   </div>
+                  {guestOrder.chainSlowConfirm && (
+                    <div className="mt-2 rounded border border-[#ffcf8b] bg-[#fff7e8] px-2 py-1.5 text-[11px] leading-relaxed text-[#d25f00]">
+                      {guestOrder.chainLabel} 到账较慢，通常需要等待{" "}
+                      {guestOrder.chainEta || "5~10 分钟"} 才能自动发货。
+                      请耐心等待，<b>不要重复转账</b>。
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -675,11 +693,22 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               </div>
             ) : null}
             {channel === "usdt" ? (
-              <Select value={guestChain} onChange={(v) => setGuestChain(String(v))} style={{ width: "100%" }}>
-                {(guestCfg.crypto?.chains ?? []).map((c) => (
-                  <Select.Option key={c.code} value={c.code}>{c.label}</Select.Option>
-                ))}
-              </Select>
+              <>
+                <Select value={guestChain} onChange={(v) => setGuestChain(String(v))} style={{ width: "100%" }}>
+                  {(guestCfg.crypto?.chains ?? []).map((c) => (
+                    <Select.Option key={c.code} value={c.code}>{c.label}</Select.Option>
+                  ))}
+                </Select>
+                {(() => {
+                  const c = (guestCfg.crypto?.chains ?? []).find((x) => x.code === guestChain);
+                  if (!c?.slowConfirm) return null;
+                  return (
+                    <div className="mt-1 rounded bg-[#fff7e8] px-2 py-1.5 text-[11px] leading-relaxed text-[#d25f00]">
+                      {c.display} 到账较慢，通常需要等待 {c.eta || "5~10 分钟"} 才能自动发货，请耐心等待。
+                    </div>
+                  );
+                })()}
+              </>
             ) : null}
             {channel === "alipay" ? (
               <div className="text-[11px] text-[#86909c]">

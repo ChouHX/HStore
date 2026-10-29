@@ -97,6 +97,10 @@ func createCryptoOrder(uid int, cnyInput float64, chainInput string, enforceMin 
 	if cnyInput <= 0 || math.IsNaN(cnyInput) {
 		return nil, errors.New("请输入充值金额")
 	}
+	// 汇率必须为正：为 0 会让下面的除法得到 +Inf，订单金额直接写坏。
+	if cfg.Rate <= 0 {
+		return nil, errors.New("USDT 汇率未配置，请联系管理员")
+	}
 	requested := cnyInput / cfg.Rate
 	if enforceMin && requested < cfg.MinUsdt {
 		return nil, fmt.Errorf("最小充值 %s USDT（约 ¥%.2f）", store.TrimFloat(cfg.MinUsdt), cfg.MinUsdt*cfg.Rate)

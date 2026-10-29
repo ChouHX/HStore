@@ -49,13 +49,24 @@ interface CryptoCfg {
   minUsdt: number;
   minCny: number;
   defaultChain: string;
-  chains: { code: string; label: string; display: string; contract?: string; evm?: boolean }[];
+  chains: {
+    code: string;
+    label: string;
+    display: string;
+    contract?: string;
+    evm?: boolean;
+    slowConfirm?: boolean;
+    eta?: string;
+  }[];
 }
 
 interface CryptoOrderView {
   id: number;
   /** 系统生成的支付单号（US 开头），用户端只认这个号 */
   orderNo: string;
+  /** 该链到账较慢（如 Arbitrum / Polygon），需要提示用户等待 */
+  chainSlowConfirm?: boolean;
+  chainEta?: string;
   address: string;
   chain: string;
   chainLabel: string;
@@ -476,6 +487,12 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                       <span className="font-mono">{selectedChain.contract}</span>
                     </div>
                   )}
+                  {selectedChain?.slowConfirm && (
+                    <div className="mt-1 rounded bg-[#fff7e8] px-2 py-1.5 text-[11px] leading-relaxed text-[#d25f00]">
+                      {selectedChain.display} 到账较慢，通常需要等待 {selectedChain.eta || "5~10 分钟"}
+                      才能自动入账，请耐心等待，勿重复转账。
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -650,6 +667,13 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                     <div className="mt-1 break-all text-[11px] text-[#86909c]">
                       仅支持 {active.order.chainLabel}；转错链或转成其它代币无法找回。
                     </div>
+                    {active.order.chainSlowConfirm && (
+                      <div className="mt-2 rounded border border-[#ffcf8b] bg-[#fff7e8] px-2 py-1.5 text-[11px] leading-relaxed text-[#d25f00]">
+                        {active.order.chainLabel} 到账较慢，通常需要等待{" "}
+                        {active.order.chainEta || "5~10 分钟"} 才能自动入账。
+                        请耐心等待，<b>不要重复转账</b>。
+                      </div>
+                    )}
                   </div>
                 )}
 

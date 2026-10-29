@@ -31,26 +31,29 @@ type GuestOrderResult struct {
 
 // GuestOrderView 是游客购买订单的公开视图。token 即访问凭证。
 type GuestOrderView struct {
-	Token          string            `json:"token"`
-	Status         string            `json:"status"` // waiting / paid / fulfilling / fulfilled / failed / expired / closed
-	Channel        string            `json:"channel"`
-	GoodsID        int               `json:"goodsId"`
-	ProductName    string            `json:"productName"`
-	GoodsCount     int               `json:"goodsCount"`
-	AmountCny      float64           `json:"amountCny"`
-	CreatedAt      int64             `json:"createdAt"`
-	PaymentStatus  string            `json:"paymentStatus"`
-	ExpiresAt      int64             `json:"expiresAt"`
-	PayableCents   int64             `json:"payableCents"`
-	CollectionCode string            `json:"collectionCode"`
-	Address        string            `json:"address"`
-	UsdtAmount     string            `json:"usdtAmount"`
-	Chain          string            `json:"chain"`
-	ChainLabel     string            `json:"chainLabel"`
-	Rate           float64           `json:"rate"`
-	CreditCny      float64           `json:"creditCny"`
-	Order          *GuestOrderResult `json:"order"`
-	Error          string            `json:"error,omitempty"`
+	Token          string  `json:"token"`
+	Status         string  `json:"status"` // waiting / paid / fulfilling / fulfilled / failed / expired / closed
+	Channel        string  `json:"channel"`
+	GoodsID        int     `json:"goodsId"`
+	ProductName    string  `json:"productName"`
+	GoodsCount     int     `json:"goodsCount"`
+	AmountCny      float64 `json:"amountCny"`
+	CreatedAt      int64   `json:"createdAt"`
+	PaymentStatus  string  `json:"paymentStatus"`
+	ExpiresAt      int64   `json:"expiresAt"`
+	PayableCents   int64   `json:"payableCents"`
+	CollectionCode string  `json:"collectionCode"`
+	Address        string  `json:"address"`
+	UsdtAmount     string  `json:"usdtAmount"`
+	Chain          string  `json:"chain"`
+	ChainLabel     string  `json:"chainLabel"`
+	// ChainSlowConfirm / ChainEta：该链到账较慢时提示用户等待
+	ChainSlowConfirm bool              `json:"chainSlowConfirm,omitempty"`
+	ChainEta         string            `json:"chainEta,omitempty"`
+	Rate             float64           `json:"rate"`
+	CreditCny        float64           `json:"creditCny"`
+	Order            *GuestOrderResult `json:"order"`
+	Error            string            `json:"error,omitempty"`
 }
 
 func newGuestToken() string {
@@ -370,6 +373,8 @@ func guestOrderView(gp *model.GuestPurchase) (*GuestOrderView, error) {
 		view.UsdtAmount = order.UsdtAmount
 		view.Chain = order.Chain
 		view.ChainLabel = order.ChainLabel
+		view.ChainSlowConfirm = order.ChainSlowConfirm
+		view.ChainEta = order.ChainEta
 		view.Rate = order.Rate
 		view.CreditCny = order.CreditCny
 		if order.Credited != nil {

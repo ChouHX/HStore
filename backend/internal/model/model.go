@@ -307,6 +307,9 @@ type CryptoOrder struct {
 	Address       string   `json:"address"`
 	Chain         string   `json:"chain"`
 	ChainLabel    string   `json:"chainLabel"`
+	// ChainSlowConfirm / ChainEta 让前端能直接提示「该链到账较慢」。
+	ChainSlowConfirm bool   `json:"chainSlowConfirm,omitempty"`
+	ChainEta         string `json:"chainEta,omitempty"`
 	RequestedCny  float64  `json:"requestedCny"`
 	RequestedUsdt string   `json:"requestedUsdt"`
 	UsdtAmount    string   `json:"usdtAmount"`

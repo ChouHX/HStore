@@ -82,7 +82,9 @@ const POOL_TAG: Record<string, { color: string; text: string }> = {
 export function CryptoSection() {
   const [data, setData] = useState<Snapshot | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ apiKey: "", apiSecret: "", rate: 7.2, minUsdt: 2, chain: "TRX", enabled: true });
+  // 初始值用 0 占位，等 apply() 拿后端配置回填；
+  // 不写死 7.2，避免加载失败时误把默认汇率保存进去。
+  const [form, setForm] = useState({ apiKey: "", apiSecret: "", rate: 0, minUsdt: 2, chain: "TRX", enabled: true });
   const [newUid, setNewUid] = useState("");
   const [poolOpen, setPoolOpen] = useState(false);
   const [redeemUrl, setRedeemUrl] = useState("");
@@ -293,7 +295,13 @@ export function CryptoSection() {
             size="small"
             type="primary"
             loading={busy}
-            onClick={() =>
+            onClick={() => {
+              // 汇率是所有 USDT 金额的唯一换算依据，0 会让下单直接失败或除零，
+              // 这里先拦住，避免误写配置。
+              if (!(Number(form.rate) > 0)) {
+                Message.error("请填写有效的 USDT 汇率（大于 0）");
+                return;
+              }
               post(
                 {
                   action: "saveConfig",
@@ -305,8 +313,8 @@ export function CryptoSection() {
                   apiSecret: form.apiSecret || undefined,
                 },
                 "配置已保存，地址池已刷新",
-              )
-            }
+              );
+            }}
           >
             保存配置
           </Button>

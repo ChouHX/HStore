@@ -116,3 +116,24 @@ func TestSettleCryptoOrderIsIdempotent(t *testing.T) {
 		t.Fatalf("重复结算导致余额异常: %v (期望 14.0014)", balance)
 	}
 }
+
+// TestCreateOrderRejectsZeroRate 汇率未配置时必须拒绝下单，
+// 否则 cny/0 = +Inf 会写坏订单金额。
+func TestCreateOrderRejectsZeroRate(t *testing.T) {
+	if _, err := db.Open(); err != nil {
+		t.Fatal(err)
+	}
+	d := db.Must()
+	// 把汇率设成 0
+	_, _ = d.Exec(`INSERT INTO sync_meta(key,value) VALUES('bybit_rate','0')
+		ON CONFLICT(key) DO UPDATE SET value='0'`)
+	_, _ = d.Exec(`INSERT INTO sync_meta(key,value) VALUES('bybit_enabled','1')
+		ON CONFLICT(key) DO UPDATE SET value='1'`)
+
+	if _, err := CreateCryptoOrder(1, 100, "TRX"); err == nil {
+		t.Fatal("汇率为 0 时应拒绝下单")
+	}
+
+	// 恢复，避免影响其它测试
+	_, _ = d.Exec(`UPDATE sync_meta SET value='7' WHERE key='bybit_rate'`)
+}
