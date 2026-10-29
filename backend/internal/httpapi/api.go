@@ -133,6 +133,18 @@ func queryInt(r *http.Request, key string) int {
 	return v
 }
 
+// hideUpstreamForUser 对非管理员清空上游单号。
+//
+// 上游（天启）单号属于内部信息：用户只应看到系统生成的单号，
+// 否则可以拿它去上游站探测价格 / 库存。所有向用户返回 LocalOrder
+// 的接口都应该过一遍这里，避免逐个接口漏判。
+func hideUpstreamForUser(order *model.LocalOrder, role string) *model.LocalOrder {
+	if order != nil && role != "admin" {
+		order.UpstreamOrderNo = ""
+	}
+	return order
+}
+
 func queryIntList(r *http.Request, key string) []int {
 	raw := strings.TrimSpace(r.URL.Query().Get(key))
 	if raw == "" {

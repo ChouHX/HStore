@@ -43,7 +43,7 @@ func (a *API) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, res.Status, res.Message)
 		return
 	}
-	ok(w, map[string]any{"order": res.Order})
+	ok(w, map[string]any{"order": hideUpstreamForUser(res.Order, user.Role)})
 }
 
 func (a *API) handleOrderDetail(w http.ResponseWriter, r *http.Request) {
@@ -70,14 +70,14 @@ func (a *API) handleOrderDetail(w http.ResponseWriter, r *http.Request) {
 	// 用户传入的是本地单号，查上游必须用上游单号。
 	upstreamNo := owned.UpstreamOrderNo
 	if upstreamNo == "" {
-		// 历史订单可能没回填，不能拿本地单号去调上游（一定查不到）。
-		ok(w, map[string]any{"order": owned})
+		// 没有上游单号（历史单或管理员手工建的单）就不查上游，直接返回本地记录。
+		ok(w, map[string]any{"order": hideUpstreamForUser(owned, user.Role)})
 		return
 	}
 	detail, e := upstream.GetOrderDetail(upstreamNo)
 	if e != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok": false, "message": e.Error(), "order": owned,
+			"ok": false, "message": e.Error(), "order": hideUpstreamForUser(owned, user.Role),
 		})
 		return
 	}
@@ -87,11 +87,7 @@ func (a *API) handleOrderDetail(w http.ResponseWriter, r *http.Request) {
 		store.MarkSettled(order.OrderNumber)
 		order = store.GetOrder(order.OrderNumber)
 	}
-	// 上游单号只给管理员看。
-	if user.Role != "admin" && order != nil {
-		order.UpstreamOrderNo = ""
-	}
-	ok(w, map[string]any{"order": order})
+	ok(w, map[string]any{"order": hideUpstreamForUser(order, user.Role)})
 }
 
 func (a *API) handleOrderList(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +179,7 @@ func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
 	fresh := store.GetUser(user.UID)
 	payload := map[string]any{
 		"ok": res.OK, "message": res.Message, "kind": res.Kind,
-		"amount": res.Amount, "order": res.Order, "orderNumber": res.OrderNumber,
+		"amount": res.Amount, "order": hideUpstreamForUser(res.Order, user.Role), "orderNumber": res.OrderNumber,
 		"user": fresh,
 	}
 	if fresh != nil {
@@ -208,7 +204,8 @@ func (a *API) handlePickup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res := service.Pickup(user.UID, body.Code, body.OrderNumber, user.Role == "admin")
-	writeJSON(w, http.StatusOK, map[string]any{"ok": res.OK, "message": res.Message, "order": res.Order})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": res.OK, "message": res.Message,
+		"order": hideUpstreamForUser(res.Order, user.Role)})
 }
 
 // mailboxActor 解析取件的调用方：登录返回 uid / isAdmin，未登录返回 0 / false。
@@ -362,7 +359,6 @@ func (a *API) handleOrderQueryDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "联系方式与订单不匹配")
 		return
 	}
-	// 公开查询不返回上游单号。
-	order.UpstreamOrderNo = ""
-	ok(w, map[string]any{"order": order})
+	// 公开查询永远不返回上游单号。
+	ok(w, map[string]any{"order": hideUpstreamForUser(order, "guest")})
 }

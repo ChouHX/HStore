@@ -482,9 +482,86 @@ func addColumns(db *sql.DB, table string, defs [][2]string) error {
 	return nil
 }
 
+// migrateLegacyOrderNumbers 把历史订单的「上游单号」换成本地单号。
+//
+// 旧版本 PlaceOrder 直接把天启返回的 orderNumber 写进 orders.order_number，
+// 于是用户订单页显示的就是上游单号。这里统一修正：
+//   - 旧单号归档到 upstream_order_no
+//   - order_number 换成新的本地单号
+//   - cards / ledger / redeem_codes / guest_purchases 里的引用同步改掉
+//
+// 判定条件：upstream_order_no 为空（从未归档）或与 order_number 相同
+// （归档了但没换单号），两种都是「上游号仍当本地单号用」的状态。
+// 不能用单一条件：早一版迁移只回填了 upstream_order_no 而没换单号。
+func migrateLegacyOrderNumbers(db *sql.DB) error {
+	rows, e := db.Query(`SELECT order_number FROM orders
+		WHERE COALESCE(upstream_order_no,'') = '' OR order_number = upstream_order_no`)
+	if e != nil {
+		return e
+	}
+	var legacy []string
+	for rows.Next() {
+		var no string
+		if rows.Scan(&no) == nil && no != "" {
+			legacy = append(legacy, no)
+		}
+	}
+	rows.Close()
+	if len(legacy) == 0 {
+		return nil
+	}
+
+	// 引用表：列名 → 表名。只改指向 orders.order_number 的那些。
+	refs := []struct{ table, column string }{
+		{"cards", "order_number"},
+		{"ledger", "order_number"},
+		{"redeem_codes", "order_number"},
+	}
+
+	tx, e := db.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+
+	for _, old := range legacy {
+		newNo := newLegacyOrderNo(old)
+		// 极少数情况下新单号可能与已有单碰撞（同秒同随机），跳过避免写坏数据
+		var exists int
+		if e := tx.QueryRow("SELECT COUNT(*) FROM orders WHERE order_number = ?", newNo).Scan(&exists); e != nil {
+			return e
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, e := tx.Exec(`UPDATE orders SET order_number = ?, upstream_order_no = ? WHERE order_number = ?`,
+			newNo, old, old); e != nil {
+			return e
+		}
+		for _, r := range refs {
+			if _, e := tx.Exec(fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?", r.table, r.column, r.column),
+				newNo, old); e != nil {
+				return e
+			}
+		}
+		// guest_purchases.upstream_order_no 历史语义存的是本地订单号
+		if _, e := tx.Exec(`UPDATE guest_purchases SET upstream_order_no = ? WHERE upstream_order_no = ?`,
+			newNo, old); e != nil {
+			return e
+		}
+	}
+	return tx.Commit()
+}
+
+// newLegacyOrderNo 为一条历史订单生成稳定的本地单号。
+// 用旧单号做哈希种子，保证每次启动得到相同结果（幂等），且不依赖随机数。
+func newLegacyOrderNo(old string) string {
+	sum := sha256.Sum256([]byte("legacy-order:" + old))
+	return "HS" + strings.ToUpper(hex.EncodeToString(sum[:5]))
+}
+
 func migrate(db *sql.DB) error {
-	if e := addColumns(db, "products", [][2]string{
-		{"cost_price", "REAL NOT NULL DEFAULT 0"},
+	if e := addColumns(db, "products", [][2]string{		{"cost_price", "REAL NOT NULL DEFAULT 0"},
 		{"final_price", "REAL NOT NULL DEFAULT 0"},
 		{"enabled", "INTEGER NOT NULL DEFAULT 1"},
 		{"manual_price", "REAL"},
@@ -557,11 +634,15 @@ func migrate(db *sql.DB) error {
 	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_crypto_orders_no ON crypto_orders(order_no)"); e != nil {
 		return e
 	}
-	// 历史订单：把当时的「本地单号」识别为上游单号。
-	// 旧版本直接把上游返回的 orderNumber 当本地单号写入，没有单独的字段；
-	// 这里回填后，管理员仍能查到天启单号。
-	if _, e := db.Exec(`UPDATE orders SET upstream_order_no = order_number
-		WHERE COALESCE(upstream_order_no,'') = '' AND source <> 'admin'`); e != nil {
+	// 历史订单：旧版本直接把天启返回的 orderNumber 当本地单号写入，
+	// 导致用户看到的「订单号」就是上游单号。这里把它们彻底解耦：
+	//   1) 旧单号存进 upstream_order_no（管理员仍可排查）
+	//   2) 重新生成本地单号 HS+时间+随机，并同步更新所有引用表
+	// 用 upstream_order_no 为空作为「未迁移」标记，保证幂等。
+	if e := migrateLegacyOrderNumbers(db); e != nil {
+		return e
+	}
+	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_upstream ON orders(upstream_order_no)"); e != nil {
 		return e
 	}
 	if e := addColumns(db, "alipay_orders", [][2]string{

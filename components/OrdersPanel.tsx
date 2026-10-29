@@ -6,11 +6,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { LocalOrder } from "@/lib/types";
 import { ORDER_STATUS, arcoColor, orderStatusColor } from "@/lib/status";
+import { useSession } from "@/src/hooks/useSession";
 
 const PAGE_SIZE = 10;
 
 export function OrdersPanel() {
   const navigate = useNavigate();
+  const user = useSession();
+  // 上游（天启）单号与商品 ID 属于内部信息，只给管理员看。
+  const isAdmin = user?.role === "admin";
   const [items, setItems] = useState<LocalOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -46,21 +50,24 @@ export function OrdersPanel() {
     {
       title: "订单号",
       dataIndex: "orderNumber",
-      width: 190,
-      render: (_: unknown, o: LocalOrder) => (
-        <div>
-          <div className="font-mono text-[12px]">{o.orderNumber}</div>
-          {o.upstreamOrderNo && (
-            <div
-              className="mt-0.5 truncate font-mono text-[11px] text-[#86909c]"
-              style={{ maxWidth: 180 }}
-              title={`上游单号 ${o.upstreamOrderNo}`}
-            >
-              上游 {o.upstreamOrderNo}
-            </div>
-          )}
-        </div>
-      ),
+      width: isAdmin ? 190 : 170,
+      render: (_: unknown, o: LocalOrder) =>
+        isAdmin ? (
+          <div>
+            <div className="font-mono text-[12px]">{o.orderNumber}</div>
+            {o.upstreamOrderNo && (
+              <div
+                className="mt-0.5 truncate font-mono text-[11px] text-[#86909c]"
+                style={{ maxWidth: 180 }}
+                title={`上游单号 ${o.upstreamOrderNo}`}
+              >
+                上游 {o.upstreamOrderNo}
+              </div>
+            )}
+          </div>
+        ) : (
+          <span className="font-mono text-[12px]">{o.orderNumber}</span>
+        ),
     },
     {
       title: "商品",
@@ -71,19 +78,24 @@ export function OrdersPanel() {
         </span>
       ),
     },
-    {
-      title: "商品ID",
-      dataIndex: "goodsId",
-      width: 100,
-      render: (_: unknown, o: LocalOrder) =>
-        o.goodsName ? (
-          <Tooltip content={o.goodsName} position="top">
-            <span className="font-mono text-[12px] text-[#4e5969]">{o.goodsId}</span>
-          </Tooltip>
-        ) : (
-          <span className="font-mono text-[12px] text-[#4e5969]">{o.goodsId}</span>
-        ),
-    },
+    // 商品 ID 只有管理员需要（用来对照天启后台），用户端不展示
+    ...(isAdmin
+      ? [
+          {
+            title: "商品ID",
+            dataIndex: "goodsId",
+            width: 100,
+            render: (_: unknown, o: LocalOrder) =>
+              o.goodsName ? (
+                <Tooltip content={o.goodsName} position="top">
+                  <span className="font-mono text-[12px] text-[#4e5969]">{o.goodsId}</span>
+                </Tooltip>
+              ) : (
+                <span className="font-mono text-[12px] text-[#4e5969]">{o.goodsId}</span>
+              ),
+          },
+        ]
+      : []),
     { title: "数量", dataIndex: "count", width: 60, align: "right" as const },
     {
       title: "金额",
@@ -159,7 +171,7 @@ export function OrdersPanel() {
         loading={loading}
         columns={columns}
         data={items}
-        scroll={{ x: 1000 }}
+        scroll={{ x: isAdmin ? 1000 : 900 }}
         pagination={{
           current: page,
           pageSize,
