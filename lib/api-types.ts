@@ -89,6 +89,7 @@ export interface StoreHome {
   lastSync: number;
   discount: number;
   announcements: Announcement[];
-  popup: Announcement[];
+  /** 后端只返回一个当前生效的弹窗公告（可能为 null），不是数组 */
+  popup: Announcement | null;
   user: import("./types").User | null;
 }

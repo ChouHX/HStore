@@ -44,7 +44,7 @@ export function HomePage() {
       user={data.user}
       discount={data.discount ?? 1}
       announcements={data.announcements ?? []}
-      popup={data.popup?.[0] ?? null}
+      popup={data.popup ?? null}
     />
   );
 }
