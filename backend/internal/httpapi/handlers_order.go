@@ -119,6 +119,12 @@ func (a *API) handleOrderList(w http.ResponseWriter, r *http.Request) {
 	}
 	items := store.ListOrders(f)
 	total := store.CountOrders(f)
+	// 上游单号只给管理员看。
+	if user.Role != "admin" {
+		for i := range items {
+			items[i].UpstreamOrderNo = ""
+		}
+	}
 	ok(w, paged(items, total, page, pageSize))
 }
 
