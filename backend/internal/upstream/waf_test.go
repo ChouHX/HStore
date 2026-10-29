@@ -134,3 +134,34 @@ func TestSanitizeAntiDebug(t *testing.T) {
 		t.Fatalf("challenge logic was removed: %s", sanitized)
 	}
 }
+
+func TestRefreshWafCookieESABlocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "ESA")
+		w.Header().Set("X-Tengine-Error", "denied by http_custom")
+		w.Header().Set("Set-Cookie", "acw_tc=xxx; Path=/; HttpOnly")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><div id="captcha-element" class="nc-container"></div>
+			<script>function initCaptcha(){initAliyunCaptcha({SceneId:"19x5u7lo"});}</script>
+			</body></html>`))
+	}))
+	defer srv.Close()
+
+	res := RefreshWafCookie(srv.URL)
+	if res.OK {
+		t.Fatalf("ESA blocked page must not be treated as success, got %+v", res)
+	}
+	if !strings.Contains(res.Message, "ESA") {
+		t.Fatalf("message should mention ESA, got %q", res.Message)
+	}
+}
+
+func TestBlockedByESADetectsCaptchaWithoutHeader(t *testing.T) {
+	body := `<script>initAliyunCaptcha({mode:"embed",element:"#captcha-element"})</script>`
+	if !blockedByESA(http.Header{}, body) {
+		t.Fatal("should detect aliyun captcha page even without X-Tengine-Error")
+	}
+	if blockedByESA(http.Header{}, `{"code":1000,"data":[]}`) {
+		t.Fatal("normal JSON must not be flagged")
+	}
+}

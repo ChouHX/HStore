@@ -19,7 +19,18 @@ const wafUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML,
 
 var (
 	scriptPattern = regexp.MustCompile(`(?is)<script[^>]*>(.*?)</script>`)
+	// 阿里云 ESA 滑块验证码标志：由服务端签名（u_asig），无法通过本地 JS 计算绕过。
+	esaCaptchaPattern = regexp.MustCompile(`(?i)initAliyunCaptcha|aliyunCaptcha-sliding|captcha-element`)
 )
+
+// blockedByESA 判断响应是否为阿里云 ESA 的自定义规则拦截或滑块验证页。
+// 这类页面返回 HTTP 200，但内容是 HTML 而非 JSON，容易被误判为“挑战成功”。
+func blockedByESA(headers http.Header, body string) bool {
+	if strings.Contains(strings.ToLower(headers.Get("X-Tengine-Error")), "denied") {
+		return true
+	}
+	return esaCaptchaPattern.MatchString(body)
+}
 
 // wafResult 是一次挑战执行结果。
 type wafResult struct {
@@ -673,9 +684,10 @@ func RefreshWafCookie(baseURL string) (result wafResult) {
 	}
 	req.Header.Set("User-Agent", wafUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
-	res, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	// 复用全局 httpClient，使其与接口请求走同一出口（支持代理）。
+	res, err := httpClient.Do(req)
 	if err != nil {
-		return wafResult{Message: "网络错误，无法访问站点（请检查服务器出网或 DNS）"}
+		return wafResult{Message: "网络错误，无法访问站点（请检查服务器出网、代理或 DNS）"}
 	}
 	defer res.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
@@ -684,6 +696,12 @@ func RefreshWafCookie(baseURL string) (result wafResult) {
 	jar := newCookieJar()
 	for _, c := range res.Header.Values("Set-Cookie") {
 		jar.addHeader(c)
+	}
+
+	// ESA 滑块验证码 / 自定义规则拦截：HTTP 200 但返回 HTML，且 u_asig 由
+	// 阿里云服务端签名，本地无法计算。必须明确报错，不能当成“拿到 Cookie 成功”。
+	if blockedByESA(res.Header, text) {
+		return wafResult{Message: "上游启用了阿里云 ESA 人机校验，服务器出口 IP 被拦截（X-Tengine-Error: denied），无法自动通过；请更换出口 IP 或申请白名单"}
 	}
 
 	matches := scriptPattern.FindAllStringSubmatch(text, -1)

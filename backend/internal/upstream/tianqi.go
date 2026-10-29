@@ -20,7 +20,17 @@ import (
 
 const apiVersion = "3.0"
 
-var httpClient = &http.Client{Timeout: 15 * time.Second}
+// httpClient 复用连接并支持 HTTP(S)_PROXY / ALL_PROXY 环境变量。
+// 上游 WAF 会按出口 IP 做拦截，需要时可让容器走代理换出口。
+var httpClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		MaxIdleConns:        32,
+		MaxIdleConnsPerHost: 16,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
 
 // Config 是上游调用所需的凭据。
 type Config struct {
@@ -158,7 +168,7 @@ func request(path string, body any, out any) error {
 	}
 	hint := "失败：" + refreshed.Message
 	if refreshed.OK {
-		hint = "成功但仍被拦截"
+		hint = "成功但仍被拦截（出口 IP 可能被上游风控，可配置 HTTPS_PROXY 更换出口）"
 	}
 	return &APIError{Code: status, Message: "接口返回非 JSON（可能被站点 WAF 拦截）。自动获取 Cookie " + hint}
 }
