@@ -143,6 +143,8 @@ export interface CreateOrderResult {
 export interface LocalOrder {
   orderNumber: string;
   outerNumber: string;
+  /** 上游（天启）订单号，仅管理员可见 */
+  upstreamOrderNo?: string;
   goodsId: number;
   goodsName: string;
   count: number;

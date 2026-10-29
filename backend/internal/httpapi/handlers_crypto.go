@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"hstore/backend/internal/db"
+	"hstore/backend/internal/model"
 	"hstore/backend/internal/service"
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
@@ -18,9 +20,11 @@ func cryptoSnapshot() map[string]any {
 	}
 	orders := store.ListCryptoOrders(0, 100)
 	purchases := store.GuestPaymentIDs("usdt")
+	related := store.GuestPaymentOrderNumbers("usdt")
 	for i := range orders {
 		if purchases[orders[i].ID] {
 			orders[i].Kind = "purchase"
+			orders[i].RelatedOrderNo = related[orders[i].ID]
 		} else {
 			orders[i].Kind = "recharge"
 		}
@@ -78,12 +82,19 @@ func (a *API) handleCryptoGet(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	id := queryInt(r, "id")
-	if id == 0 {
-		fail(w, http.StatusBadRequest, "缺少订单号")
-		return
+	// 用户端只认系统生成的支付单号（US 开头）；id 保留给旧前端与后台兼容。
+	orderNo := strings.TrimSpace(r.URL.Query().Get("orderNo"))
+	var owned *model.CryptoOrder
+	if orderNo != "" {
+		owned = store.GetCryptoOrderByNo(orderNo)
+	} else {
+		id := queryInt(r, "id")
+		if id == 0 {
+			fail(w, http.StatusBadRequest, "缺少订单号")
+			return
+		}
+		owned = store.GetCryptoOrder(id)
 	}
-	owned := store.GetCryptoOrder(id)
 	if owned == nil {
 		fail(w, http.StatusNotFound, "订单不存在")
 		return
@@ -92,7 +103,7 @@ func (a *API) handleCryptoGet(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "无权查看")
 		return
 	}
-	ok(w, map[string]any{"order": service.CheckCryptoOrder(id)})
+	ok(w, map[string]any{"order": service.CheckCryptoOrder(owned.ID)})
 }
 
 func (a *API) handleCryptoCancel(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +112,13 @@ func (a *API) handleCryptoCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := queryInt(r, "id")
+	if id == 0 {
+		if orderNo := strings.TrimSpace(r.URL.Query().Get("orderNo")); orderNo != "" {
+			if o := store.GetCryptoOrderByNo(orderNo); o != nil {
+				id = o.ID
+			}
+		}
+	}
 	if id == 0 {
 		fail(w, http.StatusBadRequest, "缺少订单号")
 		return

@@ -154,25 +154,27 @@ type Card struct {
 }
 
 type LocalOrder struct {
-	OrderNumber string  `json:"orderNumber"`
-	OuterNumber string  `json:"outerNumber"`
-	GoodsID     int     `json:"goodsId"`
-	GoodsName   string  `json:"goodsName"`
-	Count       int     `json:"count"`
-	Money       float64 `json:"money"`
-	Status      int     `json:"status"`
-	Result      string  `json:"result"`
-	Platform    string  `json:"platform"`
-	CreatedAt   int64   `json:"createdAt"`
-	UpdatedAt   int64   `json:"updatedAt"`
-	UserUID     *int    `json:"userUid"`
-	Username    string  `json:"username"`
-	SaleMoney   float64 `json:"saleMoney"`
-	CostMoney   float64 `json:"costMoney"`
-	Source      string  `json:"source"`
-	Settled     int     `json:"settled"`
-	Contact     string  `json:"contact"`
-	Cards       []Card  `json:"cards"`
+	OrderNumber string `json:"orderNumber"`
+	OuterNumber string `json:"outerNumber"`
+	// UpstreamOrderNo 是上游（天启）订单号，仅管理员可见。
+	UpstreamOrderNo string  `json:"upstreamOrderNo,omitempty"`
+	GoodsID         int     `json:"goodsId"`
+	GoodsName       string  `json:"goodsName"`
+	Count           int     `json:"count"`
+	Money           float64 `json:"money"`
+	Status          int     `json:"status"`
+	Result          string  `json:"result"`
+	Platform        string  `json:"platform"`
+	CreatedAt       int64   `json:"createdAt"`
+	UpdatedAt       int64   `json:"updatedAt"`
+	UserUID         *int    `json:"userUid"`
+	Username        string  `json:"username"`
+	SaleMoney       float64 `json:"saleMoney"`
+	CostMoney       float64 `json:"costMoney"`
+	Source          string  `json:"source"`
+	Settled         int     `json:"settled"`
+	Contact         string  `json:"contact"`
+	Cards           []Card  `json:"cards"`
 }
 
 // ===== 用户 / 资产 =====
@@ -297,6 +299,7 @@ type PoolSlot struct {
 
 type CryptoOrder struct {
 	ID            int      `json:"id"`
+	OrderNo       string   `json:"orderNo"`
 	UID           int      `json:"uid"`
 	PoolID        int      `json:"poolId"`
 	SubUID        string   `json:"subUid"`
@@ -317,6 +320,8 @@ type CryptoOrder struct {
 	PaidAt        *int64   `json:"paidAt"`
 	// Kind 区分用途：recharge=余额充值，purchase=游客购物
 	Kind string `json:"kind"`
+	// RelatedOrderNo 是游客购物对应的业务订单号（用户端显示的订单号）
+	RelatedOrderNo string `json:"relatedOrderNo,omitempty"`
 }
 
 // GuestPurchase 是游客直接购买商品的支付与履约记录。

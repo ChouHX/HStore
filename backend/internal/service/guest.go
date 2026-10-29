@@ -336,6 +336,8 @@ func guestOrderView(gp *model.GuestPurchase) (*GuestOrderView, error) {
 		view.Status = "fulfilled"
 	}
 	if gp.UpstreamOrderNo != "" {
+		// 注意：这个字段存的是**本地业务订单号**（历史命名遗留），
+		// 不是上游单号；上游单号在 orders.upstream_order_no，只给管理员看。
 		if order := store.GetOrder(gp.UpstreamOrderNo); order != nil {
 			view.Order = &GuestOrderResult{
 				OrderNumber: order.OrderNumber, GoodsName: order.GoodsName, Count: order.Count,

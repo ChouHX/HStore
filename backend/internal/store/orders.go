@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/model"
@@ -10,7 +11,9 @@ import (
 // UpsertOrder 写入/更新订单（保留本地业务字段）。
 type UpsertOrderInput struct {
 	OrderNumber string
-	OuterNumber string
+	// UpstreamOrderNo 是上游（天启）订单号，只存库、只给管理员看。
+	UpstreamOrderNo string
+	OuterNumber     string
 	GoodsID     int
 	GoodsName   string
 	Count       int
@@ -28,14 +31,15 @@ type UpsertOrderInput struct {
 // UpsertOrder 插入或更新订单。
 func UpsertOrder(o UpsertOrderInput) {
 	ts := now()
-	_, _ = db.Must().Exec(`INSERT INTO orders(order_number, outer_number, goods_id, goods_name, count, money,
+	_, _ = db.Must().Exec(`INSERT INTO orders(order_number, outer_number, upstream_order_no, goods_id, goods_name, count, money,
 		status, result, platform, user_uid, sale_money, cost_money, source, settled, contact, created_at, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)
 		ON CONFLICT(order_number) DO UPDATE SET
 		  status=excluded.status, result=excluded.result, money=excluded.money,
 		  count=excluded.count, updated_at=excluded.updated_at,
+		  upstream_order_no=CASE WHEN excluded.upstream_order_no<>'' THEN excluded.upstream_order_no ELSE orders.upstream_order_no END,
 		  contact=CASE WHEN excluded.contact<>'' THEN excluded.contact ELSE orders.contact END`,
-		o.OrderNumber, o.OuterNumber, o.GoodsID, o.GoodsName, o.Count, o.Money, o.Status, o.Result,
+		o.OrderNumber, o.OuterNumber, o.UpstreamOrderNo, o.GoodsID, o.GoodsName, o.Count, o.Money, o.Status, o.Result,
 		o.Platform, o.UserUID, o.SaleMoney, o.CostMoney, o.Source, o.Contact, ts, ts)
 }
 
@@ -58,12 +62,12 @@ func GetOrder(orderNumber string) *model.LocalOrder {
 	d := db.Must()
 	var o model.LocalOrder
 	var uid sql.NullInt64
-	e := d.QueryRow(`SELECT o.order_number, o.outer_number, o.goods_id, o.goods_name, o.count, o.money,
+	e := d.QueryRow(`SELECT o.order_number, o.outer_number, o.upstream_order_no, o.goods_id, o.goods_name, o.count, o.money,
 		o.status, COALESCE(o.result,''), COALESCE(o.platform,'other'), o.created_at, o.updated_at, o.user_uid,
 		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), COALESCE(o.sale_money,0), COALESCE(o.cost_money,0),
 		COALESCE(o.source,''), COALESCE(o.settled,0), COALESCE(o.contact,'')
 		FROM orders o LEFT JOIN users u ON u.uid = o.user_uid WHERE o.order_number = ?`, orderNumber).
-		Scan(&o.OrderNumber, &o.OuterNumber, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
+		Scan(&o.OrderNumber, &o.OuterNumber, &o.UpstreamOrderNo, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
 			&o.Status, &o.Result, &o.Platform, &o.CreatedAt, &o.UpdatedAt, &uid,
 			&o.Username, &o.SaleMoney, &o.CostMoney, &o.Source, &o.Settled, &o.Contact)
 	if e != nil {
@@ -75,6 +79,20 @@ func GetOrder(orderNumber string) *model.LocalOrder {
 	}
 	o.Cards = listCards(orderNumber)
 	return &o
+}
+
+// GetOrderByUpstreamNo 按上游（天启）订单号反查本地订单。
+func GetOrderByUpstreamNo(upstreamOrderNo string) *model.LocalOrder {
+	upstreamOrderNo = strings.TrimSpace(upstreamOrderNo)
+	if upstreamOrderNo == "" {
+		return nil
+	}
+	var orderNumber string
+	if e := db.Must().QueryRow("SELECT order_number FROM orders WHERE upstream_order_no = ? LIMIT 1",
+		upstreamOrderNo).Scan(&orderNumber); e != nil {
+		return nil
+	}
+	return GetOrder(orderNumber)
 }
 
 func listCards(orderNumber string) []model.Card {
@@ -127,7 +145,7 @@ func ListOrders(f OrderFilter) []model.LocalOrder {
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, e := d.Query(`SELECT o.order_number, o.outer_number, o.goods_id, o.goods_name, o.count, o.money,
+	rows, e := d.Query(`SELECT o.order_number, o.outer_number, o.upstream_order_no, o.goods_id, o.goods_name, o.count, o.money,
 		o.status, o.result, o.platform, o.created_at, o.updated_at, o.user_uid,
 		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), o.sale_money, o.cost_money, o.source, o.settled
 		FROM orders o LEFT JOIN users u ON u.uid = o.user_uid `+where+`
@@ -140,7 +158,7 @@ func ListOrders(f OrderFilter) []model.LocalOrder {
 	for rows.Next() {
 		var o model.LocalOrder
 		var uid sql.NullInt64
-		if rows.Scan(&o.OrderNumber, &o.OuterNumber, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
+		if rows.Scan(&o.OrderNumber, &o.OuterNumber, &o.UpstreamOrderNo, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
 			&o.Status, &o.Result, &o.Platform, &o.CreatedAt, &o.UpdatedAt, &uid,
 			&o.Username, &o.SaleMoney, &o.CostMoney, &o.Source, &o.Settled) == nil {
 			if uid.Valid {
@@ -178,40 +196,63 @@ func CountOrders(f OrderFilter) int {
 }
 
 // ApplyRemoteOrder 用上游订单详情更新本地记录。
+//
+// 入参 detail.OrderNumber 是**上游单号**，不是本地单号；必须先在本地找到对应订单
+// （按 upstream_order_no 反查），否则只能新建一条仅含上游信息的记录。
 func ApplyRemoteOrder(detail model.OrderDetail) *model.LocalOrder {
-	existing := GetOrder(detail.OrderNumber)
-	in := UpsertOrderInput{
-		OrderNumber: detail.OrderNumber,
-		OuterNumber: detail.OuterNumber,
-		Count:       detail.Count,
-		Money:       detail.Money,
-		Status:      detail.Status,
-		Result:      detail.Result,
-		Platform:    "other",
-		Source:      "admin",
+	existing := GetOrderByUpstreamNo(detail.OrderNumber)
+	if existing == nil {
+		// 本地没有这条上游单：只有管理员手动查上游时才会走到这里，
+		// 生成一个新的本地单号，上游单号单独存。
+		in := UpsertOrderInput{
+			OrderNumber:     NewSystemOrderNo(),
+			UpstreamOrderNo: detail.OrderNumber,
+			OuterNumber:     detail.OuterNumber,
+			Count:           detail.Count,
+			Money:           detail.Money,
+			Status:          detail.Status,
+			Result:          detail.Result,
+			Platform:        "other",
+			Source:          "admin",
+		}
+		UpsertOrder(in)
+		if len(detail.Cards) > 0 {
+			UpsertCards(in.OrderNumber, detail.Cards)
+		}
+		return GetOrder(in.OrderNumber)
 	}
-	if existing != nil {
-		in.OuterNumber = firstNonEmpty(detail.OuterNumber, existing.OuterNumber)
-		in.GoodsID = existing.GoodsID
-		in.GoodsName = existing.GoodsName
-		if detail.Count == 0 {
-			in.Count = existing.Count
-		}
-		in.Money = detail.Money
-		if detail.Status == 0 {
-			in.Status = existing.Status
-		}
-		in.Platform = existing.Platform
-		in.UserUID = existing.UserUID
-		in.SaleMoney = existing.SaleMoney
-		in.CostMoney = existing.CostMoney
-		in.Source = existing.Source
+
+	in := UpsertOrderInput{
+		OrderNumber:     existing.OrderNumber,
+		UpstreamOrderNo: firstNonEmpty(detail.OrderNumber, existing.UpstreamOrderNo),
+		OuterNumber:     firstNonEmpty(detail.OuterNumber, existing.OuterNumber),
+		GoodsID:         existing.GoodsID,
+		GoodsName:       existing.GoodsName,
+		Count:           existing.Count,
+		Money:           detail.Money,
+		Status:          detail.Status,
+		Result:          detail.Result,
+		Platform:        existing.Platform,
+		UserUID:         existing.UserUID,
+		SaleMoney:       existing.SaleMoney,
+		CostMoney:       existing.CostMoney,
+		Source:          existing.Source,
+		Contact:         existing.Contact,
+	}
+	if detail.Count > 0 {
+		in.Count = detail.Count
+	}
+	if detail.Status == 0 {
+		in.Status = existing.Status
+	}
+	if detail.Money == 0 {
+		in.Money = existing.Money
 	}
 	UpsertOrder(in)
 	if len(detail.Cards) > 0 {
-		UpsertCards(detail.OrderNumber, detail.Cards)
+		UpsertCards(existing.OrderNumber, detail.Cards)
 	}
-	return GetOrder(detail.OrderNumber)
+	return GetOrder(existing.OrderNumber)
 }
 
 func firstNonEmpty(vals ...string) string {

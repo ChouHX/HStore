@@ -67,10 +67,17 @@ func (a *API) handleOrderDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "无权操作")
 		return
 	}
-	detail, e := upstream.GetOrderDetail(body.OrderNumber)
+	// 用户传入的是本地单号，查上游必须用上游单号。
+	upstreamNo := owned.UpstreamOrderNo
+	if upstreamNo == "" {
+		// 历史订单可能没回填，不能拿本地单号去调上游（一定查不到）。
+		ok(w, map[string]any{"order": owned})
+		return
+	}
+	detail, e := upstream.GetOrderDetail(upstreamNo)
 	if e != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok": false, "message": e.Error(), "order": store.GetOrder(body.OrderNumber),
+			"ok": false, "message": e.Error(), "order": owned,
 		})
 		return
 	}
@@ -79,6 +86,10 @@ func (a *API) handleOrderDetail(w http.ResponseWriter, r *http.Request) {
 		store.SettleConsumption(*order.UserUID, order.SaleMoney, order.OrderNumber)
 		store.MarkSettled(order.OrderNumber)
 		order = store.GetOrder(order.OrderNumber)
+	}
+	// 上游单号只给管理员看。
+	if user.Role != "admin" && order != nil {
+		order.UpstreamOrderNo = ""
 	}
 	ok(w, map[string]any{"order": order})
 }
@@ -345,5 +356,7 @@ func (a *API) handleOrderQueryDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "联系方式与订单不匹配")
 		return
 	}
+	// 公开查询不返回上游单号。
+	order.UpstreamOrderNo = ""
 	ok(w, map[string]any{"order": order})
 }

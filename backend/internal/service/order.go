@@ -145,6 +145,9 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 		return PlaceOrderResult{Message: msg, Status: 500}
 	}
 
+	// 订单号由系统自己生成，与上游（天启）单号完全独立：
+	// 用户只看到 HS 开头的本地单号，上游单号存库仅供管理员排查。
+	orderNumber := store.NewSystemOrderNo()
 	status := 1
 	if len(result.Cards) > 0 {
 		status = 3
@@ -154,32 +157,33 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 		remark = "下单成功"
 	}
 	store.UpsertOrder(store.UpsertOrderInput{
-		OrderNumber: result.OrderNumber,
-		OuterNumber: outerNumber,
-		GoodsID:     opts.GoodsID,
-		GoodsName:   detail.Name,
-		Count:       count,
-		Money:       saleMoney,
-		Status:      status,
-		Result:      remark,
-		Platform:    product.Platform,
-		UserUID:     &user.UID,
-		SaleMoney:   saleMoney,
-		CostMoney:   costMoney,
-		Source:      source,
-		Contact:     opts.Contact,
+		OrderNumber:     orderNumber,
+		UpstreamOrderNo: result.OrderNumber,
+		OuterNumber:     outerNumber,
+		GoodsID:         opts.GoodsID,
+		GoodsName:       detail.Name,
+		Count:           count,
+		Money:           saleMoney,
+		Status:          status,
+		Result:          remark,
+		Platform:        product.Platform,
+		UserUID:         &user.UID,
+		SaleMoney:       saleMoney,
+		CostMoney:       costMoney,
+		Source:          source,
+		Contact:         opts.Contact,
 	})
 	if len(result.Cards) > 0 {
-		store.UpsertCards(result.OrderNumber, result.Cards)
+		store.UpsertCards(orderNumber, result.Cards)
 	}
 
 	// 结算：只有真实扣款的自助订单才累计消费并触发自动升级
 	if payment == "balance" && (source == "user" || source == "guest") && len(result.Cards) > 0 {
-		store.SettleConsumption(user.UID, saleMoney, result.OrderNumber)
-		store.MarkSettled(result.OrderNumber)
+		store.SettleConsumption(user.UID, saleMoney, orderNumber)
+		store.MarkSettled(orderNumber)
 	}
 
-	return PlaceOrderResult{OK: true, Order: store.GetOrder(result.OrderNumber), Status: 200}
+	return PlaceOrderResult{OK: true, Order: store.GetOrder(orderNumber), Status: 200}
 }
 
 func round4(v float64) float64 {

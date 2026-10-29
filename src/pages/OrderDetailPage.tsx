@@ -42,6 +42,8 @@ interface GuestOrderView {
 
 interface OrderView {
   orderNumber: string;
+  /** 上游（天启）订单号，仅管理员可见 */
+  upstreamOrderNo?: string;
   goodsName: string;
   count: number;
   money: number;
@@ -165,6 +167,7 @@ export function OrderDetailPage() {
             const status = Number(o.status ?? 0);
             setView({
               orderNumber: o.orderNumber,
+              upstreamOrderNo: o.upstreamOrderNo,
               goodsName: o.goodsName,
               count: o.count,
               money: Number(o.saleMoney || o.money || 0),
@@ -413,6 +416,9 @@ export function OrderDetailPage() {
                 <div className="mb-1 text-[13px] font-medium">订单信息</div>
                 <div className="rounded-lg bg-[#f7f8fa] px-3">
                   <InfoRow label="订单号" value={view.orderNumber} />
+                  {user?.role === "admin" && view.upstreamOrderNo ? (
+                    <InfoRow label="上游单号" value={view.upstreamOrderNo} />
+                  ) : null}
                   <InfoRow label="商品" value={`${view.goodsName} × ${view.count}`} wrap />
                   <InfoRow label="金额" value={`¥${formatPrice(view.money)}`} />
                   <InfoRow label="状态" value={view.statusText} />

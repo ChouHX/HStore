@@ -1,7 +1,7 @@
 "use client";
 import { formatPrice } from "@/lib/format";
 
-import { Button, Input, Message, Select, Space, Table, Tag } from "@arco-design/web-react";
+import { Button, Input, Message, Select, Space, Table, Tag, Tooltip } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { LocalOrder } from "@/lib/types";
@@ -46,9 +46,20 @@ export function OrdersPanel() {
     {
       title: "订单号",
       dataIndex: "orderNumber",
-      width: 170,
+      width: 190,
       render: (_: unknown, o: LocalOrder) => (
-        <span className="font-mono text-[12px]">{o.orderNumber}</span>
+        <div>
+          <div className="font-mono text-[12px]">{o.orderNumber}</div>
+          {o.upstreamOrderNo && (
+            <div
+              className="mt-0.5 truncate font-mono text-[11px] text-[#86909c]"
+              style={{ maxWidth: 180 }}
+              title={`上游单号 ${o.upstreamOrderNo}`}
+            >
+              上游 {o.upstreamOrderNo}
+            </div>
+          )}
+        </div>
       ),
     },
     {
@@ -59,6 +70,19 @@ export function OrdersPanel() {
           {o.goodsName}
         </span>
       ),
+    },
+    {
+      title: "商品ID",
+      dataIndex: "goodsId",
+      width: 100,
+      render: (_: unknown, o: LocalOrder) =>
+        o.goodsName ? (
+          <Tooltip content={o.goodsName} position="top">
+            <span className="font-mono text-[12px] text-[#4e5969]">{o.goodsId}</span>
+          </Tooltip>
+        ) : (
+          <span className="font-mono text-[12px] text-[#4e5969]">{o.goodsId}</span>
+        ),
     },
     { title: "数量", dataIndex: "count", width: 60, align: "right" as const },
     {
@@ -135,7 +159,7 @@ export function OrdersPanel() {
         loading={loading}
         columns={columns}
         data={items}
-        scroll={{ x: 900 }}
+        scroll={{ x: 1000 }}
         pagination={{
           current: page,
           pageSize,

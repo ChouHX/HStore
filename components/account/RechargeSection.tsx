@@ -54,6 +54,8 @@ interface CryptoCfg {
 
 interface CryptoOrderView {
   id: number;
+  /** 系统生成的支付单号（US 开头），用户端只认这个号 */
+  orderNo: string;
   address: string;
   chain: string;
   chainLabel: string;
@@ -212,6 +214,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
     if (!active || active.order.status !== "waiting") return;
     const currentChannel = active.channel;
     const orderID = active.order.id;
+    const orderNo = active.order.orderNo;
     const timer = setInterval(async () => {
       try {
         const j =
@@ -221,7 +224,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ id: orderID }),
               }).then((r) => r.json())
-            : await fetch(`/api/crypto/order?id=${orderID}`).then((r) => r.json());
+            : await fetch(`/api/crypto/order?orderNo=${encodeURIComponent(orderNo)}`).then((r) => r.json());
         if (!j.ok || !j.order) return;
         if (currentChannel === "alipay") {
           setActive((prev) =>
@@ -241,7 +244,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
       }
     }, currentChannel === "alipay" ? 4000 : 5000);
     return () => clearInterval(timer);
-  }, [active?.channel, active?.order.id, active?.order.status, onRecharged]);
+  }, [active?.channel, active?.order.id, active?.order.orderNo, active?.order.status, onRecharged]);
 
   async function submitCode() {
     if (!code.trim()) {
@@ -333,7 +336,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ id: active.order.id }),
             }).then((r) => r.json())
-          : await fetch(`/api/crypto/order?id=${active.order.id}`).then((r) => r.json());
+          : await fetch(`/api/crypto/order?orderNo=${encodeURIComponent(active.order.orderNo)}`).then((r) => r.json());
       if (!j.ok || !j.order) {
         Message.warning(j.message ?? "查询订单失败");
         return;
@@ -367,7 +370,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
       const endpoint =
         active.channel === "alipay"
           ? `/api/alipay/order?id=${active.order.id}`
-          : `/api/crypto/order?id=${active.order.id}`;
+          : `/api/crypto/order?orderNo=${encodeURIComponent(active.order.orderNo)}`;
       const j = await fetch(endpoint, { method: "DELETE" }).then((r) => r.json());
       if (!j.ok) {
         Message.error(j.message ?? "取消订单失败");
@@ -513,7 +516,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                   <span className="font-medium text-[#1d2129]">{activeAmount}</span>
                   {activeStatus && <Tag size="small" color={activeStatus.color}>{activeStatus.text}</Tag>}
                   <span className="font-mono text-[11px] text-[#86909c]">
-                    {active.channel === "alipay" ? active.order.orderNo : `#${active.order.id}`}
+                    {active.order.orderNo}
                   </span>
                 </div>
                 <Button size="small" type="primary" onClick={() => setModalOpen(true)}>
@@ -656,7 +659,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                   <Button onClick={() => setModalOpen(false)}>稍后支付</Button>
                 </div>
                 <div className="mt-3 text-center font-mono text-[11px] text-[#86909c]">
-                  {active.channel === "alipay" ? active.order.orderNo : `订单 #${active.order.id}`}
+                  {active.order.orderNo}
                 </div>
               </>
             ) : active.order.status === "paid" ? (
@@ -669,7 +672,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                   ¥{formatPrice(active.order.credited ?? 0)}
                 </div>
                 <div className="mt-2 font-mono text-[11px] text-[#86909c]">
-                  {active.channel === "alipay" ? active.order.orderNo : `订单 #${active.order.id}`}
+                  {active.order.orderNo}
                 </div>
                 <div className="mt-6 flex justify-center gap-2">
                   <Button type="primary" onClick={resetActive}>

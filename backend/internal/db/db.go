@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS orders (
   result       TEXT NOT NULL DEFAULT '',
   ret_money    INTEGER NOT NULL DEFAULT 0,
   platform     TEXT NOT NULL DEFAULT 'other',
+  upstream_order_no TEXT NOT NULL DEFAULT '',
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 );
@@ -271,6 +272,7 @@ CREATE TABLE IF NOT EXISTS bybit_pool (
 CREATE TABLE IF NOT EXISTS crypto_orders (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   uid            INTEGER NOT NULL,
+  order_no       TEXT NOT NULL DEFAULT '',
   pool_id        INTEGER NOT NULL,
   sub_uid        TEXT NOT NULL,
   address        TEXT NOT NULL,
@@ -291,6 +293,8 @@ CREATE TABLE IF NOT EXISTS crypto_orders (
 
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_status ON crypto_orders(status);
 CREATE INDEX IF NOT EXISTS idx_crypto_orders_uid ON crypto_orders(uid);
+-- order_no 的索引在 migrate() 里建：老库这张表没有该列，
+-- 这里建会因列不存在而启动失败。
 
 CREATE TABLE IF NOT EXISTS alipay_orders (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -513,6 +517,8 @@ func migrate(db *sql.DB) error {
 		{"settled", "INTEGER NOT NULL DEFAULT 0"},
 		// 联系方式：游客下单必填，用于「订单查询」按联系方式检索
 		{"contact", "TEXT NOT NULL DEFAULT ''"},
+		// 上游（天启）订单号：仅管理员可见，不对外暴露
+		{"upstream_order_no", "TEXT NOT NULL DEFAULT ''"},
 	}); e != nil {
 		return e
 	}
@@ -535,7 +541,27 @@ func migrate(db *sql.DB) error {
 	}
 	if e := addColumns(db, "crypto_orders", [][2]string{
 		{"requested_cny", "REAL NOT NULL DEFAULT 0"},
+		// 系统生成的支付单号：与支付宝同一套规则，用户只认这个号
+		{"order_no", "TEXT NOT NULL DEFAULT ''"},
 	}); e != nil {
+		return e
+	}
+	// 历史 USDT 单没有 order_no，回填成与其它渠道一致的格式（US + 时间 + 随机）。
+	// 用 rowid 做种子，保证回填唯一且幂等（已填过的不再动）。
+	if _, e := db.Exec(`UPDATE crypto_orders
+		SET order_no = 'US' || strftime('%Y%m%d%H%M%S', created_at/1000, 'unixepoch', 'localtime')
+		    || printf('%010X', id * 2654435761 % 1099511627776)
+		WHERE COALESCE(order_no,'') = ''`); e != nil {
+		return e
+	}
+	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_crypto_orders_no ON crypto_orders(order_no)"); e != nil {
+		return e
+	}
+	// 历史订单：把当时的「本地单号」识别为上游单号。
+	// 旧版本直接把上游返回的 orderNumber 当本地单号写入，没有单独的字段；
+	// 这里回填后，管理员仍能查到天启单号。
+	if _, e := db.Exec(`UPDATE orders SET upstream_order_no = order_number
+		WHERE COALESCE(upstream_order_no,'') = '' AND source <> 'admin'`); e != nil {
 		return e
 	}
 	if e := addColumns(db, "alipay_orders", [][2]string{

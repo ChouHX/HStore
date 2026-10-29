@@ -98,7 +98,7 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 			username = u.Username
 		}
 		recent = append(recent, recentRecharge{
-			Key: "usdt-" + itoa(o.ID), ID: o.ID, OrderNo: "USDT-" + itoa(o.ID),
+			Key: "usdt-" + itoa(o.ID), ID: o.ID, OrderNo: o.OrderNo,
 			Channel: "usdt", ChannelLabel: "USDT", Username: displayRechargeUsername(username),
 			AmountCny: amount, Status: o.Status, CreatedAt: o.CreatedAt, PaidAt: o.PaidAt,
 		})

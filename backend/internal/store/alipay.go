@@ -2,7 +2,6 @@ package store
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -11,7 +10,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/model"
@@ -175,10 +173,9 @@ func HashAlipayToken(token string) string {
 }
 
 // NewAlipayOrderNo 生成商户/本地订单号。
+// 与业务订单号、USDT 支付单号共用同一套生成规则，只是前缀不同。
 func NewAlipayOrderNo() string {
-	buf := make([]byte, 5)
-	_, _ = rand.Read(buf)
-	return "AL" + time.Now().Format("20060102150405") + strings.ToUpper(hex.EncodeToString(buf))
+	return NewOrderNo(PrefixAlipay)
 }
 
 // AlipayScanState 读取查账游标。

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"strconv"
+	"strings"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/model"
@@ -196,7 +197,7 @@ func SetPoolSlotEnabled(id int, enabled bool) bool {
 	return n == 1
 }
 
-const cryptoOrderCols = `id, uid, pool_id, sub_uid, address, chain, requested_cny, requested_usdt,
+const cryptoOrderCols = `id, order_no, uid, pool_id, sub_uid, address, chain, requested_cny, requested_usdt,
 	usdt_amount, rate, credit_cny, status, txid, received_usdt, credited, expires_at, created_at, paid_at`
 
 func scanCryptoOrder(sc interface{ Scan(...any) error }) (model.CryptoOrder, error) {
@@ -204,7 +205,7 @@ func scanCryptoOrder(sc interface{ Scan(...any) error }) (model.CryptoOrder, err
 	var txid, received sql.NullString
 	var credited sql.NullFloat64
 	var paidAt sql.NullInt64
-	e := sc.Scan(&o.ID, &o.UID, &o.PoolID, &o.SubUID, &o.Address, &o.Chain, &o.RequestedCny,
+	e := sc.Scan(&o.ID, &o.OrderNo, &o.UID, &o.PoolID, &o.SubUID, &o.Address, &o.Chain, &o.RequestedCny,
 		&o.RequestedUsdt, &o.UsdtAmount, &o.Rate, &o.CreditCny, &o.Status, &txid, &received,
 		&credited, &o.ExpiresAt, &o.CreatedAt, &paidAt)
 	for _, c := range CryptoChains {
@@ -232,6 +233,20 @@ func scanCryptoOrder(sc interface{ Scan(...any) error }) (model.CryptoOrder, err
 // GetCryptoOrder 取加密充值订单。
 func GetCryptoOrder(id int) *model.CryptoOrder {
 	row := db.Must().QueryRow("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE id = ?", id)
+	o, e := scanCryptoOrder(row)
+	if e != nil {
+		return nil
+	}
+	return &o
+}
+
+// GetCryptoOrderByNo 按系统生成的支付单号取订单（用户端只认这个号）。
+func GetCryptoOrderByNo(orderNo string) *model.CryptoOrder {
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return nil
+	}
+	row := db.Must().QueryRow("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE order_no = ?", orderNo)
 	o, e := scanCryptoOrder(row)
 	if e != nil {
 		return nil
@@ -319,10 +334,11 @@ func ReservePoolSlot(chain string, expires int64) (*model.PoolSlot, bool) {
 }
 
 // InsertCryptoOrder 写入充值订单。
+// 单号由系统生成（与支付宝同一套规则），不沿用任何上游编号。
 func InsertCryptoOrder(uid, poolID int, subUID, address, chain string, cny float64, requestedUsdt, usdtAmount string, rate, creditCny float64, expires int64) int {
-	res, e := db.Must().Exec(`INSERT INTO crypto_orders(uid,pool_id,sub_uid,address,chain,requested_cny,requested_usdt,usdt_amount,rate,credit_cny,status,expires_at,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,'waiting',?,?)`,
-		uid, poolID, subUID, address, chain, cny, requestedUsdt, usdtAmount, rate, creditCny, expires, now())
+	res, e := db.Must().Exec(`INSERT INTO crypto_orders(uid,order_no,pool_id,sub_uid,address,chain,requested_cny,requested_usdt,usdt_amount,rate,credit_cny,status,expires_at,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,'waiting',?,?)`,
+		uid, NewOrderNo(PrefixCrypto), poolID, subUID, address, chain, cny, requestedUsdt, usdtAmount, rate, creditCny, expires, now())
 	if e != nil {
 		return 0
 	}

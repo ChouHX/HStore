@@ -25,6 +25,8 @@ interface AlipayOrder {
 
 interface CryptoOrder {
   id: number;
+  /** 系统生成的支付单号（US 开头） */
+  orderNo: string;
   uid: number;
   chain: string;
   address: string;
@@ -38,6 +40,7 @@ interface CryptoOrder {
   createdAt: number;
   paidAt: number | null;
   kind?: string;
+  relatedOrderNo?: string;
 }
 
 /** 合并后的一行：支付宝与 USDT 共用同一套列。 */
@@ -162,7 +165,8 @@ export function PaymentOrdersSection() {
           id: o.id,
           uid: o.uid,
           username: "",
-          orderNo: `#${o.id}`,
+          orderNo: o.orderNo || `#${o.id}`,
+          relatedOrderNo: o.relatedOrderNo,
           payText: `${o.usdtAmount} USDT`,
           paySub: `申请 ¥${formatPrice(o.requestedCny)} · ${o.chain}`,
           receiveText: o.receivedUsdt ? `${o.receivedUsdt} USDT` : "-",
