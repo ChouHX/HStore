@@ -33,37 +33,35 @@ func RefreshPoolAddresses() RefreshResult {
 		if slot.Status == "reserved" {
 			continue
 		}
-		trx, bsc := slot.AddressTrx, slot.AddressBsc
+		trx, evm := slot.AddressTrx, slot.AddressEvm
 		changed := false
-		for _, code := range []string{"TRX", "BSC"} {
-			addr, e := upstream.SubMemberAddress(slot.SubUID, "USDT", code)
+		for _, c := range store.CryptoChains {
+			addr, e := upstream.SubMemberAddress(slot.SubUID, "USDT", c.Code)
 			if e != nil {
 				res.Failed++
-				res.Errors = append(res.Errors, slot.SubUID+"/"+code+": "+e.Error())
+				res.Errors = append(res.Errors, slot.SubUID+"/"+c.Code+": "+e.Error())
 				continue
 			}
 			if addr == "" {
 				res.Failed++
-				res.Errors = append(res.Errors, slot.SubUID+"/"+code+": 未返回地址")
+				res.Errors = append(res.Errors, slot.SubUID+"/"+c.Code+": 未返回地址")
 				continue
 			}
-			if code == "TRX" {
-				trx = addr
+			if c.EVM {
+				// 所有 EVM 链共用同一地址；首次拿到就记下，后续链应一致
+				evm = addr
 			} else {
-				bsc = addr
+				trx = addr
 			}
 			changed = true
 		}
 		if changed {
-			chain := slot.Chain
 			main := trx
 			if trx == "" {
-				main = slot.Address
-			} else {
-				chain = "TRX"
+				main = evm
 			}
-			_, _ = d.Exec("UPDATE bybit_pool SET address_trx=?, address_bsc=?, address=?, chain=?, updated_at=? WHERE id=?",
-				trx, bsc, main, chain, time.Now().UnixMilli(), slot.ID)
+			_, _ = d.Exec(`UPDATE bybit_pool SET address_trx=?, address_bsc=?, address_evm=?, address=?, updated_at=? WHERE id=?`,
+				trx, evm, evm, main, time.Now().UnixMilli(), slot.ID)
 			res.Updated++
 		}
 	}
@@ -128,21 +126,22 @@ func createCryptoOrder(uid int, cnyInput float64, chainInput string, enforceMin 
 			base = 0.01
 		}
 	}
-	expected, ok := store.UniqueExpectedAmount(base)
-	if !ok {
-		return nil, errors.New("生成唯一支付金额失败，请重试")
-	}
+
+	// 选地址 + 定金额 + 插单 必须原子完成，否则并发时多个人会拿到同一个
+	// 空闲地址，「一人一址」会退化成共用。
+	// 金额策略：空闲地址用原始金额；地址被占才在该地址内做金额去重。
 	expires := time.Now().Add(30 * time.Minute).UnixMilli()
-	slot, ok := store.ReservePoolSlot(chain, expires)
-	if !ok {
-		return nil, errors.New("充值通道繁忙，请稍后重试")
-	}
-	id := store.InsertCryptoOrder(uid, slot.ID, slot.SubUID, slot.Address, chain,
-		math.Round(cnyInput*100)/100,
-		fmt.Sprintf("%.2f", base), expected, cfg.Rate,
-		round4(parseFloatSafe(expected)*cfg.Rate), expires)
-	if id == 0 {
-		return nil, errors.New("创建订单失败，请重试")
+	id, e := store.CreateCryptoOrderAtomic(store.NewCryptoOrderInput{
+		UID:       uid,
+		Chain:     chain,
+		CNY:       math.Round(cnyInput*100) / 100,
+		Base:      base,
+		Rate:      cfg.Rate,
+		Requested: fmt.Sprintf("%.2f", base),
+		Expires:   expires,
+	})
+	if e != nil {
+		return nil, e
 	}
 	return store.GetCryptoOrder(id), nil
 }

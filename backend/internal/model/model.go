@@ -290,6 +290,7 @@ type PoolSlot struct {
 	Address        string `json:"address"`
 	AddressTrx     string `json:"addressTrx"`
 	AddressBsc     string `json:"addressBsc"`
+	AddressEvm     string `json:"addressEvm"`
 	Chain          string `json:"chain"`
 	Status         string `json:"status"`
 	CurrentOrderID *int   `json:"currentOrderId"`

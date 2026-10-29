@@ -14,18 +14,18 @@ type UpsertOrderInput struct {
 	// UpstreamOrderNo 是上游（天启）订单号，只存库、只给管理员看。
 	UpstreamOrderNo string
 	OuterNumber     string
-	GoodsID     int
-	GoodsName   string
-	Count       int
-	Money       float64
-	Status      int
-	Result      string
-	Platform    string
-	UserUID     *int
-	SaleMoney   float64
-	CostMoney   float64
-	Source      string
-	Contact     string
+	GoodsID         int
+	GoodsName       string
+	Count           int
+	Money           float64
+	Status          int
+	Result          string
+	Platform        string
+	UserUID         *int
+	SaleMoney       float64
+	CostMoney       float64
+	Source          string
+	Contact         string
 }
 
 // UpsertOrder 插入或更新订单。

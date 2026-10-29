@@ -613,7 +613,22 @@ func migrate(db *sql.DB) error {
 	if e := addColumns(db, "bybit_pool", [][2]string{
 		{"address_trx", "TEXT NOT NULL DEFAULT ''"},
 		{"address_bsc", "TEXT NOT NULL DEFAULT ''"},
+		// 所有 EVM 链（BSC / Arbitrum / Polygon）共用的充值地址
+		{"address_evm", "TEXT NOT NULL DEFAULT ''"},
 	}); e != nil {
+		return e
+	}
+	// 历史数据：把已有的 BSC 地址当作通用 EVM 地址（Bybit 各 EVM 链同地址）
+	if _, e := db.Exec(`UPDATE bybit_pool SET address_evm = address_bsc
+		WHERE COALESCE(address_evm,'') = '' AND COALESCE(address_bsc,'') <> ''`); e != nil {
+		return e
+	}
+	// 不再冻结子账户：历史上因下单被置为 reserved 的，如果关联订单已经
+	// 不在 waiting（已支付/已取消/已过期），立即释放，避免永久占住地址。
+	if _, e := db.Exec(`UPDATE bybit_pool SET status='available', current_order_id=NULL, reserved_until=NULL
+		WHERE status='reserved' AND NOT EXISTS (
+			SELECT 1 FROM crypto_orders o WHERE o.id = bybit_pool.current_order_id AND o.status='waiting'
+		)`); e != nil {
 		return e
 	}
 	if e := addColumns(db, "crypto_orders", [][2]string{

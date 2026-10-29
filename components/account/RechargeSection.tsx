@@ -49,7 +49,7 @@ interface CryptoCfg {
   minUsdt: number;
   minCny: number;
   defaultChain: string;
-  chains: { code: string; label: string; display: string }[];
+  chains: { code: string; label: string; display: string; contract?: string; evm?: boolean }[];
 }
 
 interface CryptoOrderView {
@@ -139,6 +139,8 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
   const minCny = channel === "alipay" ? (alipayCfg?.minCny ?? 1) : (cryptoCfg?.minCny ?? 14.4);
   const maxCny = channel === "alipay" ? (alipayCfg?.maxCny ?? 5000) : 100000;
   const rate = cryptoCfg?.rate ?? 0;
+  // 当前选中链的配置（含 USDT 合约地址），用于提示用户别转错币
+  const selectedChain = (cryptoCfg?.chains ?? []).find((c) => c.code === chain);
   const estUsdt = rate > 0 ? amount / rate : 0;
 
   const loadConfigs = useCallback(async () => {
@@ -468,6 +470,12 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                       </Select.Option>
                     ))}
                   </Select>
+                  {selectedChain?.contract && (
+                    <div className="mt-1 break-all text-[11px] leading-relaxed text-[#86909c]">
+                      只接受 {selectedChain.display} 上的官方 USDT，合约：
+                      <span className="font-mono">{selectedChain.contract}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -639,6 +647,9 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                       </Button>
                     </div>
                     <div className="mt-1 text-[11px] text-[#d25f00]">必须使用完全相同的 {active.order.usdtAmount} USDT 转账</div>
+                    <div className="mt-1 break-all text-[11px] text-[#86909c]">
+                      仅支持 {active.order.chainLabel}；转错链或转成其它代币无法找回。
+                    </div>
                   </div>
                 )}
 
