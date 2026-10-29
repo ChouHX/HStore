@@ -46,7 +46,7 @@ func (a *API) handleRegisterCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusServiceUnavailable, "注册功能暂未开放，请联系管理员")
 		return
 	}
-	if store.RegisterMailCountToday() >= store.RegisterDailyMailLimit {
+	if store.RegisterMailCountToday() >= cfg.DailyLimit() {
 		fail(w, http.StatusTooManyRequests, "当日注册量已达上限，请明日再试")
 		return
 	}
@@ -62,13 +62,15 @@ func (a *API) handleRegisterCode(w http.ResponseWriter, r *http.Request) {
 	subject := "【" + cfg.FromName + "】注册验证码"
 	text := "您正在注册 " + cfg.FromName + " 账号。\n\n验证码：" + code + "\n\n验证码 10 分钟内有效，请勿泄露给他人。如果这不是您的操作，请忽略本邮件。"
 	html := registerMailHTML(cfg.FromName, code, email)
-	if err := mail.SMTPSendRich(cfg.Host, cfg.Port, cfg.Security, cfg.Username, cfg.Password, cfg.FromName, email, subject, text, html); err != nil {
+	if err := mail.Send(r.Context(), cfg, mail.SendOptions{
+		To: email, Subject: subject, Text: text, HTML: html,
+	}); err != nil {
 		store.DeleteRegisterCode(email, code)
-		if mail.IsSMTPDailyLimit(err) {
+		if mail.IsQuotaError(err) {
 			fail(w, http.StatusTooManyRequests, "当日注册量已达上限，请明日再试")
 			return
 		}
-		log.Printf("register mail send failed: %v", err)
+		log.Printf("register mail send failed (%s): %v", cfg.Provider, err)
 		fail(w, http.StatusBadGateway, "验证码发送失败，请稍后重试")
 		return
 	}
@@ -134,65 +136,130 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"user": user})
 }
 
-// handleAdminSMTPGet 返回发信配置（不返回明文密码）。
+// handleAdminSMTPGet 返回发信配置（不返回明文密钥）。
 func (a *API) handleAdminSMTPGet(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
 	cfg := store.GetSMTPConfig()
 	ok(w, map[string]any{
-		"host": cfg.Host, "port": cfg.Port, "security": cfg.Security,
+		"provider": cfg.Provider,
+		"host":     cfg.Host, "port": cfg.Port, "security": cfg.Security,
 		"username": cfg.Username, "fromName": cfg.FromName, "enabled": cfg.Enabled,
 		"hasPassword": cfg.Password != "", "passwordMasked": store.MaskSecret(cfg.Password),
-		"todaySent": store.RegisterMailCountToday(), "dailyLimit": store.RegisterDailyMailLimit,
+		"resendDomain":     cfg.ResendDomain,
+		"hasResendApiKey":  cfg.ResendAPIKey != "",
+		"resendKeyMasked":  store.MaskSecret(cfg.ResendAPIKey),
+		"resendFrom":       mail.ResendFromAddress(cfg.ResendDomain, cfg.FromName),
+		"ready":            cfg.Ready(),
+		"todaySent":        store.RegisterMailCountToday(),
+		"dailyLimit":       cfg.DailyLimit(),
+		"smtpDailyLimit":   store.RegisterDailyMailLimit,
+		"resendDailyLimit": store.ResendDailyMailLimit,
 	})
 }
 
-// handleAdminSMTPPost 保存发信配置；密码留空表示不修改。
+// handleAdminSMTPPost 保存发信配置；密钥留空表示不修改。
 func (a *API) handleAdminSMTPPost(w http.ResponseWriter, r *http.Request) {
 	admin := requireAdmin(w, r)
 	if admin == nil {
 		return
 	}
 	var body struct {
-		Host     string `json:"host"`
-		Port     int    `json:"port"`
-		Security string `json:"security"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		FromName string `json:"fromName"`
-		Enabled  bool   `json:"enabled"`
+		Action       string `json:"action"`
+		TestTo       string `json:"testTo"`
+		Provider     string `json:"provider"`
+		Host         string `json:"host"`
+		Port         int    `json:"port"`
+		Security     string `json:"security"`
+		Username     string `json:"username"`
+		Password     string `json:"password"`
+		FromName     string `json:"fromName"`
+		Enabled      bool   `json:"enabled"`
+		ResendDomain string `json:"resendDomain"`
+		ResendAPIKey string `json:"resendApiKey"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
 		return
 	}
+
+	// 发送测试邮件：用当前已保存的配置，不改配置。
+	if body.Action == "test" {
+		to := normalizeEmail(body.TestTo)
+		if !emailPattern.MatchString(to) {
+			fail(w, http.StatusBadRequest, "请输入正确的测试收件邮箱")
+			return
+		}
+		cfg := store.GetSMTPConfig()
+		if !cfg.Ready() {
+			fail(w, http.StatusBadRequest, "发信配置未完成，请先保存")
+			return
+		}
+		text := "这是一封来自 " + cfg.FromName + " 的测试邮件。\n\n如果你收到它，说明发信配置正常。"
+		html := "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;font-size:14px;color:#1d2129;line-height:1.7\">" +
+			"<p><strong>发信配置正常。</strong></p><p>这是一封来自 " + stdhtml.EscapeString(cfg.FromName) + " 的测试邮件。</p></div>"
+		if err := mail.Send(r.Context(), cfg, mail.SendOptions{
+			To: to, Subject: "【" + cfg.FromName + "】发信配置测试", Text: text, HTML: html,
+		}); err != nil {
+			log.Printf("smtp test send failed (%s): %v", cfg.Provider, err)
+			fail(w, http.StatusBadGateway, "发送失败："+err.Error())
+			return
+		}
+		store.WriteAudit(&admin.UID, "settings_smtp_test", "", to, nil, nil, "发送测试邮件")
+		ok(w, map[string]any{"message": "测试邮件已发送至 " + to})
+		return
+	}
+
 	cfg := store.GetSMTPConfig()
+	if body.Provider == string(store.MailProviderResend) {
+		cfg.Provider = store.MailProviderResend
+	} else {
+		cfg.Provider = store.MailProviderSMTP
+	}
 	cfg.Host = strings.TrimSpace(body.Host)
 	cfg.Port = body.Port
 	cfg.Security = body.Security
 	cfg.Username = strings.TrimSpace(body.Username)
 	cfg.FromName = strings.TrimSpace(body.FromName)
 	cfg.Enabled = body.Enabled
+	cfg.ResendDomain = strings.TrimSpace(body.ResendDomain)
 	if body.Password != "" {
 		cfg.Password = strings.ReplaceAll(body.Password, " ", "")
 	}
-	if cfg.Host == "" || cfg.Port < 1 || cfg.Port > 65535 || cfg.Username == "" {
-		fail(w, http.StatusBadRequest, "请填写完整的 SMTP 服务器、端口和账号")
-		return
-	}
-	if cfg.Security != "ssl" && cfg.Security != "starttls" {
-		fail(w, http.StatusBadRequest, "加密方式只能是 ssl 或 starttls")
-		return
+	if body.ResendAPIKey != "" {
+		cfg.ResendAPIKey = strings.TrimSpace(body.ResendAPIKey)
 	}
 	if cfg.FromName == "" {
 		cfg.FromName = "HShop"
+	}
+
+	// 按通道校验：只校验当前启用通道的必填项，另一通道允许留空。
+	if cfg.Provider == store.MailProviderResend {
+		if cfg.ResendDomain == "" || cfg.ResendAPIKey == "" {
+			fail(w, http.StatusBadRequest, "请填写 Resend 发信域名与 API Key")
+			return
+		}
+		if !strings.Contains(cfg.ResendDomain, ".") {
+			fail(w, http.StatusBadRequest, "发信域名格式不正确，例如 opcuu.com")
+			return
+		}
+	} else {
+		if cfg.Host == "" || cfg.Port < 1 || cfg.Port > 65535 || cfg.Username == "" {
+			fail(w, http.StatusBadRequest, "请填写完整的 SMTP 服务器、端口和账号")
+			return
+		}
+		if cfg.Security != "ssl" && cfg.Security != "starttls" {
+			fail(w, http.StatusBadRequest, "加密方式只能是 ssl 或 starttls")
+			return
+		}
 	}
 	if err := store.SaveSMTPConfig(cfg); err != nil {
 		fail(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	store.WriteAudit(&admin.UID, "settings_smtp", "", "", nil, nil, "更新 SMTP 发信配置")
+	store.WriteAudit(&admin.UID, "settings_smtp", "", string(cfg.Provider), nil,
+		map[string]any{"provider": cfg.Provider, "fromName": cfg.FromName}, "更新发信配置")
 	ok(w, nil)
 }
 

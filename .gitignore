@@ -21,3 +21,6 @@ backend/data/
 # 整个 dist/ 都忽略的话，全新克隆时 go:embed all:dist 会因为目录不存在而编译失败。
 backend/web/dist/*
 !backend/web/dist/index.html
+
+# 临时调试脚本（含明文 API Key，禁止入库）
+resend_test/

@@ -13,8 +13,22 @@ import (
 	"hstore/backend/internal/model"
 )
 
+// 发信通道。
+type MailProvider string
+
+const (
+	// MailProviderSMTP 是传统 SMTP（Gmail / 自建等）。
+	MailProviderSMTP MailProvider = "smtp"
+	// MailProviderResend 是 Resend API，只需验证过的域名 + API Key。
+	MailProviderResend MailProvider = "resend"
+)
+
 // SMTPConfig 是注册验证码邮件的发信配置，保存在 sync_meta 中。
+// 字段名沿用历史命名，同时覆盖 SMTP 与 Resend 两种通道。
 type SMTPConfig struct {
+	// Provider 是发信通道：smtp（默认）或 resend。
+	Provider MailProvider `json:"provider"`
+
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
 	Security string `json:"security"` // ssl（465）或 starttls（587）
@@ -22,6 +36,12 @@ type SMTPConfig struct {
 	Password string `json:"password"`
 	FromName string `json:"fromName"`
 	Enabled  bool   `json:"enabled"`
+
+	// ResendDomain 是已在 Resend 控制台验证过的发信域名（如 opcuu.com）。
+	// 也允许直接填完整地址（noreply@opcuu.com）。
+	ResendDomain string `json:"resendDomain"`
+	// ResendAPIKey 是 Resend 的 API Key（re_ 开头）。
+	ResendAPIKey string `json:"resendApiKey"`
 }
 
 const SKSMTPConfig = "smtp_config"
@@ -35,13 +55,34 @@ func GetSMTPConfig() SMTPConfig {
 	if cfg.FromName == "" {
 		cfg.FromName = "HShop"
 	}
+	if cfg.Provider != MailProviderResend {
+		cfg.Provider = MailProviderSMTP
+	}
 	return cfg
 }
 
-// Ready 表示发信配置是否可用。
+// Ready 表示发信配置是否可用（按当前通道判断）。
 func (c SMTPConfig) Ready() bool {
-	return c.Enabled && c.Host != "" && c.Port > 0 && c.Username != "" && c.Password != ""
+	if !c.Enabled {
+		return false
+	}
+	if c.Provider == MailProviderResend {
+		return strings.TrimSpace(c.ResendAPIKey) != "" && strings.TrimSpace(c.ResendDomain) != ""
+	}
+	return c.Host != "" && c.Port > 0 && c.Username != "" && c.Password != ""
 }
+
+// DailyLimit 返回当前通道的每日发信上限，用于后台展示与封顶提示。
+// Resend 免费额度按天重置（100 封/天，付费更高），这里只做本地保护。
+func (c SMTPConfig) DailyLimit() int {
+	if c.Provider == MailProviderResend {
+		return ResendDailyMailLimit
+	}
+	return RegisterDailyMailLimit
+}
+
+// ResendDailyMailLimit 是本地为 Resend 通道设置的发信封顶，避免超额计费。
+const ResendDailyMailLimit = 1000
 
 // SaveSMTPConfig 保存发信配置。
 func SaveSMTPConfig(cfg SMTPConfig) error {
