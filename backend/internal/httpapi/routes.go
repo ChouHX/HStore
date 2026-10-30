@@ -67,6 +67,7 @@ func (a *API) routes() {
 
 	// 后台
 	a.mux.HandleFunc("GET /api/admin/stats", a.handleAdminStats)
+	a.mux.HandleFunc("GET /api/admin/upstream/status", a.handleAdminUpstreamStatus)
 	a.mux.HandleFunc("GET /api/admin/products", a.handleAdminProducts)
 	a.mux.HandleFunc("POST /api/admin/products", a.handleAdminProductsPost)
 	a.mux.HandleFunc("GET /api/admin/product-filters", a.handleAdminProductFilters)

@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { formatPrice } from "@/lib/format";
 import { ProductDistribution } from "./ProductDistribution";
+import { UpstreamStatusCard } from "./UpstreamStatusCard";
 
 const { Row, Col } = Grid;
 
@@ -98,6 +99,12 @@ export function OverviewSection() {
             <Statistic title="兑换码已核销" value={stats.redeem.used ?? 0} suffix="张" />
             <div className="mt-1 text-[12px] text-[#86909c]">共 {stats.redeem.codes} 张</div>
           </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[12, 12]}>
+        <Col span={24}>
+          <UpstreamStatusCard />
         </Col>
       </Row>
 

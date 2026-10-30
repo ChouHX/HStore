@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/imagecache"
@@ -15,6 +16,27 @@ import (
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
 )
+
+// handleAdminUpstreamStatus 返回家宽出口代理状态，probe=1 时顺带真实请求一次上游。
+// 上游 WAF 按出口 IP 拦截，家宽隧道断开时同步会全部失败，后台需要直接可见。
+func (a *API) handleAdminUpstreamStatus(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	proxy := upstream.CheckProxy()
+	probe := upstream.UpstreamProbe{}
+	var upstreamAt int64
+	if r.URL.Query().Get("probe") == "1" {
+		probe = upstream.ProbeUpstream()
+		upstreamAt = time.Now().UnixMilli()
+	}
+	ok(w, map[string]any{
+		"proxy":      proxy,
+		"upstream":   probe,
+		"checkedAt":  time.Now().UnixMilli(),
+		"upstreamAt": upstreamAt,
+	})
+}
 
 func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
