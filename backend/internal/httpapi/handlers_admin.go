@@ -417,7 +417,11 @@ func (a *API) handleAdminPricing(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
-	ok(w, map[string]any{"rules": store.ListRules()})
+	ok(w, map[string]any{
+		"rules": store.ListRules(),
+		// 可选板块：只列已同步商品的一级板块，供「指定板块」下拉使用。
+		"boards": store.ListBoardOptions(),
+	})
 }
 
 func (a *API) handleAdminPricingPost(w http.ResponseWriter, r *http.Request) {

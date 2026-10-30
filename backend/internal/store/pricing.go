@@ -178,10 +178,21 @@ func UpdateRule(id int, patch map[string]any) *model.PricingRule {
 // DeleteRule 删除规则。
 func DeleteRule(id int) { _, _ = db.Must().Exec("DELETE FROM pricing_rules WHERE id = ?", id) }
 
-var specificity = map[string]int{"global": 0, "platform": 1, "category": 2, "product": 3}
+// specificity 决定规则优先级：越具体越优先。
+// board（板块）与 platform（旧版按分类名推断的平台）同属「中等具体」，
+// 但 board 是真实数据、可精确匹配，优先于 platform。
+var specificity = map[string]int{"global": 0, "platform": 1, "board": 2, "category": 3, "product": 4}
 
 // ResolvePrice 解析单个商品售价：取最具体的匹配规则。
 func ResolvePrice(cost float64, goodsID int, dirIDs []int, platform string) (float64, *int) {
+	return ResolvePriceOnBoard(cost, goodsID, dirIDs, platform, 0)
+}
+
+// ResolvePriceOnBoard 在 ResolvePrice 基础上支持「板块」作用域。
+//
+// boardID 是商品的一级板块（root_category_id）。board 作用域按它精确匹配，
+// 比旧的 platform（从分类名推断，只有 microsoft/google/other）可靠得多。
+func ResolvePriceOnBoard(cost float64, goodsID int, dirIDs []int, platform string, boardID int) (float64, *int) {
 	var matched []model.PricingRule
 	for _, r := range ListRules() {
 		if r.Enabled != 1 {
@@ -193,6 +204,8 @@ func ResolvePrice(cost float64, goodsID int, dirIDs []int, platform string) (flo
 			ok = true
 		case "product":
 			ok = r.ScopeID == strconvItoa(goodsID)
+		case "board":
+			ok = boardID > 0 && r.ScopeID == strconvItoa(boardID)
 		case "category":
 			for _, d := range dirIDs {
 				if r.ScopeID == strconvItoa(d) {
@@ -225,7 +238,7 @@ func ResolvePrice(cost float64, goodsID int, dirIDs []int, platform string) (flo
 // RecomputeAllPrices 按当前规则重算全部售价（锁价优先）。
 func RecomputeAllPrices() int {
 	d := db.Must()
-	rows, e := d.Query("SELECT goods_id, cost_price, dir_ids, platform, manual_price, price_locked FROM products")
+	rows, e := d.Query("SELECT goods_id, cost_price, dir_ids, platform, manual_price, price_locked, COALESCE(root_category_id,0) FROM products")
 	if e != nil {
 		return 0
 	}
@@ -236,12 +249,13 @@ func RecomputeAllPrices() int {
 		plat    string
 		manual  sql.NullFloat64
 		locked  int
+		boardID int
 	}
 	var list []item
 	for rows.Next() {
 		var it item
 		var dirs string
-		if rows.Scan(&it.goodsID, &it.cost, &dirs, &it.plat, &it.manual, &it.locked) == nil {
+		if rows.Scan(&it.goodsID, &it.cost, &dirs, &it.plat, &it.manual, &it.locked, &it.boardID) == nil {
 			it.dirs = parseDirIDs(dirs)
 			list = append(list, it)
 		}
@@ -252,7 +266,7 @@ func RecomputeAllPrices() int {
 		if it.locked == 1 && it.manual.Valid {
 			final = it.manual.Float64
 		} else {
-			final, _ = ResolvePrice(it.cost, it.goodsID, it.dirs, it.plat)
+			final, _ = ResolvePriceOnBoard(it.cost, it.goodsID, it.dirs, it.plat, it.boardID)
 		}
 		_, _ = d.Exec("UPDATE products SET final_price = ? WHERE goods_id = ?", final, it.goodsID)
 	}
@@ -269,7 +283,11 @@ func RecomputeProductPrice(goodsID int) {
 	if p.PriceLocked == 1 && p.ManualPrice != nil {
 		final = *p.ManualPrice
 	} else {
-		final, _ = ResolvePrice(p.CostPrice, p.GoodsID, p.DirIDs, p.Platform)
+		boardID := 0
+		if p.RootCategoryID != nil {
+			boardID = *p.RootCategoryID
+		}
+		final, _ = ResolvePriceOnBoard(p.CostPrice, p.GoodsID, p.DirIDs, p.Platform, boardID)
 	}
 	_, _ = db.Must().Exec("UPDATE products SET final_price = ? WHERE goods_id = ?", final, goodsID)
 }
@@ -427,6 +445,38 @@ func UnknownStockIDs() []int {
 		var id int
 		if rows.Scan(&id) == nil {
 			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// BoardOption 是定价规则可选的「板块」。
+// 只列出已同步商品的一级板块，避免选到空板块。
+type BoardOption struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Total int    `json:"total"` // 该板块下已同步的商品数
+}
+
+// ListBoardOptions 返回已同步商品所属的一级板块及商品数。
+//
+// 定价规则原来用 platform（microsoft/google/other）作为作用域，但 platform
+// 是从分类名推断出来的，53 个板块里绝大多数都是 other，导致「指定平台」
+// 实际只有两个选项，等于硬编码。改为按真实板块选择。
+func ListBoardOptions() []BoardOption {
+	rows, e := db.Must().Query(`SELECT c.id, c.name, COUNT(p.goods_id) AS total
+		FROM products p JOIN categories c ON c.id = p.root_category_id
+		GROUP BY c.id
+		ORDER BY total DESC, c.name ASC`)
+	if e != nil {
+		return []BoardOption{}
+	}
+	defer rows.Close()
+	out := []BoardOption{}
+	for rows.Next() {
+		var b BoardOption
+		if rows.Scan(&b.ID, &b.Name, &b.Total) == nil {
+			out = append(out, b)
 		}
 	}
 	return out

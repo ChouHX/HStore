@@ -220,7 +220,8 @@ export type Rounding =
 export interface PricingRule {
   id: number;
   name: string;
-  scope: "global" | "platform" | "category" | "product";
+  // board=指定板块（按已同步商品的一级板块），platform=旧版按分类名推断的平台
+  scope: "global" | "board" | "platform" | "category" | "product";
   scopeId: string;
   formulaType: PricingFormula;
   amount: number;

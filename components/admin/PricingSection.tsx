@@ -19,7 +19,7 @@ import type { PricingFormula, PricingRule, Rounding } from "@/lib/types";
 const EMPTY = {
   id: 0,
   name: "",
-  scope: "global" as "global" | "platform" | "category" | "product",
+  scope: "global" as "global" | "board" | "platform" | "category" | "product",
   scopeId: "",
   formulaType: "fixed_add" as PricingFormula,
   amount: 0,
@@ -43,10 +43,12 @@ const ROUNDINGS: { value: Rounding; label: string }[] = [
   { value: "round0", label: "取整到元" },
 ];
 
-const PLATFORMS = [
-  { value: "microsoft", label: "微软邮箱" },
-  { value: "google", label: "谷歌邮箱" },
-];
+/** 已同步商品的一级板块，由后端统计下发，不再硬编码。 */
+interface BoardOption {
+  id: number;
+  name: string;
+  total: number;
+}
 
 function formulaText(r: PricingRule): string {
   switch (r.formulaType) {
@@ -63,6 +65,7 @@ function formulaText(r: PricingRule): string {
 
 export function PricingSection() {
   const [rules, setRules] = useState<PricingRule[]>([]);
+  const [boards, setBoards] = useState<BoardOption[]>([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ ...EMPTY });
   const [loading, setLoading] = useState(false);
@@ -71,7 +74,10 @@ export function PricingSection() {
     setLoading(true);
     try {
       const j = await fetch("/api/admin/pricing").then((r) => r.json());
-      if (j.ok) setRules(j.rules as PricingRule[]);
+      if (j.ok) {
+        setRules(j.rules as PricingRule[]);
+        setBoards((j.boards ?? []) as BoardOption[]);
+      }
     } finally {
       setLoading(false);
     }
@@ -104,8 +110,10 @@ export function PricingSection() {
       render: (_: unknown, r: PricingRule) =>
         r.scope === "global"
           ? "全站"
-          : r.scope === "platform"
-            ? `平台 ${PLATFORMS.find((p) => p.value === r.scopeId)?.label ?? r.scopeId}`
+          : r.scope === "board"
+            ? `板块 ${boards.find((b) => String(b.id) === r.scopeId)?.name ?? r.scopeId}`
+            : r.scope === "platform"
+            ? `平台 ${r.scopeId}`
             : r.scope === "category"
               ? `分类 ${r.scopeId}`
               : `商品 ${r.scopeId}`,
@@ -172,7 +180,7 @@ export function PricingSection() {
             <div className="mb-1 text-[12px] text-[#4e5969]">作用范围</div>
             <Select value={form.scope} onChange={(v) => set("scope", v as typeof form.scope)}>
               <Select.Option value="global">全站</Select.Option>
-              <Select.Option value="platform">指定平台</Select.Option>
+              <Select.Option value="board">指定板块</Select.Option>
               <Select.Option value="category">指定分类</Select.Option>
               <Select.Option value="product">指定商品</Select.Option>
             </Select>
@@ -180,16 +188,33 @@ export function PricingSection() {
           {form.scope !== "global" && (
             <div>
               <div className="mb-1 text-[12px] text-[#4e5969]">
-                {form.scope === "platform" ? "平台" : form.scope === "category" ? "分类 ID" : "商品编号"}
+                {form.scope === "board" ? "板块" : form.scope === "category" ? "分类 ID" : "商品编号"}
               </div>
-              {form.scope === "platform" ? (
-                <Select value={form.scopeId || "microsoft"} onChange={(v) => set("scopeId", String(v))}>
-                  {PLATFORMS.map((p) => (
-                    <Select.Option key={p.value} value={p.value}>
-                      {p.label}
-                    </Select.Option>
-                  ))}
-                </Select>
+              {form.scope === "board" ? (
+                <>
+                  <Select
+                    value={form.scopeId}
+                    onChange={(v) => set("scopeId", String(v))}
+                    placeholder="选择板块"
+                    showSearch
+                    filterOption={(input, option) =>
+                      String((option as { props?: { children?: unknown } })?.props?.children ?? "")
+                        .toLowerCase()
+                        .includes(input.toLowerCase())
+                    }
+                  >
+                    {boards.map((b) => (
+                      <Select.Option key={b.id} value={String(b.id)}>
+                        {b.name}（{b.total} 件）
+                      </Select.Option>
+                    ))}
+                  </Select>
+                  <div className="mt-1 text-[11px] text-[#86909c]">
+                    {boards.length === 0
+                      ? "还没有已同步的商品，请先在「商品同步」导入"
+                      : `共 ${boards.length} 个板块，按已同步商品数排序`}
+                  </div>
+                </>
               ) : (
                 <Input value={form.scopeId} onChange={(v) => set("scopeId", v)} placeholder="填写 ID" />
               )}
