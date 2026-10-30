@@ -128,3 +128,21 @@ body {
     max-height: calc(100vh - 220px);
   }
 }
+
+/* 购买抽屉：高度随内容自适应，最高 90vh；内容超高时仅正文滚动 */
+.purchase-drawer.arco-drawer {
+  height: auto !important;
+  max-height: 90vh;
+}
+.purchase-drawer .arco-drawer-inner {
+  height: auto;
+}
+.purchase-drawer .arco-drawer-scroll {
+  height: auto;
+  max-height: 90vh;
+}
+.purchase-drawer .arco-drawer-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}

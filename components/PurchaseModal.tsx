@@ -4,7 +4,7 @@ import { ceilToCents, formatPrice } from "@/lib/format";
 import { Button, Drawer, Input, InputNumber, Message, Modal, Select, Space, Tag } from "@arco-design/web-react";
 import { IconMinus, IconPlus } from "@arco-design/web-react/icon";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { GoodsDetail, Product, RechargeTemplate, User } from "@/lib/types";
 import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
@@ -173,9 +173,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
 
   // 小屏用底部抽屉：商品详情 + 表单 + 支付方式在弹窗里容易超出屏幕
   const [isMobile, setIsMobile] = useState(false);
-  const drawerBodyRef = useRef<HTMLDivElement | null>(null);
-  // 抽屉高度跟随内容，最高 90vh；内容少时不留大片空白
-  const [drawerHeight, setDrawerHeight] = useState(0);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -244,25 +241,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     loadGuestCfg();
   }, [open, loadGuestCfg]);
 
-  useLayoutEffect(() => {
-    if (!isMobile || !visible) return;
-    const el = drawerBodyRef.current;
-    if (!el) return;
-    const sync = () => {
-      const footerEl = el.closest(".arco-drawer")?.querySelector<HTMLElement>(".arco-drawer-footer");
-      const raw = 48 + 32 + el.getBoundingClientRect().height + (footerEl?.offsetHeight ?? 0);
-      const max = Math.round(window.innerHeight * 0.9);
-      setDrawerHeight(Math.max(280, Math.min(max, Math.ceil(raw))));
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(el);
-    window.addEventListener("resize", sync);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", sync);
-    };
-  }, [isMobile, visible, channel, detail?.goodsId, guestOrder?.status]);
 
   useEffect(() => {
     if (!guestOrder || !["waiting", "paid", "fulfilling"].includes(guestOrder.status)) return;
@@ -531,7 +509,15 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             disabled={count <= minCount}
             onClick={() => setCount((n) => Math.max(minCount, n - 1))}
           />
-          <span className="min-w-[22px] text-center text-[13px] font-medium">{count}</span>
+          <InputNumber
+            hideControl
+            size="mini"
+            value={count}
+            min={minCount}
+            max={maxCount}
+            onChange={(v) => setCount(Math.min(maxCount, Math.max(minCount, Number(v) || minCount)))}
+            style={{ width: 52 }}
+          />
           <Button
             size="mini"
             icon={<IconPlus />}
@@ -879,12 +865,13 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         getChildrenPopupContainer={() => document.body}
         footer={footer}
         placement="bottom"
-        style={{ height: drawerHeight ? `${drawerHeight}px` : "90vh" }}
+        className="purchase-drawer"
+        style={{ height: "auto", maxHeight: "90vh" }}
         maskClosable={false}
         unmountOnExit
-        bodyStyle={{ padding: 16, overflowY: "auto" }}
+        bodyStyle={{ padding: 16 }}
       >
-        <div ref={drawerBodyRef}>{body}</div>
+        {body}
       </Drawer>
     );
   }
