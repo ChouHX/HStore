@@ -813,6 +813,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         visible={visible}
         onCancel={requestClose}
         afterClose={handleAfterClose}
+        getChildrenPopupContainer={() => document.body}
         footer={footer}
         placement="bottom"
         height="90vh"
@@ -831,6 +832,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       visible={visible}
       onCancel={requestClose}
       afterClose={handleAfterClose}
+      getChildrenPopupContainer={() => document.body}
       footer={footer}
       style={{ width: 580 }}
       className="purchase-dialog"
