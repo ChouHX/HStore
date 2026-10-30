@@ -9,6 +9,12 @@ import type { Level, User } from "@/lib/types";
 
 const { Row, Col } = Grid;
 
+/** 折扣是价格乘数（0.9 = 9 折），展示成「9 折 / 9.5 折」，1 表示原价。 */
+function discountLabel(discount: number): string {
+  if (!discount || discount >= 1) return "无折扣";
+  return `${Number((discount * 10).toFixed(2))} 折`;
+}
+
 interface Data {
   user: User;
   levels: Level[];
@@ -60,9 +66,12 @@ export function OverviewSection() {
         <Col xs={12} md={6}>
           <Card bordered={false} style={{ height: "100%" }}>
             <div className="text-[13px] text-[#86909c]">会员等级</div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <Tag color="arcoblue">{user.levelName || "普通会员"}</Tag>
               {user.levelLocked === 1 && <Tag color="orange">锁定</Tag>}
+              <Tag color="green">
+                {discountLabel(levels.find((l) => l.id === user.levelId)?.discount ?? 1)}
+              </Tag>
             </div>
           </Card>
         </Col>
@@ -86,18 +95,11 @@ export function OverviewSection() {
         <div className="mt-3 flex flex-wrap gap-2">
           {levels.map((l) => (
             <Tag key={l.id} color={l.id === user.levelId ? "arcoblue" : "gray"}>
-              {l.name} · 满 ¥{l.threshold}
+              {l.name} · 满 ¥{formatPrice(l.threshold)} · {discountLabel(l.discount)}
             </Tag>
           ))}
         </div>
         <Space style={{ marginTop: 16 }}>
-          <Button
-            size="small"
-            type="primary"
-            onClick={() => document.getElementById("account-recharge")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          >
-            充值 / 兑换
-          </Button>
           <Link to="/account/ledger"><Button size="small">余额明细</Button></Link>
           <Link to="/account/orders"><Button size="small">查看订单</Button></Link>
           <Link to="/"><Button size="small">返回商城</Button></Link>
