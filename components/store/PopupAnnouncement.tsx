@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Modal } from "@arco-design/web-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Announcement } from "@/lib/api-types";
 
 /** 关闭后「今天不再提示」的标记：记录到具体日期，跨天自动失效。 */
@@ -16,56 +16,69 @@ function seenKey(id: number) {
   return `faka_popup_seen_${id}`;
 }
 
+/** 当天是否已被「今天不再提示」静音，供首页决定是否自动弹出。 */
+export function isPopupMutedToday(id: number): boolean {
+  try {
+    return Boolean(localStorage.getItem(todayKey(id)));
+  } catch {
+    return false;
+  }
+}
+
+interface Props {
+  popup: Announcement | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
 /**
- * 弹窗公告。
+ * 弹窗公告（受控）。
  *
  * 两个按钮的语义不同，不能混用同一个标记：
  * - 「关闭」：本次不看了，但下次进入页面仍会弹出
  * - 「今天不再提示」：当天内不再弹出（按日期存 key，第二天自动恢复）
  *
+ * 关闭时先播放收起过渡动画，动画结束后再通知父组件隐藏，
+ * 这样弹窗消失的过程不会显得生硬，同时首页 header 上的公告 icon 会亮一下。
+ *
  * 注意：后端 /api/store/home 的 popup 是**单个对象或 null**，不是数组。
  */
-export function PopupAnnouncement({ popup }: { popup: Announcement | null }) {
-  const [open, setOpen] = useState(false);
+export function PopupAnnouncement({ popup, open, onOpenChange }: Props) {
+  const [closing, setClosing] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!popup) {
-      setOpen(false);
-      return;
-    }
-    try {
-      // 当天已被「今天不再提示」静音，就不再弹
-      if (localStorage.getItem(todayKey(popup.id))) {
-        setOpen(false);
+    if (open) setClosing(false);
+  }, [open]);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  const dismiss = useCallback(
+    (muteToday: boolean) => {
+      if (!popup) {
+        onOpenChange(false);
         return;
       }
-    } catch {
-      /* localStorage 不可用时按未静音处理 */
-    }
-    setOpen(true);
-  }, [popup]);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    if (!popup) return;
-    try {
-      // 「关闭」不写静音标记，所以下次进入还会提示
-      localStorage.setItem(seenKey(popup.id), "1");
-    } catch {
-      /* ignore */
-    }
-  }, [popup]);
-
-  const muteToday = useCallback(() => {
-    setOpen(false);
-    if (!popup) return;
-    try {
-      localStorage.setItem(todayKey(popup.id), "1");
-      localStorage.setItem(seenKey(popup.id), "1");
-    } catch {
-      /* ignore */
-    }
-  }, [popup]);
+      try {
+        if (muteToday) localStorage.setItem(todayKey(popup.id), "1");
+        localStorage.setItem(seenKey(popup.id), "1");
+      } catch {
+        /* ignore */
+      }
+      // 播放收起动画：向下淡出并轻微缩小
+      setClosing(true);
+      timer.current = setTimeout(() => {
+        setClosing(false);
+        onOpenChange(false);
+      }, 200);
+    },
+    [popup, onOpenChange],
+  );
 
   if (!popup) return null;
 
@@ -73,11 +86,12 @@ export function PopupAnnouncement({ popup }: { popup: Announcement | null }) {
     <Modal
       title={popup.title || "公告"}
       visible={open}
-      onCancel={close}
+      onCancel={() => dismiss(false)}
+      wrapClassName={`notice-popup${closing ? " notice-popup-closing" : ""}`}
       footer={
         <div className="flex justify-end gap-2">
-          <Button onClick={close}>关闭</Button>
-          <Button type="primary" onClick={muteToday}>
+          <Button onClick={() => dismiss(false)}>关闭</Button>
+          <Button type="primary" onClick={() => dismiss(true)}>
             今天不再提示
           </Button>
         </div>

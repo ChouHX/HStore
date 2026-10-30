@@ -282,6 +282,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       ? Math.max(detail?.minQuantity || 1, usdtMinCount)
       : detail?.minQuantity || 1;
 
+  // 选中 USDT 时应付金额按后端规则换算：CNY / 汇率，向上取整到 0.01 USDT
+  const usdtPayable = usdtRate > 0 ? Math.ceil((payable / usdtRate) * 100) / 100 : 0;
+
   // 切到 USDT（或数量被改小）时，自动把数量抬到「至少 1 USDT」的下限
   useEffect(() => {
     if (channel !== "usdt") return;
@@ -725,7 +728,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               <div className="text-[11px] text-[#86909c]">
                 USDT 单笔至少 1 USDT，本商品至少买 {usdtMinCount} 件
                 {usdtMinCount > 1 ? <span className="text-[#d25f00]">（已自动调整数量）</span> : null}；
-                当前约 {((total || 0) / guestCfg.crypto.rate).toFixed(4)} USDT，实际金额以下单页面为准。
+                按汇率 1 USDT ≈ ¥{formatPrice(guestCfg.crypto.rate)} 换算，金额向上取整到 0.01 USDT。
               </div>
             ) : null}
           </div>
@@ -742,7 +745,17 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               />
             </div>
             <div className="text-right text-[12px] text-[#86909c]">
-              应付 <div className="text-[18px] font-semibold text-[#f53f3f]">¥{formatPrice(payable)}</div>
+              应付
+              {channel === "usdt" ? (
+                <>
+                  <div className="text-[18px] font-semibold text-[#f53f3f]">
+                    {usdtPayable > 0 ? `${usdtPayable.toFixed(2)} USDT` : "—"}
+                  </div>
+                  <div className="text-[11px] text-[#86909c]">≈ ¥{formatPrice(total)}</div>
+                </>
+              ) : (
+                <div className="text-[18px] font-semibold text-[#f53f3f]">¥{formatPrice(payable)}</div>
+              )}
             </div>
           </div>
 

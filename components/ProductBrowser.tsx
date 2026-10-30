@@ -29,7 +29,7 @@ const PurchaseModal = lazy(() =>
 );
 import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
-import { PopupAnnouncement } from "./store/PopupAnnouncement";
+import { PopupAnnouncement, isPopupMutedToday } from "./store/PopupAnnouncement";
 
 interface Props {
   boards: StoreBoard[];
@@ -278,6 +278,9 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
   const [loading, setLoading] = useState(false);
   const [stockSyncing, setStockSyncing] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
+  // 公告弹窗受控：关闭后 header 右侧常驻公告 icon，可随时重新打开
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [noticeAttentionKey, setNoticeAttentionKey] = useState(0);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -286,6 +289,21 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
   }, []);
+
+  // 进入首页自动弹出公告；当天点过「今天不再提示」则保持收起
+  useEffect(() => {
+    if (!popup) {
+      setNoticeOpen(false);
+      return;
+    }
+    setNoticeOpen(!isPopupMutedToday(popup.id));
+  }, [popup]);
+
+  function closeNotice() {
+    setNoticeOpen(false);
+    // 弹窗收起后让 header 上的公告 icon 轻微跳动一次，提示用户入口在这里
+    setNoticeAttentionKey((k) => k + 1);
+  }
 
   const activeBoard = boards.find((b) => b.id === boardId) ?? null;
   const searching = query.trim().length > 0;
@@ -368,6 +386,9 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
           setPage(1);
         }}
         announcements={announcements}
+        hasPopup={!!popup}
+        onOpenNotice={() => setNoticeOpen(true)}
+        noticeAttentionKey={noticeAttentionKey}
       />
 
       <main className="mx-auto max-w-[1200px] px-4 py-4">
@@ -583,7 +604,11 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
       </main>
 
 
-      <PopupAnnouncement popup={popup} />
+      <PopupAnnouncement
+        popup={popup}
+        open={noticeOpen}
+        onOpenChange={(next) => (next ? setNoticeOpen(true) : closeNotice())}
+      />
 
       {purchaseProduct && (
         <Suspense fallback={null}>

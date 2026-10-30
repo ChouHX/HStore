@@ -26,18 +26,50 @@ interface Props {
   searchQuery?: string;
   onSearch?: (q: string) => void;
   announcements?: Announcement[];
+  /** 是否有关键弹窗公告：有则 header 的公告按钮直接重新弹出该公告 */
+  hasPopup?: boolean;
+  onOpenNotice?: () => void;
+  /** 每次弹窗关闭后递增，用于让公告 icon 播放一次提示动画 */
+  noticeAttentionKey?: number;
 }
 
-export function StoreHeader({ user, searchQuery = "", onSearch, announcements = [] }: Props) {
+export function StoreHeader({
+  user,
+  searchQuery = "",
+  onSearch,
+  announcements = [],
+  hasPopup = false,
+  onOpenNotice,
+  noticeAttentionKey = 0,
+}: Props) {
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [kw, setKw] = useState(searchQuery);
+  // 弹窗公告刚关闭时让公告按钮跳一下，告诉用户「以后从这里再看」
+  const [attention, setAttention] = useState(false);
 
   useEffect(() => {
     setKw(searchQuery);
   }, [searchQuery]);
+
+  useEffect(() => {
+    if (!noticeAttentionKey) return;
+    setAttention(true);
+    const timer = setTimeout(() => setAttention(false), 1400);
+    return () => clearTimeout(timer);
+  }, [noticeAttentionKey]);
+
+  // 有关键弹窗公告时直接重新弹出；否则退回到公告列表抽屉
+  function openNotice() {
+    if (hasPopup && onOpenNotice) onOpenNotice();
+    else setNoticeOpen(true);
+  }
+
+  const noticeBtnClass = attention ? "notice-bell-attention" : undefined;
+  const noticeCount = announcements.length;
+  const noticeLabel = noticeCount > 0 ? `公告（${noticeCount}）` : "公告";
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -48,7 +80,7 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
 
   function onMenu(key: string) {
     if (key === "search") setSearchOpen(true);
-    else if (key === "notice") setNoticeOpen(true);
+    else if (key === "notice") openNotice();
     else if (key === "pickup") navigate("/pickup");
     else if (key === "login") navigate("/login");
     else if (key === "account") navigate("/account/overview");
@@ -84,9 +116,16 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <span className="lg:hidden">
-            <Button size="small" icon={<IconNotification />} aria-label="公告" onClick={() => setNoticeOpen(true)} />
-          </span>
+          <Button
+            size="small"
+            icon={<IconNotification />}
+            aria-label={noticeLabel}
+            title={noticeLabel}
+            className={noticeBtnClass}
+            onClick={openNotice}
+          >
+            <span className="hidden lg:inline">{noticeLabel}</span>
+          </Button>
           {/* 微软取件 / 订单查询都是公开页面，未登录也保留入口 */}
           <Link to="/pickup" className="inline-flex">
             <Button size="small" icon={<IconEmail />} aria-label="微软取件">
@@ -166,6 +205,14 @@ export function StoreHeader({ user, searchQuery = "", onSearch, announcements = 
         </div>
 
         <div className="flex items-center gap-2 md:hidden">
+          <Button
+            size="small"
+            icon={<IconNotification />}
+            aria-label={noticeLabel}
+            title={noticeLabel}
+            className={noticeBtnClass}
+            onClick={openNotice}
+          />
           <Button size="small" icon={<IconSearch />} aria-label="搜索" onClick={() => setSearchOpen(true)} />
           <Dropdown
             trigger="click"

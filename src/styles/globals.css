@@ -94,3 +94,61 @@ body {
 .recharge-tabs .arco-tabs-content-inner {
   transition: none !important;
 }
+
+/* 公告弹窗：出现 / 收起过渡动画 */
+.notice-popup .arco-modal {
+  animation: notice-modal-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.notice-popup .arco-modal-mask {
+  animation: notice-mask-in 0.26s ease-out both;
+}
+.notice-popup-closing .arco-modal {
+  animation: notice-modal-out 0.2s ease-in both;
+}
+.notice-popup-closing .arco-modal-mask {
+  animation: notice-mask-out 0.2s ease-in both;
+}
+
+@keyframes notice-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes notice-modal-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+}
+@keyframes notice-mask-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes notice-mask-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* 弹窗关闭后，header 右侧公告 icon 跳动一次，提示入口位置 */
+.notice-bell-attention {
+  animation: notice-bell-shake 0.9s ease-in-out;
+  box-shadow: 0 0 0 4px rgba(22, 93, 255, 0.16);
+  border-radius: 4px;
+}
+@keyframes notice-bell-shake {
+  0% { transform: scale(1) rotate(0deg); }
+  20% { transform: scale(1.18) rotate(-12deg); }
+  40% { transform: scale(1.12) rotate(10deg); }
+  60% { transform: scale(1.08) rotate(-6deg); }
+  80% { transform: scale(1.04) rotate(3deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
