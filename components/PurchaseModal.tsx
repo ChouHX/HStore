@@ -456,6 +456,21 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       : `${guestOrder.usdtAmount} USDT`
     : "";
 
+  const payDisabled =
+    !detail || (channel === "balance" ? !user : channel === "alipay" ? !alipayReady : !usdtReady);
+  const payLoading = channel === "balance" ? submitting : guestBusy;
+  const submitButton = (
+    <Button
+      type="primary"
+      size={isMobile ? "small" : "default"}
+      loading={payLoading}
+      disabled={payDisabled}
+      onClick={channel === "balance" ? submitBalance : submitGuest}
+    >
+      {channel === "balance" ? "余额支付" : isMobile ? "立即购买" : "确认支付"}
+    </Button>
+  );
+
   const footer = guestOrder ? (
     guestOrder.status === "fulfilled" ? (
       <Space>
@@ -481,20 +496,10 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         <Button type="primary" loading={guestRefreshing} onClick={refreshGuest}>刷新状态</Button>
       </Space>
     )
-  ) : (
+  ) : isMobile ? null : (
     <Space>
       <Button onClick={() => onOpenChange(false)}>取消</Button>
-      <Button
-        type="primary"
-        loading={channel === "balance" ? submitting : guestBusy}
-        disabled={
-          !detail ||
-          (channel === "balance" ? !user : channel === "alipay" ? !alipayReady : !usdtReady)
-        }
-        onClick={channel === "balance" ? submitBalance : submitGuest}
-      >
-        {channel === "balance" ? "余额支付" : "确认支付"}
-      </Button>
+      {submitButton}
     </Space>
   );
 
@@ -757,36 +762,34 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             ) : null}
           </div>
 
-          <div className="flex items-end justify-between">
-            <div className="flex items-center gap-2 text-[12px] text-[#86909c]">
-              购买数量
+          {/* 移动端：数量 / 应付 / 立即购买压成一行，底部不再重复按钮 */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 text-[12px] text-[#86909c]">
+              数量
               <InputNumber
                 value={count}
                 onChange={(v) => setCount(Math.max(minCount, Number(v) || 1))}
                 min={minCount}
                 max={detail.maxQuantity || 999999}
-                style={{ width: 120 }}
+                style={{ width: isMobile ? 84 : 120 }}
               />
             </div>
-            <div className="text-right text-[12px] text-[#86909c]">
+            <div className="min-w-0 text-right text-[12px] text-[#86909c]">
               应付
               {channel === "usdt" ? (
                 <>
-                  <div className="text-[18px] font-semibold text-[#f53f3f]">
+                  <div className="text-[16px] font-semibold leading-tight text-[#f53f3f] sm:text-[18px]">
                     {usdtPayable > 0 ? `${usdtPayable.toFixed(2)} USDT` : "—"}
                   </div>
                   <div className="text-[11px] text-[#86909c]">≈ ¥{formatPrice(total)}</div>
                 </>
               ) : (
-                <div className="text-[18px] font-semibold text-[#f53f3f]">¥{formatPrice(payable)}</div>
+                <div className="text-[16px] font-semibold leading-tight text-[#f53f3f] sm:text-[18px]">
+                  ¥{formatPrice(payable)}
+                </div>
               )}
             </div>
-          </div>
-
-          <div className="text-[11px] leading-relaxed text-[#86909c]">
-            {isGuest
-              ? "游客购买无需注册，支付成功后可在订单详情页查看卡密；关闭窗口后仍可凭本机凭证继续查看。"
-              : "支付成功后可在订单详情页查看卡密；余额支付会立即从余额扣除，在线支付到账后自动发货。"}
+            {isMobile ? <div className="shrink-0">{submitButton}</div> : null}
           </div>
         </div>
       ) : null;
