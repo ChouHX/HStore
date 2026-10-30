@@ -1,7 +1,7 @@
 "use client";
 import { ceilToCents, formatPrice } from "@/lib/format";
 
-import { Button, Input, InputNumber, Message, Modal, Select, Space, Tag } from "@arco-design/web-react";
+import { Button, Drawer, Input, InputNumber, Message, Modal, Select, Space, Tag } from "@arco-design/web-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -159,6 +159,17 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   const [guestCfgLoading, setGuestCfgLoading] = useState(false);
 
   const isGuest = !user;
+  // 小屏用底部抽屉：商品详情 + 表单 + 支付方式在弹窗里容易超出屏幕
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
   const alipayReady = Boolean(guestCfg.alipay?.enabled && guestCfg.alipay?.configured);
   const usdtReady = Boolean(guestCfg.crypto?.enabled && guestCfg.crypto?.configured);
 
@@ -487,17 +498,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     </Space>
   );
 
-  return (
-    <Modal
-      title={isGuest ? "游客购买" : "购买商品"}
-      visible={open}
-      onCancel={() => onOpenChange(false)}
-      footer={footer}
-      style={{ width: 580 }}
-      maskClosable={false}
-      unmountOnExit
-    >
-      {loading ? (
+  const title = isGuest ? "游客购买" : "购买商品";
+  const body = loading ? (
         <div className="py-10 text-center text-[13px] text-[#86909c]">加载中…</div>
       ) : guestOrder ? (
         <div className="flex flex-col gap-3">
@@ -615,45 +617,49 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         </div>
       ) : detail ? (
         <div className="flex flex-col gap-3">
-          <div className="flex gap-3 rounded border border-[#e5e6eb] p-3">
-            {detail.imgUrl && !detail.imgUrl.startsWith("http") && (
-              <img
-                src={detail.imgUrl}
-                alt=""
-                className="h-14 w-14 shrink-0 rounded object-cover"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">{product?.customName || detail.name}</div>
-              {(product?.customDesc || detail.goodsDescribe) && (
-                <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#86909c]">
-                  {product?.customDesc || detail.goodsDescribe}
-                </div>
+          {/* 商品信息与详情合并成一张卡片，减少纵向占位 */}
+          <div className="rounded border border-[#e5e6eb] p-3">
+            <div className="flex gap-3">
+              {detail.imgUrl && !detail.imgUrl.startsWith("http") && (
+                <img
+                  src={detail.imgUrl}
+                  alt=""
+                  className="h-14 w-14 shrink-0 rounded object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
               )}
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
-                <span>库存 {detail.stockCount}</span>
-                <span>限购 {detail.minQuantity} ~ {detail.maxQuantity}</span>
-                {(detail.warrantyDays ?? 0) > 0 && <span>质保 {detail.warrantyDays} 天</span>}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium">{product?.customName || detail.name}</div>
+                {(product?.customDesc || detail.goodsDescribe) && (
+                  <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#86909c]">
+                    {product?.customDesc || detail.goodsDescribe}
+                  </div>
+                )}
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
+                  <span>库存 {detail.stockCount}</span>
+                  <span>限购 {detail.minQuantity} ~ {detail.maxQuantity}</span>
+                  {(detail.warrantyDays ?? 0) > 0 && <span>质保 {detail.warrantyDays} 天</span>}
+                </div>
               </div>
             </div>
-          </div>
 
-          {(detail.goodsDetail || detail.buyNotice) && (
-            <div className="rounded border border-[#e5e6eb] px-3 py-2">
-              <div className="text-[12px] font-medium text-[#1d2129]">商品详情 / 购买须知</div>
-              <div className="mt-2 max-h-[240px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969]">
-                {detail.goodsDetail && (
-                  <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
-                )}
-                {detail.buyNotice && (
-                  <div className="mt-2 whitespace-pre-wrap">购买须知：{detail.buyNotice}</div>
-                )}
+            {(detail.goodsDetail || detail.buyNotice) && (
+              <div className="mt-3 border-t border-[#f2f3f5] pt-2">
+                <div className="text-[12px] font-medium text-[#1d2129]">商品详情 / 购买须知</div>
+                {/* 移动端压缩详情高度；桌面端交给弹窗正文统一滚动，避免两层滚动条 */}
+                <div className="mt-1.5 max-h-[132px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969] sm:max-h-none sm:overflow-visible">
+                  {detail.goodsDetail && (
+                    <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
+                  )}
+                  {detail.buyNotice && (
+                    <div className="mt-2 whitespace-pre-wrap">购买须知：{detail.buyNotice}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {templates.length > 0 && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -783,7 +789,39 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               : "支付成功后可在订单详情页查看卡密；余额支付会立即从余额扣除，在线支付到账后自动发货。"}
           </div>
         </div>
-      ) : null}
+      ) : null;
+
+  // 小屏：底部抽屉，高度固定 90vh，内容区自己滚动，不会被撑出屏幕
+  if (isMobile) {
+    return (
+      <Drawer
+        title={title}
+        visible={open}
+        onCancel={() => onOpenChange(false)}
+        footer={footer}
+        placement="bottom"
+        height="90vh"
+        maskClosable={false}
+        unmountOnExit
+        bodyStyle={{ padding: 16, overflowY: "auto" }}
+      >
+        {body}
+      </Drawer>
+    );
+  }
+
+  return (
+    <Modal
+      title={title}
+      visible={open}
+      onCancel={() => onOpenChange(false)}
+      footer={footer}
+      style={{ width: 580 }}
+      className="purchase-dialog"
+      maskClosable={false}
+      unmountOnExit
+    >
+      {body}
     </Modal>
   );
 }

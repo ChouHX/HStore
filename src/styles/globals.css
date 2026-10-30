@@ -117,3 +117,14 @@ body {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* 购买弹窗：可选项目多时只滚动正文，标题与底部按钮固定 */
+.purchase-dialog .arco-modal-content {
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
+}
+@media (max-width: 767px) {
+  .purchase-dialog .arco-modal-content {
+    max-height: calc(100vh - 220px);
+  }
+}
