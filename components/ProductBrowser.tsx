@@ -280,7 +280,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
   const [isDesktop, setIsDesktop] = useState(true);
   // 公告弹窗受控：关闭后 header 右侧常驻公告 icon，可随时重新打开
   const [noticeOpen, setNoticeOpen] = useState(false);
-  const [noticeAttentionKey, setNoticeAttentionKey] = useState(0);
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
@@ -301,8 +300,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
 
   function closeNotice() {
     setNoticeOpen(false);
-    // 弹窗收起后让 header 上的公告 icon 轻微跳动一次，提示用户入口在这里
-    setNoticeAttentionKey((k) => k + 1);
   }
 
   const activeBoard = boards.find((b) => b.id === boardId) ?? null;
@@ -388,7 +385,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         announcements={announcements}
         hasPopup={!!popup}
         onOpenNotice={() => setNoticeOpen(true)}
-        noticeAttentionKey={noticeAttentionKey}
       />
 
       <main className="mx-auto max-w-[1200px] px-4 py-4">
@@ -402,7 +398,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
           announcements={announcements}
           hasPopup={!!popup}
           onOpenNotice={() => setNoticeOpen(true)}
-          noticeAttentionKey={noticeAttentionKey}
         />
 
         {boards.length === 0 ? (

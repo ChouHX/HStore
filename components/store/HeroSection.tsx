@@ -2,7 +2,6 @@
 
 import { Button, Card, Carousel, Tag } from "@arco-design/web-react";
 import { IconArrowRight, IconEmail, IconGift, IconNotification, IconThunderbolt } from "@arco-design/web-react/icon";
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { BANNERS } from "@/lib/site";
 import type { Announcement } from "@/lib/api-types";
@@ -15,20 +14,10 @@ interface Props {
   /** 有关键弹窗公告时可从公告卡片右上角重新打开 */
   hasPopup?: boolean;
   onOpenNotice?: () => void;
-  /** 每次弹窗关闭后递增，让公告按钮跳一下提示入口 */
-  noticeAttentionKey?: number;
 }
 
-export function HeroSection({ announcements, hasPopup = false, onOpenNotice, noticeAttentionKey = 0 }: Props) {
+export function HeroSection({ announcements, hasPopup = false, onOpenNotice }: Props) {
   const navigate = useNavigate();
-  const [attention, setAttention] = useState(false);
-
-  useEffect(() => {
-    if (!noticeAttentionKey) return;
-    setAttention(true);
-    const timer = setTimeout(() => setAttention(false), 1400);
-    return () => clearTimeout(timer);
-  }, [noticeAttentionKey]);
 
   function scrollToProducts() {
     document.getElementById("store-products")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -127,7 +116,7 @@ export function HeroSection({ announcements, hasPopup = false, onOpenNotice, not
                 icon={<IconNotification />}
                 aria-label="查看弹窗公告"
                 title="查看弹窗公告"
-                className={attention ? "notice-bell-attention" : undefined}
+                data-notice-anchor
                 onClick={onOpenNotice}
               />
             )}

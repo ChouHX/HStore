@@ -45,12 +45,7 @@ interface Props {
  * 注意：后端 /api/store/home 的 popup 是**单个对象或 null**，不是数组。
  */
 export function PopupAnnouncement({ popup, open, onOpenChange }: Props) {
-  const [closing, setClosing] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (open) setClosing(false);
-  }, [open]);
 
   useEffect(
     () => () => {
@@ -58,6 +53,73 @@ export function PopupAnnouncement({ popup, open, onOpenChange }: Props) {
     },
     [],
   );
+
+  // 重新打开时清掉上一次收缩动画留下的内联样式（快速连点关闭/打开时会复用同一个节点）
+  useEffect(() => {
+    if (!open) return;
+    const modal = document.querySelector<HTMLElement>(".notice-popup .arco-modal");
+    const mask = document.querySelector<HTMLElement>(".notice-popup .arco-modal-mask");
+    if (modal) {
+      modal.style.transform = "";
+      modal.style.opacity = "";
+      modal.style.transition = "";
+      modal.style.animation = "";
+      modal.style.willChange = "";
+    }
+    if (mask) {
+      mask.style.opacity = "";
+      mask.style.transition = "";
+      mask.style.animation = "";
+    }
+  }, [open]);
+
+  /**
+   * 关闭时让弹窗直接「缩进」header / Hero 卡片上的公告图标。
+   *
+   * 用 FLIP 思路：量出弹窗与目标图标的中心差值，把弹窗平移过去并缩到图标大小。
+   * 比固定方向的淡出更自然，用户能看出内容被收进了哪个入口。
+   */
+  function collapseToIcon(): number {
+    const duration = 300;
+    const modal = document.querySelector<HTMLElement>(".notice-popup .arco-modal");
+    if (!modal) return 0;
+
+    const anchors = Array.from(document.querySelectorAll<HTMLElement>("[data-notice-anchor]"));
+    const anchor = anchors.find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+
+    const m = modal.getBoundingClientRect();
+    let transform = "scale(0.9)";
+    if (anchor) {
+      const a = anchor.getBoundingClientRect();
+      const dx = a.left + a.width / 2 - (m.left + m.width / 2);
+      const dy = a.top + a.height / 2 - (m.top + m.height / 2);
+      // 缩到图标宽度左右，避免缩成 0 时的像素抖动
+      const scale = Math.max(0.04, Math.min(0.3, a.width / m.width));
+      transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+    }
+
+    // 入场动画的 fill-mode 会把 transform 固定住，必须先关掉
+    modal.style.animation = "none";
+    modal.style.transformOrigin = "center center";
+    modal.style.willChange = "transform, opacity";
+    // 前半程保持不透明，能看清弹窗被吸进图标；后半程再淡出
+    modal.style.transition = `transform ${duration}ms cubic-bezier(0.32, 0.72, 0, 1), opacity 140ms ease-in 160ms`;
+
+    const mask = document.querySelector<HTMLElement>(".notice-popup .arco-modal-mask");
+    if (mask) {
+      mask.style.animation = "none";
+      mask.style.transition = `opacity ${duration}ms ease-in`;
+    }
+
+    void modal.offsetWidth; // 强制重排，让 transition 从初始状态开始
+    modal.style.transform = transform;
+    modal.style.opacity = "0";
+    if (mask) mask.style.opacity = "0";
+    return duration;
+  }
 
   const dismiss = useCallback(
     (muteToday: boolean) => {
@@ -71,12 +133,15 @@ export function PopupAnnouncement({ popup, open, onOpenChange }: Props) {
       } catch {
         /* ignore */
       }
-      // 播放收起动画：向下淡出并轻微缩小
-      setClosing(true);
-      timer.current = setTimeout(() => {
-        setClosing(false);
-        onOpenChange(false);
-      }, 200);
+      if (timer.current) clearTimeout(timer.current);
+      // 播放收起动画：直接向 header / Hero 公告图标收缩
+      const duration = collapseToIcon();
+      timer.current = setTimeout(
+        () => {
+          onOpenChange(false);
+        },
+        duration > 0 ? duration + 20 : 0,
+      );
     },
     [popup, onOpenChange],
   );
@@ -88,7 +153,7 @@ export function PopupAnnouncement({ popup, open, onOpenChange }: Props) {
       title={popup.title || "公告"}
       visible={open}
       onCancel={() => dismiss(false)}
-      wrapClassName={`notice-popup${closing ? " notice-popup-closing" : ""}`}
+      wrapClassName="notice-popup"
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={() => dismiss(false)}>关闭</Button>

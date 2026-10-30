@@ -30,8 +30,6 @@ interface Props {
   /** 是否有关键弹窗公告：有则 header 的公告按钮直接重新弹出该公告 */
   hasPopup?: boolean;
   onOpenNotice?: () => void;
-  /** 每次弹窗关闭后递增，用于让公告 icon 播放一次提示动画 */
-  noticeAttentionKey?: number;
 }
 
 export function StoreHeader({
@@ -41,26 +39,16 @@ export function StoreHeader({
   announcements = [],
   hasPopup = false,
   onOpenNotice,
-  noticeAttentionKey = 0,
 }: Props) {
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [kw, setKw] = useState(searchQuery);
-  // 弹窗公告刚关闭时让公告按钮跳一下，告诉用户「以后从这里再看」
-  const [attention, setAttention] = useState(false);
 
   useEffect(() => {
     setKw(searchQuery);
   }, [searchQuery]);
-
-  useEffect(() => {
-    if (!noticeAttentionKey) return;
-    setAttention(true);
-    const timer = setTimeout(() => setAttention(false), 1400);
-    return () => clearTimeout(timer);
-  }, [noticeAttentionKey]);
 
   // 有关键弹窗公告时直接重新弹出；否则退回到公告列表抽屉
   function openNotice() {
@@ -68,7 +56,6 @@ export function StoreHeader({
     else setNoticeOpen(true);
   }
 
-  const noticeBtnClass = attention ? "notice-bell-attention" : undefined;
   const noticeCount = announcements.length;
   const noticeLabel = noticeCount > 0 ? `公告（${noticeCount}）` : "公告";
 
@@ -123,7 +110,7 @@ export function StoreHeader({
               icon={<IconNotification />}
               aria-label={noticeLabel}
               title={noticeLabel}
-              className={noticeBtnClass}
+              data-notice-anchor
               onClick={openNotice}
             />
           </span>
@@ -211,7 +198,7 @@ export function StoreHeader({
             icon={<IconNotification />}
             aria-label={noticeLabel}
             title={noticeLabel}
-            className={noticeBtnClass}
+            data-notice-anchor
             onClick={openNotice}
           />
           <Button size="small" icon={<IconSearch />} aria-label="搜索" onClick={() => setSearchOpen(true)} />
