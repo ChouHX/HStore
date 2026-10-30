@@ -1,0 +1,100 @@
+/* Shared styling for the Quill-based rich text editor and its read-only view. */
+
+.rich-text-editor .ql-toolbar.ql-snow {
+  border-color: #e5e6eb;
+  border-radius: 2px 2px 0 0;
+  background: #fafbfc;
+  padding: 4px 6px;
+}
+
+.rich-text-editor .ql-container.ql-snow {
+  border-color: #e5e6eb;
+  border-radius: 0 0 2px 2px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.rich-text-editor .ql-editor {
+  min-height: var(--rt-min-height, 180px);
+  max-height: 360px;
+  overflow-y: auto;
+  line-height: 1.7;
+  color: #1d2129;
+}
+
+.rich-text-editor .ql-editor.ql-blank::before {
+  color: #c9cdd4;
+  font-style: normal;
+}
+
+.rich-text-editor .ql-editor h1 { font-size: 20px; }
+.rich-text-editor .ql-editor h2 { font-size: 17px; }
+.rich-text-editor .ql-editor h3 { font-size: 15px; }
+
+/* Read-only rendering of a stored announcement. */
+.rich-text-view {
+  word-break: break-word;
+}
+
+.rich-text-view p {
+  margin: 0 0 0.5em;
+}
+
+.rich-text-view p:last-child {
+  margin-bottom: 0;
+}
+
+.rich-text-view h1,
+.rich-text-view h2,
+.rich-text-view h3 {
+  margin: 0.6em 0 0.3em;
+  font-weight: 600;
+  color: #1d2129;
+  line-height: 1.4;
+}
+
+.rich-text-view h1 { font-size: 17px; }
+.rich-text-view h2 { font-size: 15px; }
+.rich-text-view h3 { font-size: 14px; }
+
+.rich-text-view ul,
+.rich-text-view ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+
+.rich-text-view ul { list-style: disc; }
+.rich-text-view ol { list-style: decimal; }
+.rich-text-view li { margin: 0.15em 0; }
+
+.rich-text-view blockquote {
+  margin: 0.4em 0;
+  padding-left: 0.75em;
+  border-left: 3px solid #e5e6eb;
+  color: #4e5969;
+}
+
+.rich-text-view a {
+  color: #165dff;
+  text-decoration: underline;
+}
+
+.rich-text-view img {
+  max-width: 100%;
+  height: auto;
+}
+
+.rich-text-view strong { font-weight: 600; }
+
+/* Quill 用 class 表达对齐 / 缩进，只读视图也需要对应的样式 */
+.rich-text-view .ql-align-center { text-align: center; }
+.rich-text-view .ql-align-right { text-align: right; }
+.rich-text-view .ql-align-justify { text-align: justify; }
+.rich-text-view .ql-indent-1 { padding-left: 1.5em; }
+.rich-text-view .ql-indent-2 { padding-left: 3em; }
+.rich-text-view .ql-indent-3 { padding-left: 4.5em; }
+.rich-text-view .ql-indent-4 { padding-left: 6em; }
+.rich-text-view .ql-indent-5 { padding-left: 7.5em; }
+.rich-text-view .ql-indent-6 { padding-left: 9em; }
+.rich-text-view .ql-indent-7 { padding-left: 10.5em; }
+.rich-text-view .ql-indent-8 { padding-left: 12em; }

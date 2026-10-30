@@ -1,5 +1,6 @@
 "use client";
 import { formatPrice } from "@/lib/format";
+import { RichTextView } from "@/components/common/RichTextView";
 
 import { Avatar, Button, Drawer, Dropdown, Input, Menu, Modal, Tag } from "@arco-design/web-react";
 import {
@@ -309,7 +310,10 @@ export function StoreHeader({
                   <span className="text-[12px] font-medium text-[#1d2129]">{a.title}</span>
                 </div>
                 {a.content && (
-                  <div className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-[#4e5969]">{a.content}</div>
+                  <RichTextView
+                    content={a.content}
+                    className="mt-1 text-[12px] leading-relaxed text-[#4e5969]"
+                  />
                 )}
               </div>
             ))

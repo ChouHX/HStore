@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { BANNERS } from "@/lib/site";
 import type { Announcement } from "@/lib/api-types";
+import { contentToPlainText } from "@/lib/rich-text";
 
 const ICONS = { mail: IconEmail, bolt: IconThunderbolt, gift: IconGift };
 
@@ -147,7 +148,11 @@ export function HeroSection({ announcements, hasPopup = false, onOpenNotice, not
                 </Tag>
                 <div className="min-w-0">
                   <div className="text-[#1d2129]">{a.title}</div>
-                  {a.content && <div className="text-[11px] text-[#86909c]">{a.content}</div>}
+                  {a.content && (
+                    <div className="line-clamp-2 text-[11px] text-[#86909c]">
+                      {contentToPlainText(a.content)}
+                    </div>
+                  )}
                 </div>
               </div>
             ))

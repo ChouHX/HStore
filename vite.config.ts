@@ -38,7 +38,15 @@ export default defineConfig({
         // 把框架与 UI 库合并成稳定的大块，避免被拆成几十个小请求；
         // 业务页面仍按路由懒加载。
         manualChunks(id: string) {
-          // 第三方依赖整体打包成一个 vendor，避免拆出循环依赖与几十个小请求；
+          // Quill 只有后台「公告」编辑弹窗才用得到，单独成块后
+          // 只有懒加载到该路由时才会下载，访客端不受影响。
+          if (
+            id.includes("node_modules/quill") ||
+            id.includes("node_modules/parchment")
+          ) {
+            return "vendor-quill";
+          }
+          // 其余第三方依赖整体打包成一个 vendor，避免拆出循环依赖与几十个小请求；
           // 业务页面仍按路由懒加载。
           if (id.includes("node_modules")) return "vendor";
           return undefined;

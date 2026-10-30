@@ -3,6 +3,7 @@
 import { Button, Modal } from "@arco-design/web-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Announcement } from "@/lib/api-types";
+import { RichTextView } from "@/components/common/RichTextView";
 
 /** 关闭后「今天不再提示」的标记：记录到具体日期，跨天自动失效。 */
 function todayKey(id: number) {
@@ -100,8 +101,8 @@ export function PopupAnnouncement({ popup, open, onOpenChange }: Props) {
       unmountOnExit
       maskClosable={false}
     >
-      <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-[#4e5969]">
-        {popup.content}
+      <div className="max-h-[60vh] overflow-y-auto text-[13px] leading-relaxed text-[#4e5969]">
+        <RichTextView content={popup.content} />
       </div>
     </Modal>
   );

@@ -16,6 +16,8 @@ import {
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
 import type { Announcement } from "@/lib/api-types";
+import { RichTextEditor } from "@/components/common/RichTextEditor";
+import { contentToPlainText, sanitizeRichText } from "@/lib/rich-text";
 
 const EMPTY = { id: 0, type: "normal" as "normal" | "popup", title: "", content: "", enabled: true, sort: 0 };
 
@@ -69,7 +71,9 @@ export function AnnouncementsSection() {
       title: "内容",
       dataIndex: "content",
       render: (_: unknown, r: Announcement) => (
-        <span className="line-clamp-1 max-w-[360px] text-[#86909c]">{r.content || "-"}</span>
+        <span className="line-clamp-1 max-w-[360px] text-[#86909c]">
+          {contentToPlainText(r.content) || "-"}
+        </span>
       ),
     },
     {
@@ -158,7 +162,7 @@ export function AnnouncementsSection() {
               id: form.id || undefined,
               type: form.type,
               title: form.title,
-              content: form.content,
+              content: sanitizeRichText(form.content),
               enabled: form.enabled,
               sort: form.sort,
             },
@@ -166,7 +170,7 @@ export function AnnouncementsSection() {
           )
         }
         confirmLoading={busy}
-        style={{ width: 560 }}
+        style={{ width: 720 }}
         unmountOnExit
       >
         <div className="flex flex-col gap-3">
@@ -183,11 +187,11 @@ export function AnnouncementsSection() {
           </div>
           <div>
             <div className="mb-1 text-[12px] text-[#4e5969]">内容</div>
-            <Input.TextArea
+            <RichTextEditor
               value={form.content}
-              onChange={(v) => setForm({ ...form, content: v })}
-              autoSize={{ minRows: 4, maxRows: 10 }}
-              placeholder="公告内容，支持换行"
+              onChange={(html) => setForm({ ...form, content: html })}
+              placeholder="公告内容，支持标题、加粗、列表、链接等格式"
+              minHeight={200}
             />
           </div>
           <div className="flex items-center gap-6">
