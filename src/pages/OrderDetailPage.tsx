@@ -1,4 +1,4 @@
-import { Button, Card, Message, Space, Spin, Tag } from "@arco-design/web-react";
+import { Button, Card, Input, Message, Space, Spin, Tag } from "@arco-design/web-react";
 import { IconArrowLeft, IconCopy, IconDownload, IconRefresh } from "@arco-design/web-react/icon";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useState } from "react";
@@ -452,22 +452,44 @@ export function OrderDetailPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {view.cards.map((c) => (
-                      <div
-                        key={c.cardId}
-                        className="flex items-center gap-2 rounded border border-[#e5e6eb] px-3 py-2"
-                      >
-                        <div className="min-w-0 flex-1 overflow-x-auto">
-                          <div className="whitespace-nowrap font-mono text-[12px]">{cardLine(c)}</div>
-                        </div>
-                        <Button size="mini" icon={<IconCopy />} onClick={() => copy(cardLine(c))} />
-                        {user && c.cancelRequest === 1 && c.status !== 2 ? (
-                          <Button size="mini" status="danger" onClick={() => voidCard(c.cardId)}>
-                            作废
-                          </Button>
-                        ) : null}
+                    {/* 卡券统一放在一个只读文本框里，默认一屏 10 行，避免每行一个容器 */}
+                    <Input.TextArea
+                      readOnly
+                      value={view.cards.slice(0, 10).map(cardLine).join("\n")}
+                      style={{
+                        height: 220,
+                        resize: "none",
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                        fontSize: 12,
+                        lineHeight: "20px",
+                      }}
+                    />
+                    {view.cards.length > 10 ? (
+                      <div className="text-[11px] leading-relaxed text-[#d25f00]">
+                        共 {view.cards.length} 条，文本框仅展示前 10 条；完整内容请点上方「下载 TXT」查看。
                       </div>
-                    ))}
+                    ) : null}
+                    {(() => {
+                      const cancelable = view.cards.filter(
+                        (c) => user && c.cancelRequest === 1 && c.status !== 2,
+                      );
+                      if (cancelable.length === 0) return null;
+                      return (
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#86909c]">
+                          可作废卡券：
+                          {cancelable.map((c) => (
+                            <Button
+                              key={c.cardId}
+                              size="mini"
+                              status="danger"
+                              onClick={() => voidCard(c.cardId)}
+                            >
+                              {c.cardNo || c.cardId}
+                            </Button>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
