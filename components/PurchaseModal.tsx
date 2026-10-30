@@ -159,6 +159,17 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   const [guestCfgLoading, setGuestCfgLoading] = useState(false);
 
   const isGuest = !user;
+  // 弹窗/抽屉的显隐由内部接管：先播完收起动画，再通知父组件卸载，
+  // 否则父组件立刻 setPurchaseProduct(null) 会让抽屉直接消失、没有过渡。
+  const [visible, setVisible] = useState(open);
+  useEffect(() => {
+    if (open) setVisible(true);
+  }, [open]);
+  const requestClose = useCallback(() => setVisible(false), []);
+  const handleAfterClose = useCallback(() => {
+    if (open) onOpenChange(false);
+  }, [open, onOpenChange]);
+
   // 小屏用底部抽屉：商品详情 + 表单 + 支付方式在弹窗里容易超出屏幕
   const [isMobile, setIsMobile] = useState(false);
 
@@ -479,26 +490,26 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       </Space>
     ) : guestOrder.status === "failed" ? (
       <Space>
-        <Button onClick={() => onOpenChange(false)}>关闭</Button>
+        <Button onClick={requestClose}>关闭</Button>
         <Button type="primary" loading={guestRefreshing} onClick={refreshGuest}>刷新重试</Button>
       </Space>
     ) : guestOrder.status === "disputed" ? (
-      <Button onClick={() => onOpenChange(false)}>关闭</Button>
+      <Button onClick={requestClose}>关闭</Button>
     ) : ["expired", "closed", "cancelled"].includes(guestOrder.status) ? (
       <Space>
-        <Button onClick={() => onOpenChange(false)}>关闭</Button>
+        <Button onClick={requestClose}>关闭</Button>
         <Button type="primary" onClick={clearGuestOrder}>重新购买</Button>
       </Space>
     ) : (
       <Space>
         <Button onClick={() => openOrderPage(guestOrder.token)}>订单详情</Button>
-        <Button onClick={() => onOpenChange(false)}>关闭</Button>
+        <Button onClick={requestClose}>关闭</Button>
         <Button type="primary" loading={guestRefreshing} onClick={refreshGuest}>刷新状态</Button>
       </Space>
     )
   ) : isMobile ? null : (
     <Space>
-      <Button onClick={() => onOpenChange(false)}>取消</Button>
+      <Button onClick={requestClose}>取消</Button>
       {submitButton}
     </Space>
   );
@@ -653,8 +664,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             {(detail.goodsDetail || detail.buyNotice) && (
               <div className="mt-3 border-t border-[#f2f3f5] pt-2">
                 <div className="text-[12px] font-medium text-[#1d2129]">商品详情 / 购买须知</div>
-                {/* 移动端压缩详情高度；桌面端交给弹窗正文统一滚动，避免两层滚动条 */}
-                <div className="mt-1.5 max-h-[132px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969] sm:max-h-none sm:overflow-visible">
+                {/* 标题固定，详情在容器内滚动；移动端更矮一些 */}
+                <div className="mt-1.5 max-h-[132px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969] sm:max-h-[180px]">
                   {detail.goodsDetail && (
                     <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
                   )}
@@ -695,7 +706,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             </span>
           </div>
 
-          <div className="flex flex-col gap-2 rounded border border-[#e5e6eb] p-3">
+          <div className="flex flex-col gap-2">
             <div className="text-[12px] font-medium">支付方式</div>
             <PaymentMethodTags
               value={channel}
@@ -799,8 +810,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     return (
       <Drawer
         title={title}
-        visible={open}
-        onCancel={() => onOpenChange(false)}
+        visible={visible}
+        onCancel={requestClose}
+        afterClose={handleAfterClose}
         footer={footer}
         placement="bottom"
         height="90vh"
@@ -816,8 +828,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   return (
     <Modal
       title={title}
-      visible={open}
-      onCancel={() => onOpenChange(false)}
+      visible={visible}
+      onCancel={requestClose}
+      afterClose={handleAfterClose}
       footer={footer}
       style={{ width: 580 }}
       className="purchase-dialog"
