@@ -95,10 +95,42 @@ func QueryPublicOrders(keyword string, limit int) []model.PublicOrderItem {
 	return out
 }
 
+const guestOrderCols = `token, goods_name, goods_count, amount_cny, status,
+	COALESCE(contact,''), created_at, COALESCE(upstream_order_no,''), COALESCE(last_error,'')`
+
+func scanGuestOrder(sc interface{ Scan(...any) error }) (model.PublicOrderItem, error) {
+	var (
+		it       model.PublicOrderItem
+		status   string
+		orderNo  string
+		lastErr  string
+		created  int64
+		count    int
+		money    float64
+		goods    string
+		contactV string
+		token    string
+	)
+	if e := sc.Scan(&token, &goods, &count, &money, &status, &contactV, &created, &orderNo, &lastErr); e != nil {
+		return it, e
+	}
+	it.Kind = "guest"
+	it.Token = token
+	it.GoodsName = goods
+	it.Count = count
+	it.Money = money
+	it.Contact = contactV
+	it.CreatedAt = created
+	it.OrderNumber = orderNo
+	it.StatusText = guestStatusText(status)
+	it.Status = guestStatusToOrderStatus(status)
+	it.Error = lastErr
+	return it, nil
+}
+
 // queryGuestPurchases 查还没进入 orders 表的游客单（等待支付 / 发货失败等）。
 func queryGuestPurchases(keyword, contact string, limit int) []model.PublicOrderItem {
-	rows, err := db.Must().Query(`SELECT token, goods_name, goods_count, amount_cny, status,
-		COALESCE(contact,''), created_at, COALESCE(upstream_order_no,''), COALESCE(last_error,'')
+	rows, err := db.Must().Query(`SELECT `+guestOrderCols+`
 		FROM guest_purchases
 		WHERE token = ? OR lower(COALESCE(contact,'')) = ?
 		ORDER BY created_at DESC LIMIT ?`, keyword, contact, limit)
@@ -108,33 +140,39 @@ func queryGuestPurchases(keyword, contact string, limit int) []model.PublicOrder
 	defer rows.Close()
 	out := []model.PublicOrderItem{}
 	for rows.Next() {
-		var (
-			it       model.PublicOrderItem
-			status   string
-			orderNo  string
-			lastErr  string
-			created  int64
-			count    int
-			money    float64
-			goods    string
-			contactV string
-			token    string
-		)
-		if e := rows.Scan(&token, &goods, &count, &money, &status, &contactV, &created, &orderNo, &lastErr); e != nil {
-			continue
+		if it, e := scanGuestOrder(rows); e == nil {
+			out = append(out, it)
 		}
-		it.Kind = "guest"
-		it.Token = token
-		it.GoodsName = goods
-		it.Count = count
-		it.Money = money
-		it.Contact = contactV
-		it.CreatedAt = created
-		it.OrderNumber = orderNo
-		it.StatusText = guestStatusText(status)
-		it.Status = guestStatusToOrderStatus(status)
-		it.Error = lastErr
-		out = append(out, it)
+	}
+	return out
+}
+
+// QueryGuestByTokens 按游客凭证批量取订单摘要，供「本机记录」回填使用。
+// 凭证 token 是随机串，拿到即代表拥有该订单（与 /g/{token} 的权限模型一致）。
+func QueryGuestByTokens(tokens []string) []model.PublicOrderItem {
+	clean := make([]any, 0, len(tokens))
+	for _, t := range tokens {
+		t = strings.TrimSpace(t)
+		if t != "" && len(clean) < 50 {
+			clean = append(clean, t)
+		}
+	}
+	if len(clean) == 0 {
+		return []model.PublicOrderItem{}
+	}
+	holders := strings.TrimSuffix(strings.Repeat("?,", len(clean)), ",")
+	rows, err := db.Must().Query(`SELECT `+guestOrderCols+`
+		FROM guest_purchases WHERE token IN (`+holders+`)
+		ORDER BY created_at DESC`, clean...)
+	if err != nil {
+		return []model.PublicOrderItem{}
+	}
+	defer rows.Close()
+	out := []model.PublicOrderItem{}
+	for rows.Next() {
+		if it, e := scanGuestOrder(rows); e == nil {
+			out = append(out, it)
+		}
 	}
 	return out
 }

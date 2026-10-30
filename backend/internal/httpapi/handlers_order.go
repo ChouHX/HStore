@@ -324,6 +324,11 @@ func (a *API) handleOrderQuery(w http.ResponseWriter, r *http.Request) {
 		ok(w, map[string]any{"items": store.QueryOrdersByNumbers(strings.Split(raw, ",")), "total": 0})
 		return
 	}
+	// tokens：本机保存的游客单凭证，批量回填（游客单在发货前没有订单号）
+	if raw := strings.TrimSpace(r.URL.Query().Get("tokens")); raw != "" {
+		ok(w, map[string]any{"items": store.QueryGuestByTokens(strings.Split(raw, ",")), "total": 0})
+		return
+	}
 	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
 	if keyword == "" {
 		fail(w, http.StatusBadRequest, "请输入订单号或联系方式")

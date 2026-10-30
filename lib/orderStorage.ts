@@ -121,3 +121,80 @@ export function clearGuestToken(goodsId: number) {
     /* ignore */
   }
 }
+
+// ===== 本机游客订单 =====
+// 游客单在发货前没有订单号，只能靠 token 找回；下单成功即记录，
+// 「订单查询」页据此直接列出本机下过的单，不用再输入凭证。
+
+export interface SavedGuestOrder {
+  token: string;
+  goodsName?: string;
+  amount?: number;
+  at: number;
+}
+
+const GUEST_ORDERS_KEY = "hstore:guest-orders";
+const GUEST_MAX = 50;
+
+function readGuestOrders(): SavedGuestOrder[] {
+  try {
+    const raw = localStorage.getItem(GUEST_ORDERS_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.filter((x) => x && typeof x.token === "string" && x.token);
+  } catch {
+    return [];
+  }
+}
+
+function writeGuestOrders(list: SavedGuestOrder[]) {
+  try {
+    localStorage.setItem(GUEST_ORDERS_KEY, JSON.stringify(list.slice(0, GUEST_MAX)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 记一笔游客单；同一 token 只保留最新一条。 */
+export function saveGuestOrder(item: { token: string; goodsName?: string; amount?: number; at?: number }) {
+  if (!item.token) return;
+  const next: SavedGuestOrder = {
+    token: item.token,
+    goodsName: item.goodsName,
+    amount: item.amount,
+    at: item.at || Date.now(),
+  };
+  const list = readGuestOrders().filter((o) => o.token !== next.token);
+  list.unshift(next);
+  writeGuestOrders(list);
+}
+
+/**
+ * 读取本机游客单。
+ * 同时兼容旧版本的「每个商品一个 token」（hstore:guest-purchase:*），
+ * 老用户之前买过的单也能在新版订单查询里出现。
+ */
+export function loadSavedGuestOrders(): SavedGuestOrder[] {
+  const list = readGuestOrders();
+  const seen = new Set(list.map((o) => o.token));
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(GUEST_PREFIX)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as { token?: string; at?: number };
+      if (!parsed?.token || seen.has(parsed.token)) continue;
+      seen.add(parsed.token);
+      list.push({ token: parsed.token, at: parsed.at || 0 });
+    }
+  } catch {
+    /* ignore */
+  }
+  return list.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, GUEST_MAX);
+}
+
+export function removeSavedGuestOrder(token: string) {
+  writeGuestOrders(readGuestOrders().filter((o) => o.token !== token));
+}

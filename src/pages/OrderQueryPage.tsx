@@ -3,7 +3,7 @@ import { IconArrowLeft, IconSearch } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { formatPrice } from "@/lib/format";
-import { loadSavedOrders } from "@/lib/orderStorage";
+import { loadSavedGuestOrders, loadSavedOrders } from "@/lib/orderStorage";
 
 interface OrderItem {
   kind: "order" | "guest";
@@ -65,15 +65,37 @@ export function OrderQueryPage() {
 
   const loadLocal = useCallback(async () => {
     const local = loadSavedOrders();
-    if (local.length === 0) return;
+    const guests = loadSavedGuestOrders();
+    if (local.length === 0 && guests.length === 0) return;
     setLoading(true);
     try {
-      const nums = local.map((o) => o.orderNumber).slice(0, 50);
-      const j = await fetch(`/api/orders/query?orderNumbers=${encodeURIComponent(nums.join(","))}`).then((r) =>
-        r.json(),
-      );
-      if (j.ok) {
-        setItems(j.items ?? []);
+      // 余额订单按订单号回填；游客单还没进 orders 表，按 token 回填
+      const [orderRes, guestRes] = await Promise.all([
+        local.length
+          ? fetch(
+              `/api/orders/query?orderNumbers=${encodeURIComponent(
+                local.map((o) => o.orderNumber).slice(0, 50).join(","),
+              )}`,
+            ).then((r) => r.json())
+          : Promise.resolve(null),
+        guests.length
+          ? fetch(
+              `/api/orders/query?tokens=${encodeURIComponent(
+                guests.map((o) => o.token).slice(0, 50).join(","),
+              )}`,
+            ).then((r) => r.json())
+          : Promise.resolve(null),
+      ]);
+      const orderItems: OrderItem[] = orderRes?.ok ? (orderRes.items ?? []) : [];
+      const guestItems: OrderItem[] = guestRes?.ok ? (guestRes.items ?? []) : [];
+      const orderNos = new Set(orderItems.map((it) => it.orderNumber).filter(Boolean));
+      // 游客单发货后会同时出现在 orders 表里，以订单记录为准，避免重复
+      const merged = [
+        ...orderItems,
+        ...guestItems.filter((it) => !it.orderNumber || !orderNos.has(it.orderNumber)),
+      ].sort((a, b) => b.createdAt - a.createdAt);
+      if (orderItems.length > 0 || guestItems.length > 0) {
+        setItems(merged);
         setSearched(true);
         setPage(1);
       }

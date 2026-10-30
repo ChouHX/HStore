@@ -7,7 +7,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { GoodsDetail, Product, RechargeTemplate, User } from "@/lib/types";
 import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
-import { clearGuestToken, loadLastContact, saveGuestToken, saveLastContact } from "@/lib/orderStorage";
+import {
+  clearGuestToken,
+  loadLastContact,
+  saveGuestOrder,
+  saveLastContact,
+  saveGuestToken,
+  saveOrder,
+} from "@/lib/orderStorage";
 
 interface Props {
   product: Product | null;
@@ -332,6 +339,15 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       const j = await res.json();
       if (j.ok) {
         saveLastContact(contact.trim());
+        // 记入本机订单，订单查询页无需再输入订单号
+        if (j.order?.orderNumber) {
+          saveOrder({
+            orderNumber: j.order.orderNumber,
+            contact: contact.trim(),
+            goodsName: product.customName || detail?.name,
+            amount: total,
+          });
+        }
         Message.success("下单成功");
         onDone();
         onOpenChange(false);
@@ -387,6 +403,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       const view = j.guest as GuestOrderView;
       setGuestOrder(view);
       saveGuestToken(view.token, product.goodsId);
+      // 游客单在发货前没有订单号，本机用 token 记录，订单查询页可直接列出
+      saveGuestOrder({ token: view.token, goodsName: view.productName, amount: view.amountCny });
       saveLastContact(contact.trim());
       Message.success("订单已创建，请扫码支付");
     } catch {
