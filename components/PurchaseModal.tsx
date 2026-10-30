@@ -2,8 +2,9 @@
 import { ceilToCents, formatPrice } from "@/lib/format";
 
 import { Button, Drawer, Input, InputNumber, Message, Modal, Select, Space, Tag } from "@arco-design/web-react";
+import { IconMinus, IconPlus } from "@arco-design/web-react/icon";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { GoodsDetail, Product, RechargeTemplate, User } from "@/lib/types";
 import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
@@ -172,6 +173,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
 
   // 小屏用底部抽屉：商品详情 + 表单 + 支付方式在弹窗里容易超出屏幕
   const [isMobile, setIsMobile] = useState(false);
+  const drawerBodyRef = useRef<HTMLDivElement | null>(null);
+  // 抽屉高度跟随内容，最高 90vh；内容少时不留大片空白
+  const [drawerHeight, setDrawerHeight] = useState(0);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -239,6 +243,26 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     if (!open) return;
     loadGuestCfg();
   }, [open, loadGuestCfg]);
+
+  useLayoutEffect(() => {
+    if (!isMobile || !visible) return;
+    const el = drawerBodyRef.current;
+    if (!el) return;
+    const sync = () => {
+      const footerEl = el.closest(".arco-drawer")?.querySelector<HTMLElement>(".arco-drawer-footer");
+      const raw = 48 + 32 + el.getBoundingClientRect().height + (footerEl?.offsetHeight ?? 0);
+      const max = Math.round(window.innerHeight * 0.9);
+      setDrawerHeight(Math.max(280, Math.min(max, Math.ceil(raw))));
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    window.addEventListener("resize", sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [isMobile, visible, channel, detail?.goodsId, guestOrder?.status]);
 
   useEffect(() => {
     if (!guestOrder || !["waiting", "paid", "fulfilling"].includes(guestOrder.status)) return;
@@ -482,6 +506,45 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     </Button>
   );
 
+  // 移动端底部操作条：金额在左，数量步进器 + 立即购买在右
+  const maxCount = detail?.maxQuantity || 999999;
+  const mobileBar = (
+    <div className="flex w-full items-center justify-between gap-2">
+      <div className="min-w-0">
+        <div className="truncate text-[16px] font-semibold leading-tight text-[#f53f3f]">
+          {channel === "usdt"
+            ? usdtPayable > 0
+              ? `${usdtPayable.toFixed(2)} USDT`
+              : "—"
+            : `¥${formatPrice(payable)}`}
+        </div>
+        {channel === "usdt" ? (
+          <div className="text-[11px] leading-tight text-[#86909c]">≈ ¥{formatPrice(total)}</div>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center gap-1">
+          <Button
+            size="mini"
+            icon={<IconMinus />}
+            aria-label="减少数量"
+            disabled={count <= minCount}
+            onClick={() => setCount((n) => Math.max(minCount, n - 1))}
+          />
+          <span className="min-w-[22px] text-center text-[13px] font-medium">{count}</span>
+          <Button
+            size="mini"
+            icon={<IconPlus />}
+            aria-label="增加数量"
+            disabled={count >= maxCount}
+            onClick={() => setCount((n) => Math.min(maxCount, n + 1))}
+          />
+        </div>
+        {submitButton}
+      </div>
+    </div>
+  );
+
   const footer = guestOrder ? (
     guestOrder.status === "fulfilled" ? (
       <Space>
@@ -507,7 +570,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         <Button type="primary" loading={guestRefreshing} onClick={refreshGuest}>刷新状态</Button>
       </Space>
     )
-  ) : isMobile ? null : (
+  ) : isMobile ? (
+    mobileBar
+  ) : (
     <Space>
       <Button onClick={requestClose}>取消</Button>
       {submitButton}
@@ -773,8 +838,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             ) : null}
           </div>
 
-          {/* 移动端：数量 / 应付 / 立即购买压成一行，底部不再重复按钮 */}
-          <div className="flex items-center justify-between gap-2">
+          {/* 桌面端：数量与金额一行；移动端底栏固定展示，这里隐藏 */}
+          <div className={`items-center justify-between gap-2 ${isMobile ? "hidden" : "flex"}`}>
             <div className="flex shrink-0 items-center gap-1.5 text-[12px] text-[#86909c]">
               数量
               <InputNumber
@@ -786,7 +851,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               />
             </div>
             <div className="min-w-0 text-right text-[12px] text-[#86909c]">
-              应付
               {channel === "usdt" ? (
                 <>
                   <div className="text-[16px] font-semibold leading-tight text-[#f53f3f] sm:text-[18px]">
@@ -800,7 +864,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                 </div>
               )}
             </div>
-            {isMobile ? <div className="shrink-0">{submitButton}</div> : null}
           </div>
         </div>
       ) : null;
@@ -816,12 +879,12 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         getChildrenPopupContainer={() => document.body}
         footer={footer}
         placement="bottom"
-        height="90vh"
+        style={{ height: drawerHeight ? `${drawerHeight}px` : "90vh" }}
         maskClosable={false}
         unmountOnExit
         bodyStyle={{ padding: 16, overflowY: "auto" }}
       >
-        {body}
+        <div ref={drawerBodyRef}>{body}</div>
       </Drawer>
     );
   }
