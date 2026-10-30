@@ -642,9 +642,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           </div>
 
           {(detail.goodsDetail || detail.buyNotice) && (
-            <details className="rounded border border-[#e5e6eb] px-3 py-2">
-              <summary className="cursor-pointer text-[12px] text-[#4e5969]">商品详情 / 购买须知</summary>
-              <div className="mt-2 max-h-[200px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969]">
+            <div className="rounded border border-[#e5e6eb] px-3 py-2">
+              <div className="text-[12px] font-medium text-[#1d2129]">商品详情 / 购买须知</div>
+              <div className="mt-2 max-h-[240px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969]">
                 {detail.goodsDetail && (
                   <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
                 )}
@@ -652,7 +652,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                   <div className="mt-2 whitespace-pre-wrap">购买须知：{detail.buyNotice}</div>
                 )}
               </div>
-            </details>
+            </div>
           )}
 
           {templates.length > 0 && (
