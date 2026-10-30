@@ -80,7 +80,7 @@ export function StoreHeader({
 
   function onMenu(key: string) {
     if (key === "search") setSearchOpen(true);
-    else if (key === "notice") openNotice();
+    else if (key === "notice") setNoticeOpen(true);
     else if (key === "pickup") navigate("/pickup");
     else if (key === "login") navigate("/login");
     else if (key === "account") navigate("/account/overview");
@@ -116,16 +116,16 @@ export function StoreHeader({
         </div>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Button
-            size="small"
-            icon={<IconNotification />}
-            aria-label={noticeLabel}
-            title={noticeLabel}
-            className={noticeBtnClass}
-            onClick={openNotice}
-          >
-            <span className="hidden lg:inline">{noticeLabel}</span>
-          </Button>
+          <span className="lg:hidden">
+            <Button
+              size="small"
+              icon={<IconNotification />}
+              aria-label={noticeLabel}
+              title={noticeLabel}
+              className={noticeBtnClass}
+              onClick={openNotice}
+            />
+          </span>
           {/* 微软取件 / 订单查询都是公开页面，未登录也保留入口 */}
           <Link to="/pickup" className="inline-flex">
             <Button size="small" icon={<IconEmail />} aria-label="微软取件">

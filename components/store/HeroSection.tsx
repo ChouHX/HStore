@@ -1,15 +1,33 @@
 "use client";
 
 import { Button, Card, Carousel, Tag } from "@arco-design/web-react";
-import { IconArrowRight, IconEmail, IconGift, IconThunderbolt } from "@arco-design/web-react/icon";
+import { IconArrowRight, IconEmail, IconGift, IconNotification, IconThunderbolt } from "@arco-design/web-react/icon";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { BANNERS } from "@/lib/site";
 import type { Announcement } from "@/lib/api-types";
 
 const ICONS = { mail: IconEmail, bolt: IconThunderbolt, gift: IconGift };
 
-export function HeroSection({ announcements }: { announcements: Announcement[] }) {
+interface Props {
+  announcements: Announcement[];
+  /** 有关键弹窗公告时可从公告卡片右上角重新打开 */
+  hasPopup?: boolean;
+  onOpenNotice?: () => void;
+  /** 每次弹窗关闭后递增，让公告按钮跳一下提示入口 */
+  noticeAttentionKey?: number;
+}
+
+export function HeroSection({ announcements, hasPopup = false, onOpenNotice, noticeAttentionKey = 0 }: Props) {
   const navigate = useNavigate();
+  const [attention, setAttention] = useState(false);
+
+  useEffect(() => {
+    if (!noticeAttentionKey) return;
+    setAttention(true);
+    const timer = setTimeout(() => setAttention(false), 1400);
+    return () => clearTimeout(timer);
+  }, [noticeAttentionKey]);
 
   function scrollToProducts() {
     document.getElementById("store-products")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -96,10 +114,23 @@ export function HeroSection({ announcements }: { announcements: Announcement[] }
       <Card
         className="hidden overflow-hidden lg:flex lg:h-full lg:flex-col"
         title={
-          <span className="flex items-center gap-2">
-            公告
-            {announcements.length > 0 && <Tag size="small">{announcements.length}</Tag>}
-          </span>
+          <div className="flex w-full items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              公告
+              {announcements.length > 0 && <Tag size="small">{announcements.length}</Tag>}
+            </span>
+            {hasPopup && onOpenNotice && (
+              <Button
+                size="mini"
+                type="text"
+                icon={<IconNotification />}
+                aria-label="查看弹窗公告"
+                title="查看弹窗公告"
+                className={attention ? "notice-bell-attention" : undefined}
+                onClick={onOpenNotice}
+              />
+            )}
+          </div>
         }
         bordered={false}
         headerStyle={{ flexShrink: 0 }}

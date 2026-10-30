@@ -398,7 +398,12 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
           </div>
         )}
 
-        <HeroSection announcements={announcements} />
+        <HeroSection
+          announcements={announcements}
+          hasPopup={!!popup}
+          onOpenNotice={() => setNoticeOpen(true)}
+          noticeAttentionKey={noticeAttentionKey}
+        />
 
         {boards.length === 0 ? (
           <div className="flex h-40 items-center justify-center text-[13px] text-[#86909c]">
