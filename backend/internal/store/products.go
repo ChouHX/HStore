@@ -95,14 +95,16 @@ func SaveCategories(flat []FlatCategory) error {
 		keep[c.ID] = true
 	}
 	used := UsedDirs(tx)
-	rows, e := tx.Query("SELECT id FROM categories")
+	selfDirs := SelfDirs(tx)
+	rows, e := tx.Query("SELECT id, COALESCE(platform,'') FROM categories")
 	if e != nil {
 		return e
 	}
 	var stale []int
 	for rows.Next() {
 		var id int
-		if rows.Scan(&id) == nil && !keep[id] && !used[id] {
+		var platform string
+		if rows.Scan(&id, &platform) == nil && !keep[id] && !used[id] && !selfDirs[id] && platform != "self" {
 			stale = append(stale, id)
 		}
 	}
@@ -117,6 +119,24 @@ func SaveCategories(flat []FlatCategory) error {
 
 type execer interface {
 	Query(string, ...any) (*sql.Rows, error)
+}
+
+// SelfDirs 返回「自营商品正在使用的板块 / 分类」集合。
+// 上游同步据此跳过清理，避免自营板块被当成过期分类删掉。
+func SelfDirs(q execer) map[int]bool {
+	out := map[int]bool{}
+	rows, e := q.Query("SELECT DISTINCT root_category_id FROM products WHERE fulfillment='self' AND root_category_id IS NOT NULL")
+	if e != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil && id > 0 {
+			out[id] = true
+		}
+	}
+	return out
 }
 
 // UsedDirs 返回被商品 dir_ids 引用的分类集合。

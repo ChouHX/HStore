@@ -70,6 +70,7 @@ export function StoreHeader({
     if (key === "search") setSearchOpen(true);
     else if (key === "notice") setNoticeOpen(true);
     else if (key === "pickup") navigate("/pickup");
+    else if (key === "redeem") navigate("/redeem");
     else if (key === "login") navigate("/login");
     else if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
@@ -114,10 +115,15 @@ export function StoreHeader({
               onClick={openNotice}
             />
           </span>
-          {/* 微软取件 / 订单查询都是公开页面，未登录也保留入口 */}
+          {/* 微软取件 / 兑换中心 / 订单查询都是公开页面，未登录也保留入口 */}
           <Link to="/pickup" className="inline-flex">
             <Button size="small" icon={<IconEmail />} aria-label="微软取件">
               <span className="hidden sm:inline">微软取件</span>
+            </Button>
+          </Link>
+          <Link to="/redeem" className="inline-flex">
+            <Button size="small" icon={<IconGift />} aria-label="兑换中心">
+              <span className="hidden sm:inline">兑换中心</span>
             </Button>
           </Link>
           <Link to="/orders" className="inline-flex">
@@ -222,6 +228,11 @@ export function StoreHeader({
                   <Menu.Item key="pickup">
                     <span className="inline-flex items-center gap-2">
                       <IconEmail /> 微软取件
+                    </span>
+                  </Menu.Item>
+                  <Menu.Item key="redeem">
+                    <span className="inline-flex items-center gap-2">
+                      <IconGift /> 兑换中心
                     </span>
                   </Menu.Item>
                   <Menu.Item key="query">

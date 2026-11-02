@@ -88,6 +88,11 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/admin/announcements", a.handleAdminAnnouncementsPost)
 	a.mux.HandleFunc("GET /api/admin/redeem", a.handleAdminRedeem)
 	a.mux.HandleFunc("POST /api/admin/redeem", a.handleAdminRedeemPost)
+	// 自营商品与自营卡密独立管理
+	a.mux.HandleFunc("GET /api/admin/self/products", a.handleAdminSelfProducts)
+	a.mux.HandleFunc("POST /api/admin/self/products", a.handleAdminSelfProductsPost)
+	a.mux.HandleFunc("GET /api/admin/self/stocks", a.handleAdminSelfStocks)
+	a.mux.HandleFunc("POST /api/admin/self/stocks", a.handleAdminSelfStocksPost)
 	a.mux.HandleFunc("GET /api/admin/settings", a.handleAdminSettings)
 	a.mux.HandleFunc("POST /api/admin/settings", a.handleAdminSettingsPost)
 	a.mux.HandleFunc("POST /api/admin/settings/cookie", a.handleAdminCookieRefresh)

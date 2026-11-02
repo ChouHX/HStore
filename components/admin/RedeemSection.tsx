@@ -14,6 +14,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RedeemCode } from "@/lib/types";
@@ -127,6 +128,12 @@ export function RedeemSection() {
     endAt: "",
   });
 
+  // 「修改」弹窗：调整兑换码关联的商品 / 面值
+  const [editing, setEditing] = useState<RedeemCode | null>(null);
+  const [editProduct, setEditProduct] = useState<ProductOption | null>(null);
+  const [editCount, setEditCount] = useState(1);
+  const [editFace, setEditFace] = useState(10);
+
   const query = useCallback(() => {
     const sp = new URLSearchParams();
     if (status !== "all") sp.set("status", status);
@@ -208,43 +215,52 @@ export function RedeemSection() {
     } else Message.error(j.message ?? "作废失败");
   }
 
+  async function deleteCode(codeId: number) {
+    const j = await fetch("/api/admin/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "deleteCode", codeId }),
+    }).then((r) => r.json());
+    if (j.ok) {
+      Message.success("已删除");
+      load();
+    } else Message.error(j.message ?? "删除失败");
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    if (!editProduct && editFace <= 0) {
+      Message.warning("面值必须大于 0");
+      return;
+    }
+    setSaving(true);
+    try {
+      const j = await fetch("/api/admin/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateGoods",
+          codeId: editing.id,
+          newGoodsId: editProduct?.goodsId ?? null,
+          goodsCount: editProduct ? editCount : 0,
+          faceValue: editProduct ? 0 : editFace,
+        }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success("已保存");
+        setEditing(null);
+        load();
+      } else Message.error(j.message ?? "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const columns = [
-    {
-      title: "兑换码",
-      dataIndex: "code",
-      render: (_: unknown, c: RedeemCode) => <span className="font-mono">{c.code}</span>,
-    },
-    {
-      title: "类型",
-      dataIndex: "kind",
-      width: 150,
-      render: (_: unknown, c: RedeemCode) =>
-        c.goodsId ? (
-          <Tag size="small" color="arcoblue">
-            商品码
-          </Tag>
-        ) : (
-          <Tag size="small">面值码</Tag>
-        ),
-    },
-    {
-      title: "面值 / 商品",
-      dataIndex: "faceValue",
-      width: 220,
-      render: (_: unknown, c: RedeemCode) =>
-        c.goodsId ? (
-          <span className="text-[12px]">
-            {c.goodsName || `#${c.goodsId}`}
-            {c.goodsCount && c.goodsCount > 1 ? ` × ${c.goodsCount}` : ""}
-          </span>
-        ) : (
-          <span className="text-[#f53f3f]">¥{formatPrice(c.faceValue)}</span>
-        ),
-    },
     {
       title: "状态",
       dataIndex: "status",
-      width: 90,
+      width: 100,
       render: (_: unknown, c: RedeemCode) => (
         <Tag size="small" color={STATUS_TAG[c.status]?.color}>
           {STATUS_TAG[c.status]?.label ?? c.status}
@@ -252,47 +268,59 @@ export function RedeemSection() {
       ),
     },
     {
-      title: "关联订单",
-      dataIndex: "orderNumber",
-      width: 170,
+      title: "兑换码",
+      dataIndex: "code",
+      render: (_: unknown, c: RedeemCode) => (
+        <span className="font-mono select-all">{c.code}</span>
+      ),
+    },
+    {
+      title: "商品ID",
+      dataIndex: "goodsId",
+      width: 140,
       render: (_: unknown, c: RedeemCode) =>
-        c.orderNumber ? (
-          <span className="font-mono text-[12px]">{c.orderNumber}</span>
+        c.goodsId ? (
+          <Tooltip content={c.goodsName || `商品 ${c.goodsId}`}>
+            <span className="cursor-help font-mono text-[12px] text-[#165dff] underline decoration-dotted">
+              {c.goodsId}
+              {c.goodsCount && c.goodsCount > 1 ? ` ×${c.goodsCount}` : ""}
+            </span>
+          </Tooltip>
         ) : (
-          <span className="text-[12px] text-[#86909c]">-</span>
+          <Tooltip content="面值码：兑换后充入余额">
+            <span className="cursor-help text-[12px] text-[#f53f3f]">
+              ¥{formatPrice(c.faceValue)}
+            </span>
+          </Tooltip>
         ),
-    },
-    {
-      title: "有效期",
-      dataIndex: "validity",
-      width: 180,
-      render: (_: unknown, c: RedeemCode) => validity(c),
-    },
-    {
-      title: "核销用户",
-      dataIndex: "usedBy",
-      width: 90,
-      render: (_: unknown, c: RedeemCode) => c.usedBy ?? "-",
-    },
-    {
-      title: "核销时间",
-      dataIndex: "usedAt",
-      width: 160,
-      render: (_: unknown, c: RedeemCode) =>
-        c.usedAt ? new Date(c.usedAt).toLocaleString("zh-CN") : "-",
     },
     {
       title: "操作",
       dataIndex: "op",
-      width: 80,
+      width: 160,
       fixed: "right" as const,
       render: (_: unknown, c: RedeemCode) =>
-        c.status === "unused" || c.status === "redeeming" ? (
-          <Popconfirm title="确认作废该兑换码？" onOk={() => voidCode(c.id)}>
-            <Button size="small" status="danger">
-              作废
+        c.status === "unused" || c.status === "voided" ? (
+          <Space size="small">
+            <Button
+              size="mini"
+              onClick={() => {
+                setEditing(c);
+                setEditProduct(
+                  c.goodsId ? { goodsId: c.goodsId, name: c.goodsName || "", finalPrice: 0 } : null,
+                );
+                setEditCount(c.goodsCount || 1);
+                setEditFace(c.faceValue || 10);
+              }}
+            >
+              修改
             </Button>
-          </Popconfirm>
+            <Popconfirm title="确认删除该兑换码？删除后不可恢复。" onOk={() => deleteCode(c.id)}>
+              <Button size="mini" status="danger">
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
         ) : (
           <span className="text-[12px] text-[#86909c]">-</span>
         ),
@@ -451,6 +479,48 @@ export function RedeemSection() {
             <div className="rounded bg-[#f7f8fa] px-3 py-2 text-[11px] leading-relaxed text-[#86909c]">
               用户核销商品码时会自动调用上游下单接口取货，兑换码与生成的订单号绑定，
               用户可在「我的订单」中查看卡密，或直接打开邮箱取件。
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        title={editing ? `修改兑换码 ${editing.code}` : "修改兑换码"}
+        visible={editing !== null}
+        onCancel={() => setEditing(null)}
+        onOk={saveEdit}
+        confirmLoading={saving}
+        okText="保存"
+        style={{ width: 480 }}
+        unmountOnExit
+      >
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">
+              关联商品（清空则改为面值码；已是自营商品请到「自营商品」页导入卡密）
+            </div>
+            <ProductPicker value={editProduct} onChange={setEditProduct} />
+          </div>
+          {editProduct ? (
+            <div>
+              <div className="mb-1 text-[12px] text-[#4e5969]">每码兑换件数</div>
+              <InputNumber
+                value={editCount}
+                min={1}
+                style={{ width: "100%" }}
+                onChange={(v) => setEditCount(Number(v) || 1)}
+              />
+            </div>
+          ) : (
+            <div>
+              <div className="mb-1 text-[12px] text-[#4e5969]">面值（元）</div>
+              <InputNumber
+                value={editFace}
+                min={0.01}
+                step={1}
+                style={{ width: "100%" }}
+                onChange={(v) => setEditFace(Number(v) || 0)}
+              />
             </div>
           )}
         </div>

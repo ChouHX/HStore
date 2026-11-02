@@ -276,7 +276,8 @@ func SyncFromRemote() (SyncResult, error) {
 		_ = rows.Close()
 	}
 
-	if _, e := d.Exec("DELETE FROM products WHERE platform IN ('microsoft','google')"); e != nil {
+	// 只清理上游商品；自营商品（fulfillment='self'）由管理员维护，同步不得删除。
+	if _, e := d.Exec("DELETE FROM products WHERE platform IN ('microsoft','google') AND COALESCE(fulfillment,'upstream') <> 'self'"); e != nil {
 		return SyncResult{}, e
 	}
 	if e := store.SaveCategories(flat); e != nil {

@@ -858,6 +858,7 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 		StartAt    *int64  `json:"startAt"`
 		EndAt      *int64  `json:"endAt"`
 		CodeID     int     `json:"codeId"`
+		NewGoodsID *int    `json:"newGoodsId"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -915,6 +916,43 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 		}
 		store.VoidCode(body.CodeID)
 		store.WriteAudit(&admin.UID, "redeem_code_void", "redeem_code", itoa(body.CodeID), nil, nil, "单码作废")
+		ok(w, nil)
+	case "deleteCode":
+		if body.CodeID == 0 {
+			fail(w, http.StatusBadRequest, "缺少券码 ID")
+			return
+		}
+		if !store.DeleteCode(body.CodeID) {
+			fail(w, http.StatusBadRequest, "该兑换码已使用或不存在，无法删除")
+			return
+		}
+		store.WriteAudit(&admin.UID, "redeem_code_delete", "redeem_code", itoa(body.CodeID), nil, nil, "删除兑换码")
+		ok(w, nil)
+	case "updateGoods":
+		if body.CodeID == 0 {
+			fail(w, http.StatusBadRequest, "缺少券码 ID")
+			return
+		}
+		goodsCount := body.GoodsCount
+		if body.NewGoodsID != nil && *body.NewGoodsID > 0 {
+			if goodsCount <= 0 {
+				goodsCount = 1
+			}
+			if p := store.GetProduct(*body.NewGoodsID); p == nil {
+				fail(w, http.StatusBadRequest, "关联商品不存在")
+				return
+			}
+		} else if body.FaceValue <= 0 {
+			fail(w, http.StatusBadRequest, "取消商品关联时需提供大于 0 的面值")
+			return
+		}
+		if !store.UpdateCodeGoods(body.CodeID, body.NewGoodsID, body.FaceValue, goodsCount) {
+			fail(w, http.StatusBadRequest, "该兑换码已使用或不存在，无法修改")
+			return
+		}
+		store.WriteAudit(&admin.UID, "redeem_code_update", "redeem_code", itoa(body.CodeID), nil,
+			map[string]any{"goodsId": body.NewGoodsID, "goodsCount": goodsCount, "faceValue": body.FaceValue},
+			"修改兑换码关联商品")
 		ok(w, nil)
 	default:
 		fail(w, http.StatusBadRequest, "未知操作")

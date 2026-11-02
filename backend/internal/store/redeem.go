@@ -256,6 +256,45 @@ func VoidCode(id int) {
 	_, _ = db.Must().Exec("UPDATE redeem_codes SET status = 'voided' WHERE id = ? AND status IN ('unused','redeeming')", id)
 }
 
+// DeleteCode 物理删除未使用的兑换码；已使用/核销中的码保留以便追溯。
+// 返回是否真的删掉了一行。
+func DeleteCode(id int) bool {
+	res, e := db.Must().Exec("DELETE FROM redeem_codes WHERE id = ? AND status IN ('unused','voided')", id)
+	if e != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
+// UpdateCodeGoods 修改未使用兑换码关联的商品。
+// goodsID 为 nil 表示改成面值码（需提供 faceValue > 0）。
+// 返回是否更新成功。
+func UpdateCodeGoods(id int, goodsID *int, faceValue float64, goodsCount int) bool {
+	var res sql.Result
+	var e error
+	if goodsID != nil {
+		if goodsCount < 1 {
+			goodsCount = 1
+		}
+		res, e = db.Must().Exec(
+			"UPDATE redeem_codes SET goods_id = ?, goods_count = ?, face_value = 0 WHERE id = ? AND status IN ('unused','voided')",
+			*goodsID, goodsCount, id)
+	} else {
+		if faceValue <= 0 {
+			return false
+		}
+		res, e = db.Must().Exec(
+			"UPDATE redeem_codes SET goods_id = NULL, goods_count = 0, face_value = ? WHERE id = ? AND status IN ('unused','voided')",
+			faceValue, id)
+	}
+	if e != nil {
+		return false
+	}
+	n, _ := res.RowsAffected()
+	return n > 0
+}
+
 // GetCodeByID 按 id 取兑换码。
 func GetCodeByID(id int) *model.RedeemCode {
 	row := db.Must().QueryRow(codeSelect+" WHERE rc.id = ?", id)

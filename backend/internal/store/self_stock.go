@@ -2,7 +2,9 @@ package store
 
 import (
 	"errors"
+	"strconv"
 	"strings"
+	"time"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/model"
@@ -106,22 +108,30 @@ func FinishSelfStock(orderNumber string) {
 	)
 }
 
-// ImportSelfStock 批量导入卡密，一行一条；重复内容不会重复入库（按 source/source_id 去重）。
+// ImportSelfStock 批量导入卡密，一行一条。
+// 同一批次内重复内容会被跳过；不同批次的重复内容允许入库（补货场景）。
 func ImportSelfStock(goodsID int, content []string, source, sourceID string) (int, int) {
 	added, skipped := 0, 0
 	d := db.Must()
+	// source_id 为空时不会命中唯一索引，这里补一个纳秒级批次号，
+	// 既保证同批次重复行只在第一条入库，也不影响不同批次导入相同内容。
+	if sourceID == "" {
+		sourceID = "batch-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + itoa(goodsID)
+	}
+	seen := make(map[string]bool, len(content))
 	for i, line := range content {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		sid := ""
-		if sourceID != "" {
-			sid = sourceID + "-" + itoa(i)
+		if seen[line] {
+			skipped++
+			continue
 		}
+		seen[line] = true
 		res, e := d.Exec(
 			"INSERT OR IGNORE INTO self_stock(goods_id, content, status, source, source_id, created_at) VALUES(?,?,?,?,?,?)",
-			goodsID, line, "available", source, sid, now(),
+			goodsID, line, "available", source, sourceID+"-"+itoa(i), now(),
 		)
 		if e != nil {
 			skipped++
@@ -158,6 +168,73 @@ func ListSelfStock(goodsID, limit int) []model.SelfStock {
 		}
 	}
 	return out
+}
+
+// ListSelfStockPaged 分页查询自营卡密，供后台卡密管理使用。
+// goodsID 为 0 时跨全部自营商品查询；status 为空表示不限状态。
+func ListSelfStockPaged(goodsID int, status, keyword string, page, pageSize int) ([]map[string]any, int) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 20
+	}
+	where := []string{"1=1"}
+	args := []any{}
+	if goodsID > 0 {
+		where = append(where, "s.goods_id = ?")
+		args = append(args, goodsID)
+	}
+	if status != "" && status != "all" {
+		where = append(where, "s.status = ?")
+		args = append(args, status)
+	}
+	if kw := strings.TrimSpace(keyword); kw != "" {
+		where = append(where, "(s.content LIKE ? OR s.order_number LIKE ?)")
+		like := "%" + kw + "%"
+		args = append(args, like, like)
+	}
+	cond := strings.Join(where, " AND ")
+	d := db.Must()
+
+	var total int
+	if e := d.QueryRow("SELECT COUNT(*) FROM self_stock s WHERE "+cond, args...).Scan(&total); e != nil {
+		return []map[string]any{}, 0
+	}
+
+	sqlArgs := append(append([]any{}, args...), pageSize, (page-1)*pageSize)
+	rows, e := d.Query(`SELECT s.id, s.goods_id, COALESCE(p.name,''), s.content, s.status,
+		s.order_number, s.source, s.created_at, s.sold_at
+		FROM self_stock s LEFT JOIN products p ON p.goods_id = s.goods_id
+		WHERE `+cond+` ORDER BY s.id DESC LIMIT ? OFFSET ?`, sqlArgs...)
+	if e != nil {
+		return []map[string]any{}, total
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var (
+			id, gid, createdAt, soldAt int
+			goodsName, content, st     string
+			orderNumber, source        string
+		)
+		if rows.Scan(&id, &gid, &goodsName, &content, &st, &orderNumber, &source,
+			&createdAt, &soldAt) != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id":          id,
+			"goodsId":     gid,
+			"goodsName":   goodsName,
+			"content":     content,
+			"status":      st,
+			"orderNumber": orderNumber,
+			"source":      source,
+			"createdAt":   createdAt,
+			"soldAt":      soldAt,
+		})
+	}
+	return out, total
 }
 
 // DeleteSelfStock 删除一条未售出的库存。

@@ -24,3 +24,8 @@ backend/web/dist/*
 
 # 临时调试脚本（含明文 API Key，禁止入库）
 resend_test/
+
+# 本地工具 / 缓存
+.codebuddy/
+__pycache__/
+mail.py

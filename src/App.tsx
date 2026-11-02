@@ -6,6 +6,9 @@ import { LoginPage } from "@/src/pages/LoginPage";
 import { RegisterPage } from "@/src/pages/RegisterPage";
 import { OrderQueryPage } from "@/src/pages/OrderQueryPage";
 const PickupPage = lazy(() => import("@/src/pages/PickupPage").then((m) => ({ default: m.PickupPage })));
+const RedeemCenterPage = lazy(() =>
+  import("@/src/pages/RedeemCenterPage").then((m) => ({ default: m.RedeemCenterPage })),
+);
 const CheckoutPage = lazy(() => import("@/src/pages/CheckoutPage").then((m) => ({ default: m.CheckoutPage })));
 const OrderDetailPage = lazy(() => import("@/src/pages/OrderDetailPage").then((m) => ({ default: m.OrderDetailPage })));
 
@@ -16,6 +19,9 @@ const AdminOverview = lazy(() =>
 );
 const ProductsSection = lazy(() =>
   import("@/components/admin/ProductsSection").then((m) => ({ default: m.ProductsSection })),
+);
+const SelfProductsSection = lazy(() =>
+  import("@/components/admin/SelfProductsSection").then((m) => ({ default: m.SelfProductsSection })),
 );
 const CatalogSection = lazy(() =>
   import("@/components/admin/CatalogSection").then((m) => ({ default: m.CatalogSection })),
@@ -78,6 +84,8 @@ export function App() {
         <Route path="/register" element={<RegisterPage />} />
         {/* 取件是公开页面，不放在 /account 下，无需登录 */}
         <Route path="/pickup" element={<PickupPage />} />
+        {/* 兑换中心：公开页，游客也可输入兑换码自动发货 */}
+        <Route path="/redeem" element={<RedeemCenterPage />} />
         <Route path="/pay/:token" element={<CheckoutPage />} />
         {/* 订单查询：公开页，游客凭订单号或联系方式查 */}
         <Route path="/orders" element={<OrderQueryPage />} />
@@ -99,6 +107,7 @@ export function App() {
           <Route index element={<Navigate to="/admin/overview" replace />} />
           <Route path="overview" element={<AdminOverview />} />
           <Route path="products" element={<ProductsSection />} />
+          <Route path="self" element={<SelfProductsSection />} />
           <Route path="catalog" element={<CatalogSection />} />
           <Route path="users" element={<UsersSection />} />
           <Route path="redeem" element={<RedeemSection />} />
