@@ -330,9 +330,13 @@ func SyncFromRemote() (SyncResult, error) {
 						ON CONFLICT(goods_id) DO UPDATE SET
 						  name=excluded.name, face_value=excluded.face_value, sales_price=excluded.sales_price,
 						  cost_price=excluded.cost_price,
-						  final_price=CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
-						    AND COALESCE(products.fallback_goods_id,0)>0
-						    THEN excluded.sales_price
+						  final_price=CASE
+						    -- 绑定了兜底的自营商品：售价一律交给定价规则重算
+						    -- （catalog 写库后紧接 RecomputeAllPrices + SyncSelfFallbackPrices），
+						    -- 这里保留旧值占位，避免用未加价的成本价覆盖售价。
+						    WHEN COALESCE(products.fulfillment,'upstream')='self'
+						      AND COALESCE(products.fallback_goods_id,0)>0
+						    THEN products.final_price
 						    WHEN COALESCE(products.fulfillment,'upstream')='self'
 						      OR COALESCE(products.price_locked,0)=1
 						    THEN products.final_price ELSE excluded.final_price END,

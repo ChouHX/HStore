@@ -294,8 +294,12 @@ function ProductsTab() {
                 style={{ width: "100%" }}
               />
             </Form.Item>
-            <Form.Item label="成本价（元，留空同售价）" field="costPrice">
-              <InputNumber min={0} step={0.01} precision={4} style={{ width: "100%" }} />
+            <Form.Item
+              label={boundToUpstream ? "成本价（元，留空取上游成本）" : "成本价（元，留空同售价）"}
+              field="costPrice"
+              extra={boundToUpstream ? "跟随上游时按上游成本价参与加价计算" : undefined}
+            >
+              <InputNumber min={0} step={0.01} precision={4} style={{ width: "100%" }} disabled={boundToUpstream} />
             </Form.Item>
           </div>
           <Form.Item label="商品描述" field="description">

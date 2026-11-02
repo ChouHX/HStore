@@ -236,9 +236,16 @@ func ResolvePriceOnBoard(cost float64, goodsID int, dirIDs []int, platform strin
 }
 
 // RecomputeAllPrices 按当前规则重算全部售价（锁价优先）。
+//
+// 例外：绑定了兜底商品的自营商品一律不吃锁价，按规则实时重算，
+// 这样它和上游同 ID 商品走同一条加价路径，价格天然保持一致。
 func RecomputeAllPrices() int {
 	d := db.Must()
-	rows, e := d.Query("SELECT goods_id, cost_price, dir_ids, platform, manual_price, price_locked, COALESCE(root_category_id,0) FROM products")
+	rows, e := d.Query(`SELECT goods_id, cost_price, dir_ids, platform, manual_price, price_locked,
+		COALESCE(root_category_id,0),
+		CASE WHEN COALESCE(fulfillment,'upstream')='self' AND COALESCE(fallback_goods_id,0)>0
+		     THEN 1 ELSE 0 END
+		FROM products`)
 	if e != nil {
 		return 0
 	}
@@ -250,12 +257,13 @@ func RecomputeAllPrices() int {
 		manual  sql.NullFloat64
 		locked  int
 		boardID int
+		follow  int
 	}
 	var list []item
 	for rows.Next() {
 		var it item
 		var dirs string
-		if rows.Scan(&it.goodsID, &it.cost, &dirs, &it.plat, &it.manual, &it.locked, &it.boardID) == nil {
+		if rows.Scan(&it.goodsID, &it.cost, &dirs, &it.plat, &it.manual, &it.locked, &it.boardID, &it.follow) == nil {
 			it.dirs = parseDirIDs(dirs)
 			list = append(list, it)
 		}
@@ -263,7 +271,8 @@ func RecomputeAllPrices() int {
 	rows.Close()
 	for _, it := range list {
 		final := 0.0
-		if it.locked == 1 && it.manual.Valid {
+		// 跟随上游（follow=1）时忽略锁价，按规则重算。
+		if it.follow == 0 && it.locked == 1 && it.manual.Valid {
 			final = it.manual.Float64
 		} else {
 			final, _ = ResolvePriceOnBoard(it.cost, it.goodsID, it.dirs, it.plat, it.boardID)
@@ -279,8 +288,10 @@ func RecomputeProductPrice(goodsID int) {
 	if p == nil {
 		return
 	}
+	// 绑定了兜底的自营商品跟随上游，不吃锁价。
+	follow := p.Fulfillment == "self" && p.FallbackGoodsID > 0
 	final := 0.0
-	if p.PriceLocked == 1 && p.ManualPrice != nil {
+	if !follow && p.PriceLocked == 1 && p.ManualPrice != nil {
 		final = *p.ManualPrice
 	} else {
 		boardID := 0
