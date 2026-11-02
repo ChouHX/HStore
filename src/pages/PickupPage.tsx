@@ -19,22 +19,12 @@ import {
   IconEmail,
   IconMenu,
   IconPlus,
-  IconRefresh,
   IconUser,
 } from "@arco-design/web-react/icon";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MailboxPanel, type MailboxTarget } from "@/components/MailboxPanel";
 import { useSession } from "@/src/hooks/useSession";
-
-interface MailboxItem {
-  orderNumber: string;
-  cardId: string;
-  email: string;
-  goodsName: string;
-  createdAt: number;
-  status: number;
-}
 
 interface PickupAccount {
   id: string;
@@ -141,7 +131,6 @@ function saveImported(list: PickupAccount[]) {
 function AccountList({
   accounts,
   rows,
-  loading,
   selectedId,
   onSelect,
   onRemove,
@@ -150,7 +139,6 @@ function AccountList({
 }: {
   accounts: PickupAccount[];
   rows: PickupAccount[];
-  loading: boolean;
   selectedId: string | null;
   onSelect: (account: PickupAccount) => void;
   onRemove: (account: PickupAccount) => void;
@@ -161,7 +149,7 @@ function AccountList({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         {accounts.length === 0 ? (
-          <Empty style={{ marginTop: 72 }} description={loading ? "加载中…" : "还没有账号，导入后显示在这里"} />
+          <Empty style={{ marginTop: 72 }} description="还没有账号，导入后显示在这里" />
         ) : (
           <List
             dataSource={rows}
@@ -215,15 +203,14 @@ function AccountList({
 
 /**
  * 独立取件页（公开，无需登录）。
- * 左侧账号列表，右侧读取邮箱；账号来自已购邮箱与手动批量导入。
+ * 左侧账号列表，右侧读取邮箱；账号只来自用户手动批量导入，
+ * 不自动读取本机订单 / 已购邮箱，避免用户没导入就看到一堆账号。
  */
 export function PickupPage() {
   const user = useSession();
   const navigate = useNavigate();
 
-  const [items, setItems] = useState<MailboxItem[]>([]);
   const [imported, setImported] = useState<PickupAccount[]>(() => loadImported());
-  const [loadingMine, setLoadingMine] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [target, setTarget] = useState<MailboxTarget | null>(null);
@@ -234,50 +221,16 @@ export function PickupPage() {
   const [importText, setImportText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const loggedIn = !!user;
-
-  const loadMine = useCallback(async () => {
-    if (!loggedIn) {
-      setItems([]);
-      return;
-    }
-    setLoadingMine(true);
-    try {
-      const j = await fetch("/api/mailbox/cards").then((r) => r.json());
-      if (j.ok) setItems(j.items ?? []);
-      else Message.error(j.message ?? "加载已购邮箱失败");
-    } catch {
-      Message.error("加载已购邮箱失败");
-    } finally {
-      setLoadingMine(false);
-    }
-  }, [loggedIn]);
-
-  useEffect(() => {
-    loadMine();
-  }, [loadMine]);
-
   const accounts = useMemo(() => {
     const map = new Map<string, PickupAccount>();
-    for (const item of items) {
-      const key = (item.email || "").toLowerCase();
-      if (!key) continue;
-      map.set(key, {
-        id: "mine-" + item.orderNumber + "-" + item.cardId,
-        email: emailOf({ id: "", email: item.email, source: "mine", createdAt: item.createdAt }),
-        source: "mine",
-        orderNumber: item.orderNumber,
-        cardId: item.cardId,
-        createdAt: item.createdAt,
-      });
-    }
     for (const item of imported) {
       const email = emailOf(item);
       const key = email.toLowerCase();
+      if (!key) continue;
       if (!map.has(key)) map.set(key, { ...item, email });
     }
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
-  }, [items, imported]);
+  }, [imported]);
 
   const totalPages = Math.max(1, Math.ceil(accounts.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -381,11 +334,6 @@ export function PickupPage() {
             <Button className="lg:hidden!" size="mini" icon={<IconMenu />} onClick={() => setDrawerOpen(true)}>
               账号列表
             </Button>
-            {loggedIn && (
-              <Button size="mini" icon={<IconRefresh />} loading={loadingMine} onClick={loadMine}>
-                刷新
-              </Button>
-            )}
             <Button size="mini" type="primary" icon={<IconPlus />} onClick={() => setImportOpen(true)}>
               导入账号
             </Button>
@@ -404,7 +352,6 @@ export function PickupPage() {
               <AccountList
                 accounts={accounts}
                 rows={pageRows}
-                loading={loadingMine}
                 selectedId={selectedId}
                 onSelect={selectAccount}
                 onRemove={removeImported}
@@ -457,7 +404,6 @@ export function PickupPage() {
         <AccountList
           accounts={accounts}
           rows={pageRows}
-          loading={loadingMine}
           selectedId={selectedId}
           onSelect={(account) => {
             selectAccount(account);
