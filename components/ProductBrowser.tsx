@@ -30,6 +30,7 @@ const PurchaseModal = lazy(() =>
 import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
 import { PopupAnnouncement, isPopupMutedToday } from "./store/PopupAnnouncement";
+import { isSelfFulfillment, isSoldOut } from "./store/selfStock";
 
 interface Props {
   boards: StoreBoard[];
@@ -67,6 +68,14 @@ function productImg(p: Product): string | null {
   return catImg(p.customImg || p.imgUrl);
 }
 function stockTag(p: Product) {
+  // 自营商品不显示库存数字，只显示「有货 / 缺货」；上游商品保持原样
+  if (isSelfFulfillment(p)) {
+    return isSoldOut(p) ? (
+      <Tag size="small" color="red">缺货</Tag>
+    ) : (
+      <Tag size="small" color="green">有货</Tag>
+    );
+  }
   if (p.stockCount < 0) return <Tag size="small">库存 -</Tag>;
   if (p.stockCount === 0) return <Tag size="small" color="red">缺货</Tag>;
   return <Tag size="small" color="green">库存 {p.stockCount}</Tag>;
@@ -169,7 +178,7 @@ function ProductCard({
   onBuy: (p: Product) => void;
   mode?: "grid" | "list";
 }) {
-  const outOfStock = p.stockCount === 0;
+  const outOfStock = isSoldOut(p);
   const disabled = p.status !== 1 || outOfStock;
   const price = Number((p.finalPrice * discount).toFixed(4));
   const imgSrc = productImg(p);

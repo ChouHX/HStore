@@ -204,16 +204,24 @@ func placeSelfOrder(opts PlaceOrderOptions, product *model.Product, count int, s
 	available := store.SelfStockCount(opts.GoodsID)
 	isCode := payment == "code"
 
-	// 兑换码允许「本地 + 上游采购」补齐；直接购买只认本地库存。
-	if !isCode && count > available {
-		return PlaceOrderResult{Message: "库存不足", Status: 400}
-	}
+	// 自营商品统一履约策略：本地库存优先，不足的差额通过 fallback 关联的上游商品采购补齐。
+	// 没有配置上游兜底时，本地缺货即视为缺货/库存不足，绝不收款后发不出货。
 	fallbackID := product.FallbackGoodsID
 	upstreamNeed := 0
-	if isCode && count > available {
+	if available < 0 {
+		available = 0
+	}
+	if count > available {
 		if fallbackID <= 0 {
-			notifySelfStockShortage(product, count, available)
-			return PlaceOrderResult{Message: "自营库存不足，请联系管理员补货", Status: 400}
+			// 兑换码场景提示管理员补货，普通购买场景提示用户缺货/库存不足。
+			if isCode {
+				notifySelfStockShortage(product, count, available)
+				return PlaceOrderResult{Message: "自营库存不足，请联系管理员补货", Status: 400}
+			}
+			if available <= 0 {
+				return PlaceOrderResult{Message: "商品缺货", Status: 400}
+			}
+			return PlaceOrderResult{Message: "库存不足", Status: 400}
 		}
 		upstreamNeed = count - available
 	}

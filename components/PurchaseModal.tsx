@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { GoodsDetail, Product, RechargeTemplate, User } from "@/lib/types";
 import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
+import { detailPurchasable, detailStockLabel } from "@/components/store/selfStock";
 import {
   clearGuestToken,
   loadLastContact,
@@ -469,8 +470,12 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       : `${guestOrder.usdtAmount} USDT`
     : "";
 
+  // 自营商品缺货（本地无货且无上游兜底）时后端会直接拒单，这里同步置灰按钮
+  const soldOut = Boolean(detail) && !detailPurchasable(detail, product);
   const payDisabled =
-    !detail || (channel === "balance" ? !user : channel === "alipay" ? !alipayReady : !usdtReady);
+    !detail ||
+    soldOut ||
+    (channel === "balance" ? !user : channel === "alipay" ? !alipayReady : !usdtReady);
   const payLoading = channel === "balance" ? submitting : guestBusy;
   const submitButton = (
     <Button
@@ -480,7 +485,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       disabled={payDisabled}
       onClick={channel === "balance" ? submitBalance : submitGuest}
     >
-      {channel === "balance" ? "余额支付" : isMobile ? "立即购买" : "确认支付"}
+      {soldOut ? "缺货" : channel === "balance" ? "余额支付" : isMobile ? "立即购买" : "确认支付"}
     </Button>
   );
 
@@ -705,7 +710,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                   </div>
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
-                  <span>库存 {detail.stockCount}</span>
+                  <span>{detailStockLabel(detail, product)}</span>
                   <span>限购 {detail.minQuantity} ~ {detail.maxQuantity}</span>
                   {(detail.warrantyDays ?? 0) > 0 && <span>质保 {detail.warrantyDays} 天</span>}
                 </div>

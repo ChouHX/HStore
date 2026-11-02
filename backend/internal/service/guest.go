@@ -79,8 +79,14 @@ func guestProduct(goodsID, count int, discount float64) (*model.Product, *model.
 		return nil, nil, 0, errors.New("商品已下架")
 	}
 	if product.Fulfillment == "self" {
+		// 与前台展示口径保持一致：本地可用库存为 0 且没有上游兜底商品时视为缺货。
+		// 有兜底商品时本地缺货不算失败，下单时会走上游采购（见 placeSelfOrder）。
 		avail := store.SelfStockCount(goodsID)
-		if count > avail {
+		if avail <= 0 && product.FallbackGoodsID <= 0 {
+			return nil, nil, 0, errors.New("商品缺货")
+		}
+		// 仅当既无兜底商品、数量又超出本地库存时才拒绝；有兜底时差额由上游采购补齐。
+		if product.FallbackGoodsID <= 0 && count > avail {
 			return nil, nil, 0, errors.New("库存不足")
 		}
 		if discount <= 0 || discount > 1 {

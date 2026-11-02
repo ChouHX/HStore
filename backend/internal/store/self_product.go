@@ -22,13 +22,13 @@ var ErrSelfProductNotFound = errors.New("自营商品不存在")
 
 // SelfProductInput 是新建 / 编辑自营商品的入参。
 type SelfProductInput struct {
-	GoodsID      int
-	Name         string
-	Price        float64
-	CostPrice    float64
-	Description  string
-	ImageURL     string
-	Enabled      bool
+	GoodsID         int
+	Name            string
+	Price           float64
+	CostPrice       float64
+	Description     string
+	ImageURL        string
+	Enabled         bool
 	FallbackGoodsID int
 }
 
@@ -53,7 +53,7 @@ func ListSelfProducts() []map[string]any {
 		       (SELECT COUNT(*) FROM self_stock s WHERE s.goods_id=p.goods_id AND s.status='available'),
 		       (SELECT COUNT(*) FROM self_stock s WHERE s.goods_id=p.goods_id AND s.status='sold')
 		FROM products p
-		WHERE p.fulfillment='self' AND p.platform='self'
+		WHERE p.fulfillment='self'
 		ORDER BY p.goods_id`)
 	if e != nil {
 		return nil
@@ -62,10 +62,10 @@ func ListSelfProducts() []map[string]any {
 	out := []map[string]any{}
 	for rows.Next() {
 		var (
-			gid, enabled, fb, updated         int
-			name, desc, img                   string
-			finalPrice, costPrice             float64
-			avail, sold                       int
+			gid, enabled, fb, updated int
+			name, desc, img           string
+			finalPrice, costPrice     float64
+			avail, sold               int
 		)
 		if rows.Scan(&gid, &name, &desc, &img, &finalPrice, &costPrice,
 			&enabled, &fb, &updated, &avail, &sold) != nil {
@@ -176,7 +176,7 @@ func UpdateSelfProduct(in SelfProductInput) error {
 		name=?, custom_name=?, custom_desc=?, img_url=?, custom_img=?,
 		sales_price=?, final_price=?, cost_price=?, manual_price=?, price_locked=1,
 		enabled=?, fallback_goods_id=?, updated_at=?, root_category_id=?, fulfillment='self'
-		WHERE goods_id=? AND platform='self'`,
+		WHERE goods_id=? AND (platform='self' OR fulfillment='self')`,
 		name, name, strings.TrimSpace(in.Description), img, img,
 		in.Price, in.Price, cost, in.Price, enabled, in.FallbackGoodsID, now,
 		EnsureSelfCategory(), in.GoodsID)
@@ -185,10 +185,12 @@ func UpdateSelfProduct(in SelfProductInput) error {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		// 可能本来不是自营商品，尝试接管为自营。
+		// 注意：不要改 platform —— 上游商品（platform='microsoft'）保留 platform
+		// 才能继续从上游同步价格/库存/详情，这里只打 fulfillment='self' 标记。
 		res2, e2 := d.Exec(`UPDATE products SET
 			name=?, custom_name=?, custom_desc=?, sales_price=?, final_price=?, cost_price=?,
 			manual_price=?, price_locked=1, enabled=?, fallback_goods_id=?, updated_at=?,
-			root_category_id=?, platform='self', fulfillment='self'
+			root_category_id=?, fulfillment='self'
 			WHERE goods_id=?`, name, name, strings.TrimSpace(in.Description),
 			in.Price, in.Price, cost, in.Price, enabled, in.FallbackGoodsID, now,
 			EnsureSelfCategory(), in.GoodsID)

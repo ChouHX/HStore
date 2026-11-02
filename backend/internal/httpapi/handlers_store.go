@@ -34,8 +34,55 @@ func (a *API) handleStoreProducts(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 	}
 	items, total := store.ListStoreProducts(q)
+	sanitizeSelfProducts(items)
 	localizeProductImages(items)
 	ok(w, paged(items, total, page, pageSize))
+}
+
+// ===== 自营商品的库存展示口径 =====
+//
+// 自营商品的真实库存条数属于内部信息，前台一律不展示数字，只给语义化状态：
+//   - 本地可用库存 > 0                 → 有货 / 可下单（showStock=true）
+//   - 本地为 0 且关联了上游兜底商品     → 有货 / 可下单（下单时走上游采购）
+//   - 本地为 0 且没有兜底商品           → 缺货，不可下单（showStock=false）
+
+// isSelfProduct 判断商品是否走自营库存发货。
+func isSelfProduct(p *model.Product) bool {
+	return p != nil && p.Fulfillment == "self"
+}
+
+// selfStockAvailable 返回自营商品当前是否可售（本地有货，或配置了上游兜底）。
+func selfStockAvailable(goodsID int) bool {
+	avail := store.SelfStockCount(goodsID)
+	if avail > 0 {
+		return true
+	}
+	p := store.GetProduct(goodsID)
+	if p == nil || p.Fulfillment != "self" {
+		return avail > 0
+	}
+	return p.FallbackGoodsID > 0
+}
+
+// maskSelfProductStock 把自营商品的库存数字换成「有货 / 缺货」。
+//
+// stockCount>0 表示可售；0 表示缺货。上游商品的 stockCount 语义不变（-1 未知、0 缺货）。
+func maskSelfProductStock(p *model.Product) {
+	if !isSelfProduct(p) {
+		return
+	}
+	if selfStockAvailable(p.GoodsID) {
+		p.StockCount = 1
+		return
+	}
+	p.StockCount = 0
+}
+
+// sanitizeSelfProducts 对商城列表里的自营商品做脱敏（就地修改）。
+func sanitizeSelfProducts(items []model.Product) {
+	for i := range items {
+		maskSelfProductStock(&items[i])
+	}
 }
 
 func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
@@ -51,13 +98,15 @@ func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := make([]upstream.StockItem, 0, len(ids))
+	// 自营商品不请求上游，单独按本地库存给出语义化状态
+	selfAvail := map[string]bool{}
 	for _, id := range ids {
 		p := store.GetProduct(id)
 		if p == nil {
 			continue
 		}
-		// 自营商品的库存来自本地库存表，不能拿去请求上游
 		if p.Fulfillment == "self" {
+			selfAvail[itoa(id)] = selfStockAvailable(id)
 			continue
 		}
 		items = append(items, upstream.StockItem{GoodsID: id, StockCount: p.StockCount})
@@ -70,7 +119,18 @@ func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 			stocks[itoa(it.GoodsID)] = p.StockCount
 		}
 	}
-	ok(w, map[string]any{"stocks": stocks})
+	// 自营商品返回「是否可售」而非库存条数；上游商品金额不变。
+	statuses := map[string]string{}
+	for id, avail := range selfAvail {
+		if avail {
+			stocks[id] = 1
+			statuses[id] = "in_stock"
+			continue
+		}
+		stocks[id] = 0
+		statuses[id] = "out_of_stock"
+	}
+	ok(w, map[string]any{"stocks": stocks, "stockStatus": statuses, "selfStockHidden": true})
 }
 
 // handleGoodsDetail 商品详情：直接返回本地缓存的原始 JSON。
@@ -101,7 +161,15 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 // selfProductDetail 为自营商品构造与上游一致的详情结构。
+//
+// 自营商品的 stockCount 是脱敏后的「可售标记」：>0 表示有货（含上游兜底），
+// 0 表示缺货；真实库存条数不对外暴露。
 func selfProductDetail(p *model.Product) model.GoodsDetail {
+	available := selfStockAvailable(p.GoodsID)
+	stockFlag := 0
+	if available {
+		stockFlag = 1
+	}
 	name := p.Name
 	if p.CustomName != nil && strings.TrimSpace(*p.CustomName) != "" {
 		name = strings.TrimSpace(*p.CustomName)
@@ -118,7 +186,7 @@ func selfProductDetail(p *model.Product) model.GoodsDetail {
 		RemoteProduct: model.RemoteProduct{
 			GoodsID: p.GoodsID, Name: name, SalesPrice: p.FinalPrice, FaceValue: p.FaceValue,
 			GoodsType: p.GoodsType, WarrantyDays: p.WarrantyDays, Status: p.Status,
-			ImgURL: img, StockCount: p.StockCount,
+			ImgURL: img, StockCount: stockFlag,
 		},
 		MinQuantity:   1,
 		MaxQuantity:   999999,

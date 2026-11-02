@@ -329,12 +329,17 @@ func SyncFromRemote() (SyncResult, error) {
 						VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 						ON CONFLICT(goods_id) DO UPDATE SET
 						  name=excluded.name, face_value=excluded.face_value, sales_price=excluded.sales_price,
-						  cost_price=excluded.cost_price, final_price=excluded.final_price,
+						  cost_price=excluded.cost_price,
+						  final_price=CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
+						    OR COALESCE(products.price_locked,0)=1
+						    THEN products.final_price ELSE excluded.final_price END,
 						  goods_type=excluded.goods_type, warranty_days=excluded.warranty_days, status=excluded.status,
 						  multiple=excluded.multiple, is_repeat=excluded.is_repeat, is_ref_order=excluded.is_ref_order,
 						  is_ref_money=excluded.is_ref_money, sku_type=excluded.sku_type, img_url=excluded.img_url,
 						  dir_ids=excluded.dir_ids, platform=excluded.platform,
-						  root_category_id=excluded.root_category_id, updated_at=excluded.updated_at,
+						  root_category_id=CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
+						    THEN products.root_category_id ELSE excluded.root_category_id END,
+						  updated_at=excluded.updated_at,
 						  detail_json=CASE WHEN excluded.detail_json<>'' THEN excluded.detail_json ELSE products.detail_json END,
 						  detail_synced_at=CASE WHEN excluded.detail_json<>'' THEN excluded.detail_synced_at ELSE products.detail_synced_at END`,
 						p.GoodsID, p.Name, p.FaceValue, p.SalesPrice, p.SalesPrice, p.SalesPrice,

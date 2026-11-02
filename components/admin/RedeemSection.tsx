@@ -134,6 +134,9 @@ export function RedeemSection() {
   const [editCount, setEditCount] = useState(1);
   const [editFace, setEditFace] = useState(10);
 
+  // 已使用 / 核销中的兑换码只能查看明细，不允许改关联。
+  const readOnly = editing !== null && editing.status !== "unused" && editing.status !== "voided";
+
   const query = useCallback(() => {
     const sp = new URLSearchParams();
     if (status !== "all") sp.set("status", status);
@@ -229,6 +232,10 @@ export function RedeemSection() {
 
   async function saveEdit() {
     if (!editing) return;
+    if (readOnly) {
+      setEditing(null);
+      return;
+    }
     if (!editProduct && editFace <= 0) {
       Message.warning("面值必须大于 0");
       return;
@@ -297,10 +304,12 @@ export function RedeemSection() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 160,
+      width: 190,
       fixed: "right" as const,
-      render: (_: unknown, c: RedeemCode) =>
-        c.status === "unused" || c.status === "voided" ? (
+      render: (_: unknown, c: RedeemCode) => {
+        // 已使用/核销中的码不允许再改关联，但仍可删除（清理历史数据）。
+        const editable = c.status === "unused" || c.status === "voided";
+        return (
           <Space size="small">
             <Button
               size="mini"
@@ -313,17 +322,23 @@ export function RedeemSection() {
                 setEditFace(c.faceValue || 10);
               }}
             >
-              修改
+              {editable ? "修改" : "详情"}
             </Button>
-            <Popconfirm title="确认删除该兑换码？删除后不可恢复。" onOk={() => deleteCode(c.id)}>
+            <Popconfirm
+              title={
+                c.status === "used"
+                  ? `该兑换码已使用（订单 ${c.orderNumber || "-"}），删除只影响兑换码记录，不影响已生成的订单。确认删除？`
+                  : "确认删除该兑换码？删除后不可恢复。"
+              }
+              onOk={() => deleteCode(c.id)}
+            >
               <Button size="mini" status="danger">
                 删除
               </Button>
             </Popconfirm>
           </Space>
-        ) : (
-          <span className="text-[12px] text-[#86909c]">-</span>
-        ),
+        );
+      },
     },
   ];
 
@@ -491,15 +506,25 @@ export function RedeemSection() {
         onOk={saveEdit}
         confirmLoading={saving}
         okText="保存"
+        okButtonProps={{ style: readOnly ? { display: "none" } : undefined }}
+        cancelText={readOnly ? "关闭" : "取消"}
         style={{ width: 480 }}
         unmountOnExit
       >
         <div className="flex flex-col gap-3">
+          {editing && editing.status === "used" && (
+            <div className="rounded bg-[#f7f8fa] px-3 py-2 text-[12px] text-[#4e5969]">
+              该兑换码已于
+              {editing.usedAt ? ` ${new Date(editing.usedAt).toLocaleString("zh-CN")} ` : " "}
+              被使用，关联订单 <span className="font-mono">{editing.orderNumber || "-"}</span>，
+              已使用的兑换码不能修改关联关系。
+            </div>
+          )}
           <div>
             <div className="mb-1 text-[12px] text-[#4e5969]">
               关联商品（清空则改为面值码；已是自营商品请到「自营商品」页导入卡密）
             </div>
-            <ProductPicker value={editProduct} onChange={setEditProduct} />
+            <ProductPicker value={editProduct} onChange={readOnly ? () => {} : setEditProduct} />
           </div>
           {editProduct ? (
             <div>
@@ -507,6 +532,7 @@ export function RedeemSection() {
               <InputNumber
                 value={editCount}
                 min={1}
+                disabled={readOnly}
                 style={{ width: "100%" }}
                 onChange={(v) => setEditCount(Number(v) || 1)}
               />
@@ -518,6 +544,7 @@ export function RedeemSection() {
                 value={editFace}
                 min={0.01}
                 step={1}
+                disabled={readOnly}
                 style={{ width: "100%" }}
                 onChange={(v) => setEditFace(Number(v) || 0)}
               />
