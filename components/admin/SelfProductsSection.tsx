@@ -63,6 +63,9 @@ function ProductsTab() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<SelfProduct | null>(null);
   const [form] = Form.useForm();
+  // 绑定了兜底商品的，售价跟随上游浮动，不需要（也不允许）手填。
+  const watchedFallback = Form.useWatch("fallbackGoodsId", form);
+  const boundToUpstream = Number(watchedFallback) > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,7 +85,7 @@ function ProductsTab() {
   function openCreate() {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ price: 0.07, costPrice: 0.07, enabled: true, fallbackGoodsId: 0 });
+    form.setFieldsValue({ price: undefined, costPrice: undefined, enabled: true, fallbackGoodsId: 0 });
     setOpen(true);
   }
 
@@ -109,16 +112,18 @@ function ProductsTab() {
     }
     setSaving(true);
     try {
+      const fallbackGoodsId = Number(values.fallbackGoodsId) || 0;
       const body = {
         action: editing ? "update" : "create",
         goodsId: editing?.goodsId ?? 0,
         name: values.name,
-        price: values.price,
+        // 绑定兜底时售价由后端按上游价写入，这里传 0 表示「不自定义」。
+        price: fallbackGoodsId > 0 ? 0 : Number(values.price) || 0,
         costPrice: values.costPrice,
         description: values.description ?? "",
         imgUrl: values.imgUrl ?? "",
         enabled: values.enabled !== false,
-        fallbackGoodsId: Number(values.fallbackGoodsId) || 0,
+        fallbackGoodsId,
       };
       const j = await fetch("/api/admin/self/products", {
         method: "POST",
@@ -170,8 +175,17 @@ function ProductsTab() {
     {
       title: "售价",
       dataIndex: "finalPrice",
-      width: 100,
-      render: (v: number) => <span className="text-[#f53f3f]">¥{formatPrice(v)}</span>,
+      width: 130,
+      render: (v: number, row: SelfProduct) => (
+        <span className="text-[#f53f3f]">
+          ¥{formatPrice(v)}
+          {row.fallbackGoodsId > 0 && (
+            <Tag size="small" color="arcoblue" style={{ marginLeft: 4 }}>
+              跟随上游
+            </Tag>
+          )}
+        </span>
+      ),
     },
     {
       title: "可用库存",
@@ -258,8 +272,27 @@ function ProductsTab() {
             <Input placeholder="例如：Outlook 双令牌绑定辅邮" />
           </Form.Item>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Form.Item label="售价（元）" field="price" rules={[{ required: true, message: "请填写售价" }]}>
-              <InputNumber min={0} step={0.01} precision={4} style={{ width: "100%" }} />
+            <Form.Item
+              label={boundToUpstream ? "售价（跟随上游商品自动浮动）" : "售价（元）"}
+              field="price"
+              extra={
+                boundToUpstream
+                  ? "已绑定兜底商品，售价与上游同 ID 商品一致，无需填写"
+                  : "未绑定上游商品，必须自定义售价"
+              }
+              rules={
+                boundToUpstream
+                  ? []
+                  : [{ required: true, message: "未关联上游商品时必须填写售价" }]
+              }
+            >
+              <InputNumber
+                min={boundToUpstream ? 0 : 0.0001}
+                step={0.01}
+                precision={4}
+                disabled={boundToUpstream}
+                style={{ width: "100%" }}
+              />
             </Form.Item>
             <Form.Item label="成本价（元，留空同售价）" field="costPrice">
               <InputNumber min={0} step={0.01} precision={4} style={{ width: "100%" }} />
@@ -275,7 +308,7 @@ function ProductsTab() {
             <Form.Item
               label="兜底商品ID（库存不足时上游补货）"
               field="fallbackGoodsId"
-              extra="填 0 表示不兜底，库存不足时提示补货"
+              extra="填 0 表示不兜底，需自定义售价；填了则售价自动跟随该上游商品，库存不足时自动采购"
             >
               <InputNumber min={0} style={{ width: "100%" }} />
             </Form.Item>
@@ -598,7 +631,7 @@ export function SelfProductsSection() {
         <div>
           <div className="text-[15px] font-medium text-[#1d2129]">自营商品</div>
           <div className="text-[12px] text-[#86909c]">
-            自营商品不参与上游同步，可自行增删改查并导入卡密发货
+            自营商品可自行增删改查并导入卡密发货；绑定上游商品后，售价跟随上游浮动
           </div>
         </div>
       </div>

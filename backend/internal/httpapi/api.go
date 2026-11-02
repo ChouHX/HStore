@@ -133,6 +133,11 @@ func queryInt(r *http.Request, key string) int {
 	return v
 }
 
+func queryInt64(r *http.Request, key string) int64 {
+	v, _ := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get(key)), 10, 64)
+	return v
+}
+
 // hideUpstreamForUser 对非管理员清空上游单号。
 //
 // 上游（天启）单号属于内部信息：用户只应看到系统生成的单号，

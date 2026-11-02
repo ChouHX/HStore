@@ -331,7 +331,10 @@ func SyncFromRemote() (SyncResult, error) {
 						  name=excluded.name, face_value=excluded.face_value, sales_price=excluded.sales_price,
 						  cost_price=excluded.cost_price,
 						  final_price=CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
-						    OR COALESCE(products.price_locked,0)=1
+						    AND COALESCE(products.fallback_goods_id,0)>0
+						    THEN excluded.sales_price
+						    WHEN COALESCE(products.fulfillment,'upstream')='self'
+						      OR COALESCE(products.price_locked,0)=1
 						    THEN products.final_price ELSE excluded.final_price END,
 						  goods_type=excluded.goods_type, warranty_days=excluded.warranty_days, status=excluded.status,
 						  multiple=excluded.multiple, is_repeat=excluded.is_repeat, is_ref_order=excluded.is_ref_order,
@@ -367,6 +370,8 @@ func SyncFromRemote() (SyncResult, error) {
 	enrichStock(ids)
 
 	store.RecomputeAllPrices()
+	// 定价规则重算后再回填自营商品价，保证「绑定兜底 = 跟随上游价」不被覆盖。
+	SyncSelfFallbackPrices()
 	_ = db.SetMeta("last_sync", strconvItoa64(ts))
 	_ = db.SetMeta("last_source", "remote")
 
@@ -378,6 +383,37 @@ func SyncFromRemote() (SyncResult, error) {
 			" 个板块）、" + strconvItoa(count) + " 个商品（微软 " + strconvItoa(counts["microsoft"]) +
 			" / 谷歌 " + strconvItoa(counts["google"]) + "）",
 	}, nil
+}
+
+// SyncSelfFallbackPrices 让「绑定了兜底商品」的自营商品售价与其兜底商品保持一致。
+//
+// 规则：
+//   - 自营商品且 fallback_goods_id > 0 → final_price 跟随兜底商品的最终售价，
+//     相当于与上游同 ID 商品共享同一个价格，管理员无需（也无法）单独定价；
+//   - 未绑定兜底的自营商品 → 保留管理员自定义的价格，不做任何改动。
+//
+// 必须在所有商品价格写入完成、且定价规则重算之后调用，这样兜底商品指向谁、
+// 谁先谁后都不影响结果。返回被更新的行数。
+func SyncSelfFallbackPrices() int {
+	d := db.Must()
+	// 兜底指向自身（fallback_goods_id = goods_id）的商品，价格已由同步 UPSERT 的
+	// CASE 直接取上游 sales_price 写入，这里跳过，避免自引用读不到新值。
+	res, e := d.Exec(`
+		UPDATE products AS self
+		SET final_price = (SELECT f.final_price FROM products f WHERE f.goods_id = self.fallback_goods_id)
+		WHERE COALESCE(self.fulfillment,'upstream') = 'self'
+		  AND COALESCE(self.fallback_goods_id,0) > 0
+		  AND self.fallback_goods_id <> self.goods_id
+		  AND EXISTS (
+		    SELECT 1 FROM products f
+		    WHERE f.goods_id = self.fallback_goods_id
+		      AND f.final_price <> self.final_price
+		  )`)
+	if e != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return int(n)
 }
 
 func enrichStock(ids []int) {

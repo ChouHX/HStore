@@ -85,10 +85,14 @@ func scanCode(sc interface{ Scan(...any) error }) (model.RedeemCode, error) {
 
 // CodeFilter 是兑换码筛选条件。
 type CodeFilter struct {
-	Status  string
-	Keyword string
-	UsedBy  int
-	Kind    string // balance | product
+	Status    string
+	Keyword   string
+	UsedBy    int
+	Kind      string // balance | product
+	GoodsID   int    // >0 时只查该商品的兑换码
+	BatchID   int64  // >0 时只查该批次的兑换码
+	StartFrom int64  // >0 时只查创建时间 >= 该毫秒值
+	StartTo   int64  // >0 时只查创建时间 <= 该毫秒值
 }
 
 func buildCodeWhere(f CodeFilter) (string, []any) {
@@ -112,6 +116,22 @@ func buildCodeWhere(f CodeFilter) (string, []any) {
 	}
 	if f.Kind == "balance" {
 		where = append(where, "rc.goods_id IS NULL")
+	}
+	if f.GoodsID > 0 {
+		where = append(where, "rc.goods_id = ?")
+		args = append(args, f.GoodsID)
+	}
+	if f.BatchID > 0 {
+		where = append(where, "rc.batch_id = ?")
+		args = append(args, f.BatchID)
+	}
+	if f.StartFrom > 0 {
+		where = append(where, "rc.created_at >= ?")
+		args = append(args, f.StartFrom)
+	}
+	if f.StartTo > 0 {
+		where = append(where, "rc.created_at <= ?")
+		args = append(args, f.StartTo)
 	}
 	if len(where) == 0 {
 		return "", args

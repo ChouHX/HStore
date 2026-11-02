@@ -825,10 +825,14 @@ func (a *API) handleAdminRedeem(w http.ResponseWriter, r *http.Request) {
 		kind = ""
 	}
 	f := store.CodeFilter{
-		Status:  q.Get("status"),
-		Keyword: q.Get("keyword"),
-		UsedBy:  queryInt(r, "usedBy"),
-		Kind:    kind,
+		Status:    q.Get("status"),
+		Keyword:   q.Get("keyword"),
+		UsedBy:    queryInt(r, "usedBy"),
+		Kind:      kind,
+		GoodsID:   queryInt(r, "goodsId"),
+		BatchID:   queryInt64(r, "batchId"),
+		StartFrom: queryInt64(r, "startFrom"),
+		StartTo:   queryInt64(r, "startTo"),
 	}
 	if q.Get("export") == "1" {
 		csv := store.ExportCodesCSV(f)

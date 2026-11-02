@@ -114,6 +114,10 @@ export function RedeemSection() {
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [status, setStatus] = useState("all");
   const [keyword, setKeyword] = useState("");
+  // 商品筛选：只显示关联到某个商品的兑换码
+  const [filterGoodsId, setFilterGoodsId] = useState<number>(0);
+  const [filterProduct, setFilterProduct] = useState<ProductOption | null>(null);
+  const hasFilter = keyword !== "" || status !== "all" || filterGoodsId > 0;
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -141,8 +145,9 @@ export function RedeemSection() {
     const sp = new URLSearchParams();
     if (status !== "all") sp.set("status", status);
     if (keyword) sp.set("keyword", keyword);
+    if (filterGoodsId > 0) sp.set("goodsId", String(filterGoodsId));
     return sp;
-  }, [status, keyword]);
+  }, [status, keyword, filterGoodsId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -347,8 +352,13 @@ export function RedeemSection() {
       <Space wrap>
         <Input.Search
           allowClear
+          value={keyword}
           placeholder="搜索兑换码"
           style={{ width: 220 }}
+          onChange={(v) => {
+            setKeyword(v);
+            if (!v) setPage(1);
+          }}
           onSearch={(v) => {
             setKeyword(v);
             setPage(1);
@@ -367,6 +377,30 @@ export function RedeemSection() {
           <Select.Option value="used">已使用</Select.Option>
           <Select.Option value="voided">已作废</Select.Option>
         </Select>
+        <div style={{ width: 260 }}>
+          <ProductPicker
+            value={filterProduct}
+            onChange={(v) => {
+              setFilterProduct(v);
+              setFilterGoodsId(v?.goodsId ?? 0);
+              setPage(1);
+            }}
+          />
+        </div>
+        {hasFilter && (
+          <Button
+            size="small"
+            onClick={() => {
+              setKeyword("");
+              setStatus("all");
+              setFilterGoodsId(0);
+              setFilterProduct(null);
+              setPage(1);
+            }}
+          >
+            重置筛选
+          </Button>
+        )}
         <Button
           size="small"
           onClick={() => window.open(`/api/admin/redeem?export=1&${query().toString()}`, "_blank")}

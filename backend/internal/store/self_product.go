@@ -89,6 +89,52 @@ func ListSelfProducts() []map[string]any {
 }
 
 // CreateSelfProduct 新建一个自营商品，返回商品编号。
+// resolveSelfPrice 决定自营商品最终落库的价格。
+//
+// 规则（与上游同步保持一致）：
+//   - 绑定兜底商品（fallbackGoodsID > 0）→ 价格跟随兜底商品，与上游同 ID 商品共享同一个价格，
+//     这里传入的 price 被忽略；兜底商品暂时查不到价格时退回传入值，等下次同步自动对齐。
+//   - 未绑定兜底 → 必须由管理员自定义价格，price 必须 > 0。
+//
+// 返回最终价格与成本价。
+func resolveSelfPrice(fallbackGoodsID int, price, costPrice float64) (float64, float64, error) {
+	if fallbackGoodsID > 0 {
+		var upstreamPrice float64
+		var found bool
+		e := db.Must().QueryRow(
+			"SELECT final_price FROM products WHERE goods_id=? AND final_price>0",
+			fallbackGoodsID).Scan(&upstreamPrice)
+		if e == nil {
+			found = true
+		}
+		if found {
+			final := upstreamPrice
+			cost := costPrice
+			if cost <= 0 {
+				cost = final
+			}
+			return final, cost, nil
+		}
+		// 兜底商品还没有价格（例如尚未同步）：先按自定义价占位，同步后自动跟随。
+		if price <= 0 {
+			return 0, 0, errors.New("关联商品的售价暂不可用，请稍后重试或先同步上游")
+		}
+		cost := costPrice
+		if cost <= 0 {
+			cost = price
+		}
+		return price, cost, nil
+	}
+	if price <= 0 {
+		return 0, 0, errors.New("未关联上游商品时必须填写售价")
+	}
+	cost := costPrice
+	if cost <= 0 {
+		cost = price
+	}
+	return price, cost, nil
+}
+
 func CreateSelfProduct(in SelfProductInput) (int, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -96,6 +142,10 @@ func CreateSelfProduct(in SelfProductInput) (int, error) {
 	}
 	if in.Price < 0 {
 		return 0, errors.New("售价不能为负数")
+	}
+	finalPrice, cost, e0 := resolveSelfPrice(in.FallbackGoodsID, in.Price, in.CostPrice)
+	if e0 != nil {
+		return 0, e0
 	}
 	d := db.Must()
 	catID := EnsureSelfCategory()
@@ -114,10 +164,6 @@ func CreateSelfProduct(in SelfProductInput) (int, error) {
 	}
 
 	now := time.Now().UnixMilli()
-	cost := in.CostPrice
-	if cost <= 0 {
-		cost = in.Price
-	}
 	enabled := 0
 	if in.Enabled {
 		enabled = 1
@@ -131,15 +177,15 @@ func CreateSelfProduct(in SelfProductInput) (int, error) {
 		platform, updated_at, stock_count, root_category_id, fulfillment,
 		fallback_goods_id, custom_desc, custom_name, custom_img
 	) VALUES(?,?,?,?,1,0,1,1,0,0,0,0,?,'[]','self',?,0,?,'self',?,?,?,?)`,
-		goodsID, name, in.Price, in.Price, img, now, catID, in.FallbackGoodsID, desc, name, img)
+		goodsID, name, finalPrice, finalPrice, img, now, catID, in.FallbackGoodsID, desc, name, img)
 	if e != nil {
 		return 0, e
 	}
 
-	// 售价即最终价并锁价，避免被自动定价规则覆盖。
+	// 落最终价并锁价，避免被自动定价规则覆盖。
 	if _, e := d.Exec(
 		"UPDATE products SET final_price=?, cost_price=?, manual_price=?, price_locked=1 WHERE goods_id=?",
-		in.Price, cost, in.Price, goodsID); e != nil {
+		finalPrice, cost, finalPrice, goodsID); e != nil {
 		return 0, e
 	}
 	if _, e := d.Exec("UPDATE products SET enabled=? WHERE goods_id=?", enabled, goodsID); e != nil {
@@ -160,25 +206,27 @@ func UpdateSelfProduct(in SelfProductInput) error {
 	if in.Price < 0 {
 		return errors.New("售价不能为负数")
 	}
+	finalPrice, cost, e0 := resolveSelfPrice(in.FallbackGoodsID, in.Price, in.CostPrice)
+	if e0 != nil {
+		return e0
+	}
 	d := db.Must()
 	now := time.Now().UnixMilli()
-	cost := in.CostPrice
-	if cost <= 0 {
-		cost = in.Price
-	}
 	enabled := 0
 	if in.Enabled {
 		enabled = 1
 	}
 	img := strings.TrimSpace(in.ImageURL)
 
+	// 注意：不改 sales_price —— 上游商品的 sales_price 是同步进来的原始上游价，
+	// 覆盖它会让「跟随上游价」失去参照。售价只写 final_price。
 	res, e := d.Exec(`UPDATE products SET
 		name=?, custom_name=?, custom_desc=?, img_url=?, custom_img=?,
-		sales_price=?, final_price=?, cost_price=?, manual_price=?, price_locked=1,
+		final_price=?, cost_price=?, manual_price=?, price_locked=1,
 		enabled=?, fallback_goods_id=?, updated_at=?, root_category_id=?, fulfillment='self'
 		WHERE goods_id=? AND (platform='self' OR fulfillment='self')`,
 		name, name, strings.TrimSpace(in.Description), img, img,
-		in.Price, in.Price, cost, in.Price, enabled, in.FallbackGoodsID, now,
+		finalPrice, cost, finalPrice, enabled, in.FallbackGoodsID, now,
 		EnsureSelfCategory(), in.GoodsID)
 	if e != nil {
 		return e
@@ -188,11 +236,11 @@ func UpdateSelfProduct(in SelfProductInput) error {
 		// 注意：不要改 platform —— 上游商品（platform='microsoft'）保留 platform
 		// 才能继续从上游同步价格/库存/详情，这里只打 fulfillment='self' 标记。
 		res2, e2 := d.Exec(`UPDATE products SET
-			name=?, custom_name=?, custom_desc=?, sales_price=?, final_price=?, cost_price=?,
+			name=?, custom_name=?, custom_desc=?, final_price=?, cost_price=?,
 			manual_price=?, price_locked=1, enabled=?, fallback_goods_id=?, updated_at=?,
 			root_category_id=?, fulfillment='self'
 			WHERE goods_id=?`, name, name, strings.TrimSpace(in.Description),
-			in.Price, in.Price, cost, in.Price, enabled, in.FallbackGoodsID, now,
+			finalPrice, cost, finalPrice, enabled, in.FallbackGoodsID, now,
 			EnsureSelfCategory(), in.GoodsID)
 		if e2 != nil {
 			return e2
