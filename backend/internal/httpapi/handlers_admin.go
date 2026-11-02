@@ -174,12 +174,16 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Action  string   `json:"action"`
-		IDs     []int    `json:"ids"`
-		GoodsID int      `json:"goodsId"`
-		Enabled *bool    `json:"enabled"`
-		Price   *float64 `json:"price"`
-		Locked  bool     `json:"locked"`
+		Action          string   `json:"action"`
+		IDs             []int    `json:"ids"`
+		GoodsID         int      `json:"goodsId"`
+		Enabled         *bool    `json:"enabled"`
+		Price           *float64 `json:"price"`
+		Locked          bool     `json:"locked"`
+		Self            *bool    `json:"self"`
+		FallbackGoodsID *int     `json:"fallbackGoodsId"`
+		Content         string   `json:"content"`
+		StockID         int      `json:"stockId"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -222,6 +226,52 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 		store.WriteAudit(&admin.UID, "product_delete", "product", joinIDs(body.IDs),
 			nil, map[string]any{"count": len(body.IDs)}, "删除本地商品")
 		ok(w, map[string]any{"count": len(body.IDs)})
+	case "self-save":
+		if body.GoodsID == 0 {
+			fail(w, http.StatusBadRequest, "缺少商品编号")
+			return
+		}
+		self := body.Self != nil && *body.Self
+		fallback := 0
+		if body.FallbackGoodsID != nil {
+			fallback = *body.FallbackGoodsID
+		}
+		if !store.SetProductSelf(body.GoodsID, self, fallback) {
+			fail(w, http.StatusNotFound, "商品不存在")
+			return
+		}
+		store.WriteAudit(&admin.UID, "product_self", "product", itoa(body.GoodsID),
+			nil, map[string]any{"self": self, "fallbackGoodsId": fallback}, "设置自营发货")
+		ok(w, map[string]any{"stockCount": store.SelfStockCount(body.GoodsID)})
+	case "self-import":
+		if body.GoodsID == 0 || strings.TrimSpace(body.Content) == "" {
+			fail(w, http.StatusBadRequest, "请提供商品编号与卡密内容")
+			return
+		}
+		lines := strings.Split(strings.ReplaceAll(body.Content, "\r\n", "\n"), "\n")
+		fallback := 0
+		if p := store.GetProduct(body.GoodsID); p != nil {
+			fallback = p.FallbackGoodsID
+		}
+		added, skipped := store.ImportSelfStock(body.GoodsID, lines, "admin", "")
+		_ = store.SetProductSelf(body.GoodsID, true, fallback)
+		store.WriteAudit(&admin.UID, "product_self_import", "product", itoa(body.GoodsID),
+			nil, map[string]any{"added": added, "skipped": skipped}, "导入自营库存")
+		ok(w, map[string]any{"added": added, "skipped": skipped, "stockCount": store.SelfStockCount(body.GoodsID)})
+	case "self-stock":
+		items := store.ListSelfStock(body.GoodsID, 200)
+		ok(w, map[string]any{"items": items, "stockCount": store.SelfStockCount(body.GoodsID)})
+	case "self-delete":
+		if !store.DeleteSelfStock(body.GoodsID, body.StockID) {
+			fail(w, http.StatusBadRequest, "库存不存在或已售出")
+			return
+		}
+		fallback := 0
+		if p := store.GetProduct(body.GoodsID); p != nil {
+			fallback = p.FallbackGoodsID
+		}
+		_ = store.SetProductSelf(body.GoodsID, true, fallback)
+		ok(w, map[string]any{"stockCount": store.SelfStockCount(body.GoodsID)})
 	case "recompute":
 		n := store.RecomputeAllPrices()
 		store.WriteAudit(&admin.UID, "price_recompute", "", "", nil, map[string]any{"count": n}, "重算全部售价")

@@ -435,7 +435,7 @@ func StaleStockIDs(ids []int) []int {
 
 // UnknownStockIDs 返回库存未知（<0）的商品。
 func UnknownStockIDs() []int {
-	rows, e := db.Must().Query("SELECT goods_id FROM products WHERE stock_count < 0")
+	rows, e := db.Must().Query("SELECT goods_id FROM products WHERE stock_count < 0 AND fulfillment <> 'self'")
 	if e != nil {
 		return nil
 	}

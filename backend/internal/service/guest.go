@@ -78,6 +78,35 @@ func guestProduct(goodsID, count int, discount float64) (*model.Product, *model.
 	if product.Enabled != 1 {
 		return nil, nil, 0, errors.New("商品已下架")
 	}
+	if product.Fulfillment == "self" {
+		avail := store.SelfStockCount(goodsID)
+		if count > avail {
+			return nil, nil, 0, errors.New("库存不足")
+		}
+		if discount <= 0 || discount > 1 {
+			discount = 1
+		}
+		amount := round4(product.FinalPrice * discount * float64(count))
+		if amount <= 0 {
+			return nil, nil, 0, errors.New("商品价格异常")
+		}
+		name := product.Name
+		if product.CustomName != nil && *product.CustomName != "" {
+			name = *product.CustomName
+		}
+		desc := ""
+		if product.CustomDesc != nil {
+			desc = *product.CustomDesc
+		}
+		detail := &model.GoodsDetail{
+			RemoteProduct: model.RemoteProduct{
+				GoodsID: goodsID, Name: name, SalesPrice: product.FinalPrice,
+				Status: product.Status, StockCount: avail,
+			},
+			MinQuantity: 1, MaxQuantity: 999999, GoodsDescribe: desc,
+		}
+		return product, detail, amount, nil
+	}
 	detail, err := upstream.GetDetail(goodsID)
 	if err != nil {
 		return nil, nil, 0, err

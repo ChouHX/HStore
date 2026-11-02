@@ -556,6 +556,23 @@ func RecomputeAllLevels() int {
 // ===== 公告 =====
 
 // ListAnnouncements 列出公告。
+// AdminEmails 返回所有配置了邮箱的管理员地址，用于库存告警等运营通知。
+func AdminEmails() []string {
+	rows, e := db.Must().Query("SELECT email FROM users WHERE role='admin' AND COALESCE(email,'') <> ''")
+	if e != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) == nil && v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 func ListAnnouncements() []model.Announcement {
 	rows, e := db.Must().Query("SELECT id, type, title, content, enabled, sort, created_at, updated_at FROM announcements ORDER BY type ASC, sort DESC, id DESC")
 	if e != nil {

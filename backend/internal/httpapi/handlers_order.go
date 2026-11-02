@@ -164,16 +164,32 @@ func (a *API) handleCardVoid(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
-	user := requireUser(w, r)
-	if user == nil {
-		return
-	}
 	var body struct {
 		Code string `json:"code"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
 		return
+	}
+	user := sessionUser(r)
+	if user == nil {
+		// 旧 Redeem 的兑换码本来就不要求登录；匿名兑换只允许「商品码」，
+		// 余额码仍然必须登录，避免把余额发到临时游客账号上。
+		if !allowQuery(clientIP(r)) {
+			fail(w, http.StatusTooManyRequests, "操作过于频繁，请稍后再试")
+			return
+		}
+		row := store.GetCodeByCode(body.Code)
+		if row == nil || row.GoodsID == nil {
+			fail(w, http.StatusUnauthorized, "请先登录后再兑换")
+			return
+		}
+		guest, e := store.CreateGuestUser()
+		if e != nil {
+			fail(w, http.StatusInternalServerError, "兑换失败，请稍后重试")
+			return
+		}
+		user = guest
 	}
 	res := service.Redeem(user.UID, body.Code)
 	fresh := store.GetUser(user.UID)

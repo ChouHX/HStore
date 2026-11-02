@@ -273,7 +273,8 @@ func scanProduct(sc interface{ Scan(...any) error }) (model.Product, error) {
 	e := sc.Scan(&p.GoodsID, &p.Name, &p.FaceValue, &p.SalesPrice, &p.GoodsType, &p.WarrantyDays,
 		&p.Status, &p.Multiple, &p.IsRepeat, &p.IsRefOrder, &p.IsRefMoney, &p.SkuType,
 		&p.ImgURL, &dirs, &p.Platform, &updated, &p.StockCount, &cname, &cdesc, &cimg,
-		&rootInt, &p.CostPrice, &p.FinalPrice, &p.Enabled, &manual, &p.PriceLocked)
+		&rootInt, &p.CostPrice, &p.FinalPrice, &p.Enabled, &manual, &p.PriceLocked,
+		&p.Fulfillment, &p.FallbackGoodsID)
 	if e != nil {
 		return p, e
 	}
@@ -298,13 +299,17 @@ func scanProduct(sc interface{ Scan(...any) error }) (model.Product, error) {
 		v := manual.Float64
 		p.ManualPrice = &v
 	}
+	if p.Fulfillment == "self" {
+		// 自营商品的库存永远是本地可用条数，不信任上游同步值
+		p.StockCount = SelfStockCount(p.GoodsID)
+	}
 	return p, nil
 }
 
 const productCols = `goods_id, name, face_value, sales_price, goods_type, warranty_days, status,
 multiple, is_repeat, is_ref_order, is_ref_money, sku_type, img_url, dir_ids, platform,
 updated_at, stock_count, custom_name, custom_desc, custom_img, root_category_id,
-cost_price, final_price, enabled, manual_price, price_locked`
+cost_price, final_price, enabled, manual_price, price_locked, fulfillment, fallback_goods_id`
 
 // GetProduct 按 goods_id 取商品。
 func GetProduct(goodsID int) *model.Product {

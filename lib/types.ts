@@ -72,6 +72,10 @@ export interface Product {
   customDesc: string | null;
   customImg: string | null;
   updatedAt: number;
+  /** 发货方式：upstream（上游）/ self（自营库存） */
+  fulfillment?: "upstream" | "self";
+  /** 自营库存不足时采购的上游商品 ID，0 表示不采购 */
+  fallbackGoodsId?: number;
 }
 
 export interface SyncResult {

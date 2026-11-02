@@ -94,6 +94,23 @@ type Product struct {
 	CustomDesc     *string  `json:"customDesc"`
 	CustomImg      *string  `json:"customImg"`
 	UpdatedAt      int64    `json:"updatedAt"`
+	// Fulfillment 发货方式：upstream（默认，调上游）/ self（自营库存直发）
+	Fulfillment string `json:"fulfillment"`
+	// FallbackGoodsID 自营库存不足时用于采购的上游商品 ID，0 表示不采购
+	FallbackGoodsID int `json:"fallbackGoodsId"`
+}
+
+// SelfStock 是自营商品的一条本地卡密。
+type SelfStock struct {
+	ID          int    `json:"id"`
+	GoodsID     int    `json:"goodsId"`
+	Content     string `json:"content"`
+	Status      string `json:"status"`
+	OrderNumber string `json:"orderNumber"`
+	Source      string `json:"source"`
+	SourceID    string `json:"sourceId"`
+	CreatedAt   int64  `json:"createdAt"`
+	SoldAt      int64  `json:"soldAt"`
 }
 
 type AdminProduct struct {

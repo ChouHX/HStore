@@ -52,11 +52,15 @@ func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]upstream.StockItem, 0, len(ids))
 	for _, id := range ids {
-		stock := -1
-		if p := store.GetProduct(id); p != nil {
-			stock = p.StockCount
+		p := store.GetProduct(id)
+		if p == nil {
+			continue
 		}
-		items = append(items, upstream.StockItem{GoodsID: id, StockCount: stock})
+		// 自营商品的库存来自本地库存表，不能拿去请求上游
+		if p.Fulfillment == "self" {
+			continue
+		}
+		items = append(items, upstream.StockItem{GoodsID: id, StockCount: p.StockCount})
 	}
 	upstream.RefreshStockForProducts(items, 20)
 
@@ -79,6 +83,11 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "缺少商品编号")
 		return
 	}
+	if p := store.GetProduct(id); p != nil && p.Fulfillment == "self" {
+		detail := selfProductDetail(p)
+		ok(w, map[string]any{"detail": detail})
+		return
+	}
 	if !upstream.IsConfigured() {
 		fail(w, http.StatusBadRequest, "未配置 App-Id")
 		return
@@ -89,6 +98,32 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ok(w, map[string]any{"detail": withLocalImage(withLocalStock(id, raw))})
+}
+
+// selfProductDetail 为自营商品构造与上游一致的详情结构。
+func selfProductDetail(p *model.Product) model.GoodsDetail {
+	name := p.Name
+	if p.CustomName != nil && strings.TrimSpace(*p.CustomName) != "" {
+		name = strings.TrimSpace(*p.CustomName)
+	}
+	desc := ""
+	if p.CustomDesc != nil {
+		desc = *p.CustomDesc
+	}
+	img := p.ImgURL
+	if p.CustomImg != nil && *p.CustomImg != "" {
+		img = *p.CustomImg
+	}
+	return model.GoodsDetail{
+		RemoteProduct: model.RemoteProduct{
+			GoodsID: p.GoodsID, Name: name, SalesPrice: p.FinalPrice, FaceValue: p.FaceValue,
+			GoodsType: p.GoodsType, WarrantyDays: p.WarrantyDays, Status: p.Status,
+			ImgURL: img, StockCount: p.StockCount,
+		},
+		MinQuantity:   1,
+		MaxQuantity:   999999,
+		GoodsDescribe: desc,
+	}
 }
 
 // withLocalStock 用本地库存覆盖详情缓存里的旧值。

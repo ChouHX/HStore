@@ -119,7 +119,9 @@ CREATE TABLE IF NOT EXISTS products (
   root_category_id INTEGER,
   stock_synced_at INTEGER NOT NULL DEFAULT 0,
   detail_json  TEXT    NOT NULL DEFAULT '',
-  detail_synced_at INTEGER NOT NULL DEFAULT 0
+  detail_synced_at INTEGER NOT NULL DEFAULT 0,
+  fulfillment TEXT NOT NULL DEFAULT 'upstream',
+  fallback_goods_id INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -254,6 +256,21 @@ CREATE TABLE IF NOT EXISTS redeem_failures (
   uid        INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+-- 自营库存：一行一条卡密（如邮箱账号整行），发货时不调上游
+CREATE TABLE IF NOT EXISTS self_stock (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  goods_id     INTEGER NOT NULL,
+  content      TEXT    NOT NULL,
+  status       TEXT    NOT NULL DEFAULT 'available',
+  order_number TEXT    NOT NULL DEFAULT '',
+  source       TEXT    NOT NULL DEFAULT '',
+  source_id    TEXT    NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  sold_at      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_self_stock_goods ON self_stock(goods_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_self_stock_source ON self_stock(source, source_id) WHERE source_id <> '';
 
 CREATE TABLE IF NOT EXISTS bybit_pool (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -561,7 +578,7 @@ func newLegacyOrderNo(old string) string {
 }
 
 func migrate(db *sql.DB) error {
-	if e := addColumns(db, "products", [][2]string{		{"cost_price", "REAL NOT NULL DEFAULT 0"},
+	if e := addColumns(db, "products", [][2]string{{"cost_price", "REAL NOT NULL DEFAULT 0"},
 		{"final_price", "REAL NOT NULL DEFAULT 0"},
 		{"enabled", "INTEGER NOT NULL DEFAULT 1"},
 		{"manual_price", "REAL"},
@@ -680,6 +697,12 @@ func migrate(db *sql.DB) error {
 		return e
 	}
 
+	if e := addColumns(db, "products", [][2]string{
+		{"fulfillment", "TEXT NOT NULL DEFAULT 'upstream'"},
+		{"fallback_goods_id", "INTEGER NOT NULL DEFAULT 0"},
+	}); e != nil {
+		return e
+	}
 	if e := addColumns(db, "redeem_codes", [][2]string{
 		{"start_at", "INTEGER"},
 		{"end_at", "INTEGER"},

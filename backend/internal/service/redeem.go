@@ -46,6 +46,15 @@ func Redeem(uid int, rawCode string) RedeemResult {
 		store.RecordFailure(uid)
 		return RedeemResult{Message: "兑换码已作废", Kind: kind}
 	case "used":
+		// 兑换码本身就是凭证：再次输入时直接载入原订单，方便老用户回看/取件
+		if kind == "product" && row.OrderNumber != "" {
+			if order := store.GetOrder(row.OrderNumber); order != nil {
+				return RedeemResult{
+					OK: true, Kind: "product", Message: "兑换码已使用，已载入原订单",
+					Order: order, OrderNumber: order.OrderNumber,
+				}
+			}
+		}
 		store.RecordFailure(uid)
 		return RedeemResult{Message: "兑换码已被使用", Kind: kind}
 	case "redeeming":

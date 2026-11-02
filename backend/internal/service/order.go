@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"hstore/backend/internal/model"
@@ -63,11 +64,15 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	if product == nil {
 		return PlaceOrderResult{Message: "商品不存在", Status: 400}
 	}
-	if source == "user" && product.Enabled != 1 {
+	// 兑换码核销不受上下架影响：迁移过来的自营商品默认下架，只用来兑码
+	if source == "user" && product.Enabled != 1 && payment != "code" {
 		return PlaceOrderResult{Message: "商品已下架", Status: 400}
 	}
 	if (source == "user" || source == "guest") && user.Status != "active" {
 		return PlaceOrderResult{Message: "账号已被冻结", Status: 400}
+	}
+	if product.Fulfillment == "self" {
+		return placeSelfOrder(opts, product, count, source, payment)
 	}
 
 	detail, e := upstream.GetDetail(opts.GoodsID)
@@ -184,6 +189,171 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	}
 
 	return PlaceOrderResult{OK: true, Order: store.GetOrder(orderNumber), Status: 200}
+}
+
+// placeSelfOrder 处理自营商品：优先发本地库存；库存不足时（仅兑换码场景）
+// 可选用 fallback_goods_id 向上游采购差额，最终合并成一个订单。
+func placeSelfOrder(opts PlaceOrderOptions, product *model.Product, count int, source, payment string) PlaceOrderResult {
+	user := opts.User
+	if count < 1 {
+		count = 1
+	}
+	if count > 999999 {
+		return PlaceOrderResult{Message: "购买数量过大", Status: 400}
+	}
+	available := store.SelfStockCount(opts.GoodsID)
+	isCode := payment == "code"
+
+	// 兑换码允许「本地 + 上游采购」补齐；直接购买只认本地库存。
+	if !isCode && count > available {
+		return PlaceOrderResult{Message: "库存不足", Status: 400}
+	}
+	fallbackID := product.FallbackGoodsID
+	upstreamNeed := 0
+	if isCode && count > available {
+		if fallbackID <= 0 {
+			notifySelfStockShortage(product, count, available)
+			return PlaceOrderResult{Message: "自营库存不足，请联系管理员补货", Status: 400}
+		}
+		upstreamNeed = count - available
+	}
+
+	discount := 1.0
+	if source == "user" || source == "guest" {
+		discount = store.GetLevelDiscount(user.LevelID)
+	}
+	unitPrice := round4(product.FinalPrice * discount)
+	saleMoney := round4(unitPrice * float64(count))
+	if opts.SaleMoney != nil {
+		saleMoney = round4(*opts.SaleMoney)
+	}
+	if isCode {
+		saleMoney = 0
+	}
+
+	// 自营部分的成本按商品成本价；上游差额按兜底商品成本价。
+	localCount := count - upstreamNeed
+	costMoney := round4(product.CostPrice * float64(localCount))
+
+	orderNumber := store.NewSystemOrderNo()
+	outerNumber := opts.OuterNum
+	if outerNumber == "" {
+		outerNumber = genOuterNumber()
+	}
+
+	var reserved []model.SelfStock
+	if localCount > 0 {
+		cards, e := store.ReserveSelfStock(opts.GoodsID, localCount, orderNumber)
+		if e != nil {
+			return PlaceOrderResult{Message: e.Error(), Status: 400}
+		}
+		reserved = cards
+	}
+
+	deducted := false
+	if payment == "balance" && (source == "user" || source == "guest") {
+		ok, msg, _, _ := store.Consume(user.UID, saleMoney, "")
+		if !ok {
+			store.ReleaseSelfStock(orderNumber)
+			return PlaceOrderResult{Message: msg, Status: 400}
+		}
+		deducted = true
+	}
+
+	// card_id 是 cards 表主键，自营卡密必须逐条生成唯一 ID，
+	// 否则 ON CONFLICT 会把多条压缩成一条。
+	allCards := make([]model.Card, 0, count)
+	for _, it := range reserved {
+		allCards = append(allCards, model.Card{CardID: fmt.Sprintf("SELF-%d", it.ID), CardNo: it.Content, CardPwd: ""})
+	}
+
+	upstreamOrderNo := ""
+	if upstreamNeed > 0 {
+		detail, e := upstream.GetDetail(fallbackID)
+		if e != nil {
+			store.ReleaseSelfStock(orderNumber)
+			if deducted {
+				store.RefundConsume(user.UID, saleMoney, "", "兜底商品信息获取失败退回")
+			}
+			return PlaceOrderResult{Message: "获取兜底商品失败：" + e.Error(), Status: 500}
+		}
+		if detail.Status != 1 {
+			store.ReleaseSelfStock(orderNumber)
+			if deducted {
+				store.RefundConsume(user.UID, saleMoney, "", "兜底商品不可售退回")
+			}
+			return PlaceOrderResult{Message: "兜底商品当前不可售", Status: 400}
+		}
+		if detail.StockCount > 0 && upstreamNeed > detail.StockCount {
+			store.ReleaseSelfStock(orderNumber)
+			if deducted {
+				store.RefundConsume(user.UID, saleMoney, "", "兜底商品库存不足退回")
+			}
+			return PlaceOrderResult{Message: "兜底商品库存不足", Status: 400}
+		}
+		res, e := upstream.CreateOrder(upstream.CreateOrderParams{
+			GoodsID: fallbackID, Count: upstreamNeed, OuterNumber: outerNumber,
+			SafePrice: round4(detail.SalesPrice * float64(upstreamNeed)), Attach: opts.Attach,
+		})
+		if e != nil {
+			store.ReleaseSelfStock(orderNumber)
+			if deducted {
+				store.RefundConsume(user.UID, saleMoney, "", "上游采购失败退回")
+			}
+			return PlaceOrderResult{Message: "上游采购失败：" + e.Error(), Status: 500}
+		}
+		upstreamOrderNo = res.OrderNumber
+		allCards = append(allCards, res.Cards...)
+		costMoney = round4(costMoney + detail.SalesPrice*float64(upstreamNeed))
+	}
+
+	status := 1
+	if len(allCards) >= count {
+		status = 3
+	}
+	remark := opts.Remark
+	if remark == "" {
+		if upstreamNeed > 0 {
+			remark = fmt.Sprintf("自营 %d 件 + 上游采购 %d 件", localCount, upstreamNeed)
+		} else {
+			remark = "自营发货"
+		}
+	}
+	store.UpsertOrder(store.UpsertOrderInput{
+		OrderNumber:     orderNumber,
+		UpstreamOrderNo: upstreamOrderNo,
+		OuterNumber:     outerNumber,
+		GoodsID:         opts.GoodsID,
+		GoodsName:       productDisplayName(product),
+		Count:           count,
+		Money:           saleMoney,
+		Status:          status,
+		Result:          remark,
+		Platform:        product.Platform,
+		UserUID:         &user.UID,
+		SaleMoney:       saleMoney,
+		CostMoney:       costMoney,
+		Source:          source,
+		Contact:         opts.Contact,
+	})
+	if len(allCards) > 0 {
+		store.UpsertCards(orderNumber, allCards)
+	}
+	store.FinishSelfStock(orderNumber)
+
+	if payment == "balance" && (source == "user" || source == "guest") && len(allCards) > 0 {
+		store.SettleConsumption(user.UID, saleMoney, orderNumber)
+		store.MarkSettled(orderNumber)
+	}
+
+	return PlaceOrderResult{OK: true, Order: store.GetOrder(orderNumber), Status: 200}
+}
+
+func productDisplayName(p *model.Product) string {
+	if p.CustomName != nil && strings.TrimSpace(*p.CustomName) != "" {
+		return strings.TrimSpace(*p.CustomName)
+	}
+	return p.Name
 }
 
 func round4(v float64) float64 {

@@ -220,6 +220,8 @@ export function PickupPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [redeeming, setRedeeming] = useState(false);
 
   const accounts = useMemo(() => {
     const map = new Map<string, PickupAccount>();
@@ -239,6 +241,69 @@ export function PickupPage() {
 
   const existingEmails = useMemo(() => new Set(accounts.map((a) => a.email.toLowerCase())), [accounts]);
   const parsed = useMemo(() => parseBatch(importText, existingEmails), [importText, existingEmails]);
+
+  async function redeemCode() {
+    const code = codeInput.trim();
+    if (!code) {
+      Message.warning("请输入兑换码");
+      return;
+    }
+    setRedeeming(true);
+    try {
+      const j = await fetch("/api/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      }).then((r) => r.json());
+      if (!j.ok) {
+        Message.error(j.message ?? "兑换失败");
+        return;
+      }
+      const order = j.order as
+        | { orderNumber?: string; cards?: { cardNo?: string; cardPwd?: string }[] }
+        | undefined;
+      const cards = order?.cards ?? [];
+      if (cards.length === 0) {
+        Message.info(j.message || "兑换成功，暂未返回卡密");
+        return;
+      }
+      const now = Date.now();
+      const rows: PickupAccount[] = cards
+        .map((card, i) => {
+          const account = [card.cardNo, card.cardPwd].filter(Boolean).join("----");
+          const email = emailOf({ id: "", email: "", source: "import", account, createdAt: now });
+          return {
+            id: "code-" + (order?.orderNumber ?? code) + "-" + i,
+            email,
+            source: "import" as const,
+            account,
+            createdAt: now + i,
+          };
+        })
+        .filter((row) => row.email);
+      if (rows.length === 0) {
+        Message.error("卡密格式无法识别为邮箱账号");
+        return;
+      }
+      const merged = [...imported];
+      for (const row of rows) {
+        if (!merged.some((m) => m.email.toLowerCase() === row.email.toLowerCase())) {
+          merged.push(row);
+        }
+      }
+      setImported(merged);
+      saveImported(merged);
+      setSelectedId(rows[0].id);
+      setTarget(null);
+      setPage(1);
+      setCodeInput("");
+      Message.success("已载入 " + rows.length + " 个邮箱账号");
+    } catch {
+      Message.error("兑换失败，请稍后重试");
+    } finally {
+      setRedeeming(false);
+    }
+  }
 
   function selectAccount(account: PickupAccount) {
     setSelectedId(account.id);
@@ -339,6 +404,26 @@ export function PickupPage() {
             </Button>
           </Space>
         </div>
+
+        <Card bordered={false} bodyStyle={{ padding: 12 }}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] text-[#86909c]">
+                有兑换码？输入后自动兑换并载入邮箱（老兑换码同样可用）。
+              </div>
+              <Input
+                value={codeInput}
+                onChange={setCodeInput}
+                onPressEnter={redeemCode}
+                placeholder="兑换码，如 XXXX-XXXX-XXXX"
+                allowClear
+              />
+            </div>
+            <Button type="primary" loading={redeeming} onClick={redeemCode}>
+              兑换 / 载入
+            </Button>
+          </div>
+        </Card>
 
         <div className="flex min-h-0 flex-1 gap-3">
           <aside className="hidden w-[300px] shrink-0 lg:block">

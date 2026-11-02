@@ -12,6 +12,7 @@ import {
   Popconfirm,
   Popover,
   Space,
+  Switch,
   Table,
   Tag,
 } from "@arco-design/web-react";
@@ -120,6 +121,15 @@ export function ProductsSection() {
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [priceModal, setPriceModal] = useState<{ goodsId: number; name: string; price: number; locked: boolean } | null>(null);
+  const [selfModal, setSelfModal] = useState<{
+    goodsId: number;
+    name: string;
+    self: boolean;
+    fallback: number;
+    stock: number;
+    content: string;
+    items: { id: number; content: string; status: string }[];
+  } | null>(null);
   const [editTarget, setEditTarget] = useState<{
     goodsId: number;
     name: string;
@@ -352,6 +362,73 @@ export function ProductsSection() {
     } else Message.error(j.message ?? "清除失败");
   }, [editTarget, load]);
 
+  async function selfAction(body: Record<string, unknown>) {
+    const j = await fetch("/api/admin/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+    if (!j.ok) {
+      Message.error(j.message ?? "操作失败");
+      return null;
+    }
+    return j;
+  }
+
+  async function loadSelfStock(goodsId: number) {
+    const j = await selfAction({ action: "self-stock", goodsId });
+    if (!j) return;
+    setSelfModal((m) =>
+      m && m.goodsId === goodsId
+        ? { ...m, stock: j.stockCount, items: j.items ?? [] }
+        : m,
+    );
+  }
+
+  async function saveSelf() {
+    if (!selfModal) return;
+    const j = await selfAction({
+      action: "self-save",
+      goodsId: selfModal.goodsId,
+      self: selfModal.self,
+      fallbackGoodsId: selfModal.fallback,
+    });
+    if (!j) return;
+    Message.success("已保存自营设置");
+    setSelfModal({ ...selfModal, stock: j.stockCount });
+    load();
+  }
+
+  async function importSelfStock() {
+    if (!selfModal || !selfModal.content.trim()) {
+      Message.warning("请粘贴卡密内容，一行一条");
+      return;
+    }
+    const j = await selfAction({
+      action: "self-import",
+      goodsId: selfModal.goodsId,
+      content: selfModal.content,
+    });
+    if (!j) return;
+    Message.success(`已导入 ${j.added} 条，跳过 ${j.skipped} 条`);
+    setSelfModal({ ...selfModal, content: "", stock: j.stockCount });
+    await loadSelfStock(selfModal.goodsId);
+    load();
+  }
+
+  async function deleteSelfStock(stockId: number) {
+    if (!selfModal) return;
+    const j = await selfAction({
+      action: "self-delete",
+      goodsId: selfModal.goodsId,
+      stockId,
+    });
+    if (!j) return;
+    Message.success("已删除");
+    await loadSelfStock(selfModal.goodsId);
+    load();
+  }
+
   const hasFilter = Boolean(keyword) || rootIds.length > 0 || subIds.length > 0 || enabledList.length > 0;
 
   const columns = [
@@ -468,6 +545,17 @@ export function ProductsSection() {
                   );
                 } else if (key === "edit") {
                   openEdit(r);
+                } else if (key === "self") {
+                  setSelfModal({
+                    goodsId: r.goodsId,
+                    name: r.name,
+                    self: r.fulfillment === "self",
+                    fallback: r.fallbackGoodsId ?? 0,
+                    stock: r.stockCount,
+                    content: "",
+                    items: [],
+                  });
+                  void loadSelfStock(r.goodsId);
                 } else if (key === "price") {
                   setPriceModal({
                     goodsId: r.goodsId,
@@ -487,6 +575,7 @@ export function ProductsSection() {
             >
               <Menu.Item key="toggle">{r.enabled === 1 ? "下架" : "上架"}</Menu.Item>
               <Menu.Item key="edit">编辑信息</Menu.Item>
+              <Menu.Item key="self">自营设置</Menu.Item>
               <Menu.Item key="price">锁价</Menu.Item>
               <Menu.Item key="delete" style={{ color: "#f53f3f" }}>
                 删除
@@ -672,6 +761,86 @@ export function ProductsSection() {
                 placeholder="与上游相同则使用上游图片"
               />
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={selfModal ? `自营设置 #${selfModal.goodsId}` : ""}
+        visible={selfModal !== null}
+        onCancel={() => setSelfModal(null)}
+        footer={
+          <Space>
+            <Button onClick={() => setSelfModal(null)}>关闭</Button>
+            <Button type="primary" onClick={saveSelf}>
+              保存设置
+            </Button>
+          </Space>
+        }
+        style={{ width: 620 }}
+        unmountOnExit
+      >
+        {selfModal && (
+          <div className="flex flex-col gap-3">
+            <div className="text-[12px] text-[#4e5969]">{selfModal.name}</div>
+            <div className="flex items-center gap-6">
+              <span className="flex items-center gap-2 text-[12px] text-[#4e5969]">
+                自营发货
+                <Switch
+                  checked={selfModal.self}
+                  onChange={(v) => setSelfModal({ ...selfModal, self: v })}
+                />
+              </span>
+              <span className="text-[12px] text-[#86909c]">
+                当前可用库存 <b className={selfModal.stock > 0 ? "text-[#00b42a]" : "text-[#f53f3f]"}>{selfModal.stock}</b> 条
+              </span>
+            </div>
+            <div>
+              <div className="mb-1 text-[12px] text-[#4e5969]">兜底上游商品 ID（可空）</div>
+              <InputNumber
+                value={selfModal.fallback}
+                min={0}
+                style={{ width: 180 }}
+                onChange={(v) => setSelfModal({ ...selfModal, fallback: Number(v) || 0 })}
+              />
+              <div className="mt-1 text-[11px] text-[#86909c]">
+                自营库存不足时，用该上游商品补齐差额；留 0 则库存不足直接提示。
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 text-[12px] text-[#4e5969]">导入卡密（一行一条）</div>
+              <Input.TextArea
+                value={selfModal.content}
+                onChange={(v) => setSelfModal({ ...selfModal, content: v })}
+                autoSize={{ minRows: 4, maxRows: 8 }}
+                placeholder="邮箱----密码----clientid----refreshtoken"
+              />
+              <div className="mt-2">
+                <Button size="small" type="primary" onClick={importSelfStock}>
+                  导入库存
+                </Button>
+              </div>
+            </div>
+            {selfModal.items.length > 0 && (
+              <div className="max-h-[220px] overflow-y-auto rounded border border-[#e5e6eb]">
+                {selfModal.items.map((it) => (
+                  <div
+                    key={it.id}
+                    className="flex items-center gap-2 border-b border-[#f2f3f5] px-2 py-1.5 last:border-b-0"
+                  >
+                    <Tag size="small" color={it.status === "available" ? "green" : "gray"}>
+                      {it.status === "available" ? "可用" : it.status}
+                    </Tag>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px]">{it.content}</span>
+                    {it.status === "available" && (
+                      <Button size="mini" status="danger" onClick={() => deleteSelfStock(it.id)}>
+                        删除
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>
