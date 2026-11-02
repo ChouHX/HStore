@@ -16,10 +16,10 @@
 --    清理语句 DELETE ... WHERE platform IN ('microsoft','google')
 --                AND COALESCE(fulfillment,'upstream') <> 'self'
 --    → fulfillment='self' 的行被排除，同步不会删除它们；
---    商品 UPSERT 的 ON CONFLICT ... DO UPDATE 列表里**没有** fulfillment /
+--    商品 UPSERT 的 ON CONFLICT ... DO UPDATE 列表里没有 fulfillment /
 --    fallback_goods_id → 同步不会把它们改回 upstream，也不会清掉 fallback；
---    但列表里**有** root_category_id → 同步后会被改回上游板块（17），
---    所以同步之后建议重跑一次本脚本（或 cmd/migrate_self）恢复 900001。
+--    root_category_id / final_price 已加 CASE 保护（fulfillment='self' 时保留原值），
+--    所以同步之后**不需要**重跑本脚本。脚本仍然幂等，重复执行无副作用。
 --    store.SaveCategories 里的 SelfDirs 会保护自营分类不被清理。
 -- ============================================================================
 
