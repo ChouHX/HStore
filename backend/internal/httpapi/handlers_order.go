@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"hstore/backend/internal/model"
 	"hstore/backend/internal/service"
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
@@ -358,8 +359,10 @@ func (a *API) handleOrderQuery(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"items": items, "total": len(items), "keyword": keyword})
 }
 
-// handleOrderQueryDetail 是公开订单详情：必须同时给出订单号与下单时的联系方式，
-// 联系方式相当于第二重校验，避免订单号被枚举后直接拿到卡密。
+// handleOrderQueryDetail 是公开订单详情：必须给出第二重校验凭证，避免订单号被枚举后
+// 直接拿到卡密。凭证有两种：
+//   - 下单时填写的联系方式（商城购买、游客购买的单都有 contact）；
+//   - 兑换码（兑换码取件单没有 contact，兑换码本身就是凭证）。
 func (a *API) handleOrderQueryDetail(w http.ResponseWriter, r *http.Request) {
 	if !allowQuery(clientIP(r)) {
 		fail(w, http.StatusTooManyRequests, "查询过于频繁，请稍后再试")
@@ -367,8 +370,9 @@ func (a *API) handleOrderQueryDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	orderNumber := strings.TrimSpace(r.URL.Query().Get("orderNumber"))
 	contact := strings.TrimSpace(r.URL.Query().Get("contact"))
-	if orderNumber == "" || contact == "" {
-		fail(w, http.StatusBadRequest, "请同时提供订单号与联系方式")
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if orderNumber == "" || (contact == "" && code == "") {
+		fail(w, http.StatusBadRequest, "请同时提供订单号与联系方式（或兑换码）")
 		return
 	}
 	order := store.GetOrder(orderNumber)
@@ -376,10 +380,25 @@ func (a *API) handleOrderQueryDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "订单不存在")
 		return
 	}
-	if order.Contact == "" || store.NormalizeContact(order.Contact) != store.NormalizeContact(contact) {
-		fail(w, http.StatusForbidden, "联系方式与订单不匹配")
+	if !publicOrderCredentialOK(order, contact, code) {
+		fail(w, http.StatusForbidden, "联系方式或兑换码与订单不匹配")
 		return
 	}
 	// 公开查询永远不返回上游单号。
 	ok(w, map[string]any{"order": hideUpstreamForUser(order, "guest")})
+}
+
+// publicOrderCredentialOK 校验公开查询的第二重凭证：联系方式或兑换码，任一匹配即可。
+// 兑换码取件单（含自营卡密单）下单链路不写 contact，只能用兑换码验证。
+func publicOrderCredentialOK(order *model.LocalOrder, contact, code string) bool {
+	if contact != "" && order.Contact != "" &&
+		store.NormalizeContact(order.Contact) == store.NormalizeContact(contact) {
+		return true
+	}
+	if code != "" {
+		if row := store.GetCodeByCode(code); row != nil && row.OrderNumber == order.OrderNumber {
+			return true
+		}
+	}
+	return false
 }

@@ -51,6 +51,12 @@ function copy(text: string) {
   Message.success("已复制");
 }
 
+// 兑换码形如 XXXX-XXXX-XXXX；订单号形如 HS + 十六进制，两者不会混淆。
+function looksLikeRedeemCode(v: string): boolean {
+  const s = v.trim();
+  return /^[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}$/.test(s);
+}
+
 /**
  * 公开的订单查询页：凭订单号或下单时的联系方式查。
  * 本机存过的订单会直接列出来，不用再输入。
@@ -113,7 +119,7 @@ export function OrderQueryPage() {
   async function search(kw?: string) {
     const v = (kw ?? keyword).trim();
     if (!v) {
-      Message.warning("请输入订单号或联系方式");
+      Message.warning("请输入订单号、兑换码或联系方式");
       return;
     }
     setLoading(true);
@@ -124,7 +130,7 @@ export function OrderQueryPage() {
         setItems([]);
       } else {
         setItems(j.items ?? []);
-        if ((j.items ?? []).length === 0) Message.info("没有找到对应订单，请确认订单号或联系方式");
+        if ((j.items ?? []).length === 0) Message.info("没有找到对应订单，请确认订单号、兑换码或联系方式");
       }
       setSearched(true);
       setPage(1);
@@ -140,7 +146,11 @@ export function OrderQueryPage() {
       navigate(`/g/${encodeURIComponent(it.token)}`);
       return;
     }
-    const qs = it.contact ? `?contact=${encodeURIComponent(it.contact)}` : "";
+    // 兑换码取件单没有联系方式，要把用户输入的兑换码带过去当第二重凭证。
+    const params = new URLSearchParams();
+    if (it.contact) params.set("contact", it.contact);
+    else if (looksLikeRedeemCode(keyword)) params.set("code", keyword.trim());
+    const qs = params.toString() ? `?${params.toString()}` : "";
     navigate(`/order/${encodeURIComponent(it.orderNumber)}${qs}`);
   }
 
@@ -167,7 +177,7 @@ export function OrderQueryPage() {
             <div className="text-center">
               <div className="text-[15px] font-medium text-[#1d2129]">查订单</div>
               <div className="mt-1 text-[12px] text-[#86909c]">
-                输入订单号或下单时填写的联系方式（手机 / 邮箱 / QQ），游客也能查。
+                输入订单号、兑换码或下单时填写的联系方式（手机 / 邮箱 / QQ），游客也能查。
               </div>
             </div>
             <div className="mx-auto flex w-full max-w-[520px] flex-col gap-2 sm:flex-row">

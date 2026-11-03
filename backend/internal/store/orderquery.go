@@ -55,8 +55,9 @@ func OrderStatusText(status int) string {
 	}
 }
 
-// QueryPublicOrders 按订单号或联系方式查订单摘要。
+// QueryPublicOrders 按订单号、联系方式或兑换码查订单摘要。
 // 联系方式精确匹配（邮箱忽略大小写），订单号精确匹配；游客凭证也认。
+// 兑换码取件单（含自营卡密单）没有联系方式，只能靠兑换码作为凭证查到。
 func QueryPublicOrders(keyword string, limit int) []model.PublicOrderItem {
 	keyword = strings.TrimSpace(keyword)
 	if keyword == "" {
@@ -66,11 +67,16 @@ func QueryPublicOrders(keyword string, limit int) []model.PublicOrderItem {
 		limit = 100
 	}
 	contact := NormalizeContact(keyword)
+	// 输入也可能是兑换码：先反查出它核销到的订单号，再并入匹配条件。
+	codeOrder := ""
+	if row := GetCodeByCode(keyword); row != nil {
+		codeOrder = row.OrderNumber
+	}
 
 	rows, err := db.Must().Query(`SELECT `+publicOrderCols+`
 		FROM orders o
-		WHERE o.order_number = ? OR lower(COALESCE(o.contact,'')) = ?
-		ORDER BY o.created_at DESC LIMIT ?`, keyword, contact, limit)
+		WHERE o.order_number = ? OR lower(COALESCE(o.contact,'')) = ? OR o.order_number = ?
+		ORDER BY o.created_at DESC LIMIT ?`, keyword, contact, codeOrder, limit)
 	out := []model.PublicOrderItem{}
 	if err == nil {
 		for rows.Next() {

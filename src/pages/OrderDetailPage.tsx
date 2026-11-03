@@ -129,6 +129,8 @@ export function OrderDetailPage() {
   const { token = "", orderNumber = "" } = useParams();
   const [search] = useSearchParams();
   const contact = search.get("contact") || "";
+  // 兑换码取件单（含自营卡密单）没有联系方式，用兑换码作为公开查询的第二重凭证。
+  const code = search.get("code") || "";
   const navigate = useNavigate();
   const user = useSession();
 
@@ -153,9 +155,13 @@ export function OrderDetailPage() {
             setError(j.message ?? "订单不存在或凭证已失效");
           }
         } else if (orderNumber) {
-          const j = contact
+          const j = contact || code
             ? await fetch(
-                `/api/orders/query/detail?${new URLSearchParams({ orderNumber, contact }).toString()}`,
+                `/api/orders/query/detail?${new URLSearchParams({
+                  orderNumber,
+                  ...(contact ? { contact } : {}),
+                  ...(code ? { code } : {}),
+                }).toString()}`,
               ).then((r) => r.json())
             : await fetch("/api/order/detail", {
                 method: "POST",
@@ -194,7 +200,7 @@ export function OrderDetailPage() {
         if (mode === "manual") setRefreshing(false);
       }
     },
-    [token, orderNumber, contact],
+    [token, orderNumber, contact, code],
   );
 
   useEffect(() => {
