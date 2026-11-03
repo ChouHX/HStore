@@ -52,7 +52,7 @@ export interface MailboxTarget {
   email?: string;
 }
 
-const FOLDERS = [
+export const MAIL_FOLDERS = [
   { key: "inbox", label: "收件箱" },
   { key: "spam", label: "垃圾邮件" },
 ];
@@ -72,6 +72,13 @@ function fmtTime(v: string): string {
 function senderName(a?: MailAddress): string {
   if (!a) return "";
   return a.emailAddress?.name?.trim() || a.emailAddress?.address?.trim() || "";
+}
+
+/** 上游错误可能是一整段 JSON，弹窗里只显示前一小段，避免糊满屏幕 */
+function shortErr(msg?: string): string {
+  const text = (msg ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "读取邮箱失败";
+  return text.length > 80 ? text.slice(0, 80) + "…" : text;
 }
 
 function copyEmail(email: string) {
@@ -131,12 +138,22 @@ export function MailboxPanel({
   target,
   onEmail,
   className = "",
+  folder: folderProp,
+  showToolbar = true,
 }: {
   target: MailboxTarget | null;
   onEmail?: (email: string) => void;
   className?: string;
+  /** 受控文件夹：由父级渲染「收件箱 / 垃圾邮件」切换时传入 */
+  folder?: string;
+  /** 隐藏顶部工具条（邮箱、文件夹、刷新），由父级自行渲染，避免邮箱重复出现 */
+  showToolbar?: boolean;
 }) {
-  const [folder, setFolder] = useState("inbox");
+  const [innerFolder, setInnerFolder] = useState("inbox");
+  const folder = folderProp ?? innerFolder;
+  const setFolder = (next: string) => {
+    if (folderProp === undefined) setInnerFolder(next);
+  };
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
@@ -176,7 +193,7 @@ export function MailboxPanel({
       } else {
         setItems([]);
         setTotal(0);
-        Message.error(j.message ?? "读取邮箱失败");
+        Message.error(shortErr(j.message));
       }
     } catch {
       Message.error("读取邮箱失败");
@@ -188,12 +205,18 @@ export function MailboxPanel({
   useEffect(() => {
     setActive(null);
     setPage(1);
-    setFolder("inbox");
-  }, [target?.account, target?.orderNumber, target?.cardId]);
+    if (folderProp === undefined) setInnerFolder("inbox");
+  }, [target?.account, target?.orderNumber, target?.cardId, folderProp]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // 受控模式下，父级切换文件夹时回到第一页并关闭详情
+  useEffect(() => {
+    setActive(null);
+    setPage(1);
+  }, [folderProp]);
 
   async function openMessage(m: MailMessage) {
     const base = payload();
@@ -207,7 +230,7 @@ export function MailboxPanel({
         body: JSON.stringify({ ...base, messageId: m.id }),
       }).then((r) => r.json());
       if (j.ok && j.result) setActive(j.result.item);
-      else Message.error(j.message ?? "读取邮件失败");
+      else Message.error(shortErr(j.message));
     } catch {
       Message.error("读取邮件失败");
     } finally {
@@ -217,6 +240,7 @@ export function MailboxPanel({
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>
+      {showToolbar && (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           {email ? (
@@ -234,7 +258,7 @@ export function MailboxPanel({
           <Tag size="small">{total} 封</Tag>
         </div>
         <div className="flex items-center gap-1">
-          {FOLDERS.map((f) => (
+          {MAIL_FOLDERS.map((f) => (
             <Button
               key={f.key}
               size="small"
@@ -253,6 +277,7 @@ export function MailboxPanel({
           </Button>
         </div>
       </div>
+      )}
 
       {active ? (
         <div className="flex flex-col gap-2">

@@ -15,6 +15,7 @@ import {
 } from "@arco-design/web-react";
 import {
   IconArrowLeft,
+  IconCopy,
   IconDelete,
   IconEmail,
   IconMenu,
@@ -23,7 +24,7 @@ import {
 } from "@arco-design/web-react/icon";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { MailboxPanel, type MailboxTarget } from "@/components/MailboxPanel";
+import { MAIL_FOLDERS, MailboxPanel, type MailboxTarget } from "@/components/MailboxPanel";
 import { useSession } from "@/src/hooks/useSession";
 
 interface PickupAccount {
@@ -220,8 +221,7 @@ export function PickupPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [codeInput, setCodeInput] = useState("");
-  const [redeeming, setRedeeming] = useState(false);
+  const [folder, setFolder] = useState("inbox");
 
   const accounts = useMemo(() => {
     const map = new Map<string, PickupAccount>();
@@ -242,72 +242,16 @@ export function PickupPage() {
   const existingEmails = useMemo(() => new Set(accounts.map((a) => a.email.toLowerCase())), [accounts]);
   const parsed = useMemo(() => parseBatch(importText, existingEmails), [importText, existingEmails]);
 
-  async function redeemCode() {
-    const code = codeInput.trim();
-    if (!code) {
-      Message.warning("请输入兑换码");
-      return;
-    }
-    setRedeeming(true);
-    try {
-      const j = await fetch("/api/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      }).then((r) => r.json());
-      if (!j.ok) {
-        Message.error(j.message ?? "兑换失败");
-        return;
-      }
-      const order = j.order as
-        | { orderNumber?: string; cards?: { cardNo?: string; cardPwd?: string }[] }
-        | undefined;
-      const cards = order?.cards ?? [];
-      if (cards.length === 0) {
-        Message.info(j.message || "兑换成功，暂未返回卡密");
-        return;
-      }
-      const now = Date.now();
-      const rows: PickupAccount[] = cards
-        .map((card, i) => {
-          const account = [card.cardNo, card.cardPwd].filter(Boolean).join("----");
-          const email = emailOf({ id: "", email: "", source: "import", account, createdAt: now });
-          return {
-            id: "code-" + (order?.orderNumber ?? code) + "-" + i,
-            email,
-            source: "import" as const,
-            account,
-            createdAt: now + i,
-          };
-        })
-        .filter((row) => row.email);
-      if (rows.length === 0) {
-        Message.error("卡密格式无法识别为邮箱账号");
-        return;
-      }
-      const merged = [...imported];
-      for (const row of rows) {
-        if (!merged.some((m) => m.email.toLowerCase() === row.email.toLowerCase())) {
-          merged.push(row);
-        }
-      }
-      setImported(merged);
-      saveImported(merged);
-      setSelectedId(rows[0].id);
-      setTarget(null);
-      setPage(1);
-      setCodeInput("");
-      Message.success("已载入 " + rows.length + " 个邮箱账号");
-    } catch {
-      Message.error("兑换失败，请稍后重试");
-    } finally {
-      setRedeeming(false);
-    }
+  function copyEmail(email: string) {
+    if (!email) return;
+    void navigator.clipboard?.writeText(email);
+    Message.success("已复制邮箱");
   }
 
   function selectAccount(account: PickupAccount) {
     setSelectedId(account.id);
     setTarget(null);
+    setFolder("inbox");
   }
 
   function pickup() {
@@ -405,26 +349,6 @@ export function PickupPage() {
           </Space>
         </div>
 
-        <Card bordered={false} bodyStyle={{ padding: 12 }}>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] text-[#86909c]">
-                有兑换码？输入后自动兑换并载入邮箱（老兑换码同样可用）。
-              </div>
-              <Input
-                value={codeInput}
-                onChange={setCodeInput}
-                onPressEnter={redeemCode}
-                placeholder="兑换码，如 XXXX-XXXX-XXXX"
-                allowClear
-              />
-            </div>
-            <Button type="primary" loading={redeeming} onClick={redeemCode}>
-              兑换 / 载入
-            </Button>
-          </div>
-        </Card>
-
         <div className="flex min-h-0 flex-1 gap-3">
           <aside className="hidden w-[300px] shrink-0 lg:block">
             <Card
@@ -449,27 +373,47 @@ export function PickupPage() {
           <section className="min-w-0 flex-1">
             <Card
               bordered={false}
-              title={
-                selected ? (
-                  <span className="font-mono text-[13px]">{selected.email}</span>
-                ) : (
-                  <span className="text-[13px] text-[#86909c]">未选择账号</span>
-                )
-              }
-              extra={
-                <Button size="mini" type="primary" icon={<IconEmail />} disabled={!selected} onClick={pickup}>
-                  取件
-                </Button>
-              }
               style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
               bodyStyle={{ padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
             >
-              <div className="min-h-0 flex-1 overflow-auto">
+              {/* 邮箱、文件夹、取件都放在这一行；下方只显示取件结果，避免邮箱重复出现两次 */}
+              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[#f2f3f5] pb-2">
+                {selected ? (
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate font-mono text-[13px]">{selected.email}</span>
+                    <Button
+                      size="mini"
+                      type="text"
+                      icon={<IconCopy />}
+                      aria-label="复制邮箱"
+                      onClick={() => copyEmail(selected.email)}
+                    />
+                  </span>
+                ) : (
+                  <span className="text-[13px] text-[#86909c]">未选择账号</span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  {MAIL_FOLDERS.map((f) => (
+                    <Button
+                      key={f.key}
+                      size="small"
+                      type={folder === f.key ? "primary" : "secondary"}
+                      onClick={() => setFolder(f.key)}
+                    >
+                      {f.label}
+                    </Button>
+                  ))}
+                  <Button size="small" type="primary" icon={<IconEmail />} disabled={!selected} onClick={pickup}>
+                    取件
+                  </Button>
+                </div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto pt-3">
                 {target ? (
-                  <MailboxPanel key={"pickup-" + nonce} target={target} />
+                  <MailboxPanel key={"pickup-" + nonce} target={target} folder={folder} showToolbar={false} />
                 ) : (
                   <div className="flex h-full items-center justify-center">
-                    <Empty description={selected ? "点击右上角「取件」读取邮箱" : "选择账号后点击「取件」"} />
+                    <Empty description={selected ? "选择文件夹后点击「取件」读取邮箱" : "选择账号后点击「取件」"} />
                   </div>
                 )}
               </div>

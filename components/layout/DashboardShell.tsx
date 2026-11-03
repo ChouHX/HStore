@@ -20,6 +20,7 @@ import {
   IconSettings,
   IconStorage,
   IconTag,
+  IconThunderbolt,
   IconTrophy,
   IconUserGroup,
 } from "@arco-design/web-react/icon";
@@ -48,6 +49,7 @@ const ICONS: Record<string, React.ReactNode> = {
   overview: <IconDashboard />,
   products: <IconApps />,
   productInfo: <IconEdit />,
+  self: <IconThunderbolt />,
   catalog: <IconStorage />,
   announcements: <IconNotification />,
   crypto: <IconSafe />,
