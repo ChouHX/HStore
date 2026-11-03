@@ -462,16 +462,6 @@ function StocksTab() {
       render: (v: number) => <span className="font-mono text-[12px]">{v}</span>,
     },
     {
-      title: "商品",
-      dataIndex: "goodsName",
-      width: 200,
-      render: (_: unknown, r: SelfStock) => (
-        <span className="text-[12px]">
-          <span className="font-mono text-[#86909c]">{r.goodsId}</span> {r.goodsName}
-        </span>
-      ),
-    },
-    {
       title: "卡密内容",
       dataIndex: "content",
       ellipsis: true,
@@ -586,7 +576,7 @@ function StocksTab() {
         loading={loading}
         columns={columns}
         data={items}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 820 }}
         rowSelection={{
           selectedRowKeys: selected,
           onChange: (keys) => setSelected(keys as number[]),

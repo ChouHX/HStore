@@ -22,6 +22,7 @@ import {
   IconTag,
   IconThunderbolt,
   IconTrophy,
+  IconUser,
   IconUserGroup,
 } from "@arco-design/web-react/icon";
 import { Link } from "react-router-dom";
@@ -217,11 +218,25 @@ export function DashboardShell({ user, nav, children }: Props) {
                     else if (key === "logout") logout();
                   }}
                 >
-                  <Menu.Item key="account">个人中心</Menu.Item>
-                  {canAdmin && !adminArea && <Menu.Item key="admin">管理后台</Menu.Item>}
-                  <Menu.Item key="shop">返回商城</Menu.Item>
+                  <Menu.Item key="account">
+                    <span className="inline-flex items-center gap-2">
+                      <IconUser /> 个人中心
+                    </span>
+                  </Menu.Item>
+                  {canAdmin && !adminArea && (
+                    <Menu.Item key="admin">
+                      <span className="inline-flex items-center gap-2">
+                        <IconDashboard /> 管理后台
+                      </span>
+                    </Menu.Item>
+                  )}
+                  <Menu.Item key="shop">
+                    <span className="inline-flex items-center gap-2">
+                      <IconHome /> 返回商城
+                    </span>
+                  </Menu.Item>
                   <Menu.Item key="logout">
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-2">
                       <IconPoweroff /> 退出登录
                     </span>
                   </Menu.Item>

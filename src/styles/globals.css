@@ -146,3 +146,13 @@ body {
   min-height: 0;
   overflow-y: auto;
 }
+
+/* Tailwind preflight 会把 svg 设为 display:block，导致 Arco 表单项的必填星号独占一行 */
+.arco-form-item-symbol > svg {
+  display: inline-block;
+  vertical-align: baseline;
+}
+.arco-form-item-symbol {
+  display: inline-flex;
+  align-items: center;
+}
