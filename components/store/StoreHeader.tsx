@@ -90,19 +90,8 @@ export function StoreHeader({
           </Link>
         </div>
 
-        <div className="hidden min-w-0 flex-1 justify-center px-4 md:flex">
-          <Input.Search
-            allowClear
-            value={kw}
-            placeholder="搜索全部商品名称 / 编号"
-            style={{ maxWidth: 420 }}
-            onChange={(v) => {
-              setKw(v);
-              if (!v) onSearch?.("");
-            }}
-            onSearch={(v) => onSearch?.(v)}
-          />
-        </div>
+        {/* 桌面端搜索框已下移到商品列表「名称排序」右侧（见 ProductBrowser），
+            这里只保留移动端的搜索按钮 + 弹窗。 */}
 
         <div className="hidden items-center gap-3 md:flex">
           <span className="lg:hidden">

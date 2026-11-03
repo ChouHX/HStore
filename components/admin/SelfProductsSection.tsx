@@ -166,12 +166,32 @@ function ProductsTab() {
 
   const columns = [
     {
-      title: "商品编号",
-      dataIndex: "goodsId",
-      width: 100,
-      render: (v: number) => <span className="font-mono text-[12px]">{v}</span>,
+      title: "商品名称",
+      dataIndex: "name",
+      render: (v: string, row: SelfProduct) => (
+        <div className="flex min-w-0 items-center gap-2">
+          {row.imgUrl ? (
+            <img
+              src={row.imgUrl}
+              alt=""
+              loading="lazy"
+              className="h-9 w-9 shrink-0 rounded border border-[#e5e6eb] object-cover"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+              }}
+            />
+          ) : (
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-[#e5e6eb] bg-[#f7f8fa] text-[11px] text-[#c9cdd4]">
+              无图
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="break-words">{v}</div>
+            <div className="mt-0.5 font-mono text-[11px] text-[#86909c]">编号 {row.goodsId}</div>
+          </div>
+        </div>
+      ),
     },
-    { title: "商品名称", dataIndex: "name" },
     {
       title: "售价",
       dataIndex: "finalPrice",

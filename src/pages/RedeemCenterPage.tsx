@@ -1,9 +1,14 @@
 import { Button, Input, Message, Result, Space, Tag } from "@arco-design/web-react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { StoreHeader } from "@/components/store/StoreHeader";
+import { formatPrice } from "@/lib/format";
+import type { StoreHome } from "@/lib/api-types";
+import type { Product } from "@/lib/types";
 import { useSession } from "@/src/hooks/useSession";
+import { isSoldOut } from "@/components/store/selfStock";
+import { productImg, productTitle } from "@/components/store/productView";
 
 interface RedeemCard {
   cardId: string;
@@ -18,6 +23,26 @@ interface RedeemOrder {
   cards?: RedeemCard[];
 }
 
+/** 随机推荐区块的数量与每个板块取几件商品。 */
+const PICK_BOARDS = 3;
+const PICK_PER_BOARD = 6;
+
+/** 从数组里无放回地随机取 n 个元素（不修改原数组）。 */
+function sample<T>(arr: T[], n: number): T[] {
+  const pool = arr.slice();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, n);
+}
+
+interface BoardPick {
+  boardId: number;
+  boardName: string;
+  products: Product[];
+}
+
 /** 兑换中心：未登录也可使用，输入兑换码即自动下单取件。 */
 export function RedeemCenterPage() {
   const user = useSession();
@@ -25,6 +50,8 @@ export function RedeemCenterPage() {
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<RedeemOrder | null>(null);
   const [message, setMessage] = useState("");
+  const [picks, setPicks] = useState<BoardPick[]>([]);
+  const [picksLoading, setPicksLoading] = useState(true);
 
   async function submit() {
     const v = code.trim();
@@ -59,12 +86,52 @@ export function RedeemCenterPage() {
     Message.success("已复制全部卡密");
   }
 
+  // 每次进入页面都重新随机：随机挑若干个有货板块，各自随机取几件商品。
+  const loadPicks = useCallback(async () => {
+    setPicksLoading(true);
+    try {
+      const home = await fetch("/api/store/home").then((r) => r.json());
+      if (!home.ok) return;
+      const boards = ((home as StoreHome).boards ?? []).filter((b) => b.total > 0);
+      if (boards.length === 0) return;
+      const chosen = sample(boards, PICK_BOARDS);
+      const out = await Promise.all(
+        chosen.map(async (b) => {
+          try {
+            const sp = new URLSearchParams({
+              rootId: String(b.id),
+              page: "1",
+              pageSize: "30",
+              sort: "stock-desc",
+            });
+            const j = await fetch(`/api/store/products?${sp}`).then((r) => r.json());
+            if (!j.ok) return null;
+            const list = (j.items as Product[]).filter((p) => p.status === 1 && !isSoldOut(p));
+            if (list.length === 0) return null;
+            return { boardId: b.id, boardName: b.name, products: sample(list, PICK_PER_BOARD) };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setPicks(out.filter((x): x is BoardPick => x !== null));
+    } catch {
+      // 推荐位失败不影响兑换主流程
+    } finally {
+      setPicksLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPicks();
+  }, [loadPicks]);
+
   const cards = order?.cards ?? [];
 
   return (
     <div className="min-h-screen bg-[#f5f6f8]">
       <StoreHeader user={user ?? null} announcements={[]} />
-      <main className="mx-auto w-full max-w-[720px] px-4 py-8">
+      <main className="mx-auto w-full max-w-[1100px] px-4 py-8">
         <div className="rounded-lg bg-white p-6 shadow-sm">
           <div className="mb-1 text-[16px] font-semibold text-[#1d2129]">兑换中心</div>
           <div className="mb-5 text-[12px] text-[#86909c]">
@@ -136,6 +203,73 @@ export function RedeemCenterPage() {
             </div>
           )}
         </div>
+
+        {/* 随机推荐：每次进入页面都换一批板块与商品 */}
+        {(picksLoading || picks.length > 0) && (
+          <div className="mt-6">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-[14px] font-semibold text-[#1d2129]">随便看看</div>
+              <Button size="mini" loading={picksLoading} onClick={() => void loadPicks()}>
+                换一批
+              </Button>
+            </div>
+
+            {picksLoading && picks.length === 0 ? (
+              <div className="rounded-lg bg-white p-8 text-center text-[13px] text-[#86909c] shadow-sm">
+                正在挑选商品…
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {picks.map((g) => (
+                  <div key={g.boardId} className="rounded-lg bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="text-[13px] font-semibold text-[#1d2129]">{g.boardName}</span>
+                      <Link to="/" className="text-[12px] text-[#165dff] hover:underline">
+                        去商城逛逛
+                      </Link>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+                      {g.products.map((p) => {
+                        const img = productImg(p);
+                        return (
+                          <Link
+                            key={p.goodsId}
+                            to="/"
+                            className="group flex flex-col gap-2 rounded border border-[#e5e6eb] bg-white p-2 transition hover:shadow-md"
+                          >
+                            <div className="h-[72px] w-full shrink-0 overflow-hidden rounded bg-[#f7f8fa]">
+                              {img && (
+                                <img
+                                  src={img}
+                                  alt=""
+                                  loading="lazy"
+                                  className="h-full w-full object-contain"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                              )}
+                            </div>
+                            <div
+                              className="clamp-2 text-[12px] leading-snug text-[#1d2129] group-hover:text-[#165dff]"
+                              title={productTitle(p)}
+                            >
+                              {productTitle(p)}
+                            </div>
+                            <div className="mt-auto text-[14px] font-semibold text-[#f53f3f]">
+                              <span className="text-[11px]">¥</span>
+                              {formatPrice(p.finalPrice)}
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

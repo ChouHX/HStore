@@ -31,6 +31,7 @@ import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
 import { PopupAnnouncement, isPopupMutedToday } from "./store/PopupAnnouncement";
 import { isSelfFulfillment, isSoldOut } from "./store/selfStock";
+import { catImg, cleanBoardName, productImg, productTitle } from "./store/productView";
 
 interface Props {
   boards: StoreBoard[];
@@ -52,21 +53,6 @@ const SORTS: { value: SortKey; label: string }[] = [
   { value: "stock-desc", label: "库存优先" },
 ];
 
-function catImg(img: string | undefined | null): string | null {
-  if (!img) return null;
-  // 后端已把上游图片换成本地缓存地址；不再把上游 URL 透传给浏览器
-  return img.startsWith("http") ? null : img;
-}
-function cleanBoardName(name: string): string {
-  const cleaned = name.replace(/[（(][^（）()]*[）)]\s*$/, "").trim();
-  return cleaned || name;
-}
-function productTitle(p: Product): string {
-  return p.customName || p.name;
-}
-function productImg(p: Product): string | null {
-  return catImg(p.customImg || p.imgUrl);
-}
 function stockTag(p: Product) {
   // 自营商品不显示库存数字，只显示「有货 / 缺货」；上游商品保持原样
   if (isSelfFulfillment(p)) {
@@ -523,6 +509,24 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                             排序
                           </Button>
                         </Dropdown>
+                      </span>
+
+                      {/* 桌面端搜索框：紧跟在排序控件右侧 */}
+                      <span className="hidden min-w-0 flex-1 md:block">
+                        <Input.Search
+                          allowClear
+                          value={query}
+                          placeholder="搜索全部商品名称 / 编号"
+                          style={{ maxWidth: 360 }}
+                          onChange={(v) => {
+                            setQuery(v);
+                            if (!v) setPage(1);
+                          }}
+                          onSearch={(v) => {
+                            setQuery(v);
+                            setPage(1);
+                          }}
+                        />
                       </span>
                     </div>
 

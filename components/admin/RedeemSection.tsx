@@ -272,7 +272,7 @@ export function RedeemSection() {
     {
       title: "状态",
       dataIndex: "status",
-      width: 100,
+      width: 90,
       render: (_: unknown, c: RedeemCode) => (
         <Tag size="small" color={STATUS_TAG[c.status]?.color}>
           {STATUS_TAG[c.status]?.label ?? c.status}
@@ -282,14 +282,15 @@ export function RedeemSection() {
     {
       title: "兑换码",
       dataIndex: "code",
+      // 兑换码是最需要看清的一列：占满剩余空间，不再被固定列宽挤压。
       render: (_: unknown, c: RedeemCode) => (
-        <span className="font-mono select-all">{c.code}</span>
+        <span className="whitespace-nowrap font-mono select-all text-[13px]">{c.code}</span>
       ),
     },
     {
       title: "商品ID",
       dataIndex: "goodsId",
-      width: 140,
+      width: 120,
       render: (_: unknown, c: RedeemCode) =>
         c.goodsId ? (
           <Tooltip content={c.goodsName || `商品 ${c.goodsId}`}>
@@ -309,7 +310,7 @@ export function RedeemSection() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 190,
+      width: 160,
       fixed: "right" as const,
       render: (_: unknown, c: RedeemCode) => {
         // 已使用/核销中的码不允许再改关联，但仍可删除（清理历史数据）。
@@ -417,7 +418,7 @@ export function RedeemSection() {
         loading={loading}
         columns={columns}
         data={items}
-        scroll={{ x: 1180 }}
+        scroll={{ x: "100%" }}
         pagination={{
           current: page,
           pageSize,

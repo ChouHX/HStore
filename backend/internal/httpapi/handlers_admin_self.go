@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"hstore/backend/internal/imagecache"
 	"hstore/backend/internal/store"
 )
 
@@ -16,6 +17,12 @@ func (a *API) handleAdminSelfProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := store.ListSelfProducts()
+	// 外链图片一律换成 /api/img/ 本地代理地址，否则前端会因 http 开头而丢弃不显示。
+	for _, it := range items {
+		if v, _ := it["imgUrl"].(string); v != "" {
+			it["imgUrl"] = imagecache.LocalURL(v)
+		}
+	}
 	ok(w, map[string]any{"items": items, "total": len(items)})
 }
 
