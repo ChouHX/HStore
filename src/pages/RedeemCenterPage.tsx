@@ -175,7 +175,8 @@ export function RedeemCenterPage() {
                       <Button size="mini" onClick={copyCards}>
                         复制全部
                       </Button>
-                      <Link to={`/order/${order.orderNumber}`}>
+                      {/* 兑换码取件单没有联系方式，带上兑换码才能在详情页校验通过 */}
+                      <Link to={`/order/${order.orderNumber}?code=${encodeURIComponent(code.trim())}`}>
                         <Button size="mini" type="primary">
                           查看订单
                         </Button>
