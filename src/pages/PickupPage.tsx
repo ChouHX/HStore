@@ -10,19 +10,22 @@ import {
   Modal,
   Pagination,
   Space,
-  Tag,
+  Tooltip,
   Typography,
 } from "@arco-design/web-react";
 import {
   IconArrowLeft,
   IconCopy,
   IconDelete,
+  IconDownload,
   IconEmail,
   IconMenu,
   IconPlus,
+  IconQuestionCircle,
+  IconSearch,
   IconUser,
 } from "@arco-design/web-react/icon";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MAIL_FOLDERS, MailboxPanel, type MailboxTarget } from "@/components/MailboxPanel";
 import { useSession } from "@/src/hooks/useSession";
@@ -43,6 +46,12 @@ interface ParsedRow {
 }
 
 const PAGE_SIZE = 7;
+/** 列表每行占用的高度（含分隔线），用于按容器高度反算每页条数 */
+const ROW_HEIGHT = 34;
+/** 分页条 + 列表上下内边距占用的高度 */
+const LIST_CHROME_HEIGHT = 56;
+const MIN_PAGE_SIZE = 5;
+const MAX_PAGE_SIZE = 40;
 const STORAGE_KEY = "hstore:pickup:accounts";
 
 /**
@@ -129,6 +138,49 @@ function saveImported(list: PickupAccount[]) {
   }
 }
 
+/**
+ * 按容器实际可用高度反算每页条数：屏幕高时一页多铺几行，避免列表下半截空着。
+ *
+ * 用 callback ref 上报高度而不是读 ref.current：抽屉内容是异步挂载的，
+ * effect 里读 ref 会拿到 null，量不到高度就只能一直用默认值。
+ */
+function useListHeight() {
+  const [height, setHeight] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+
+  const attach = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    if (!el) return;
+    const report = (h: number) => {
+      // 隐藏容器（display:none 的桌面侧栏）高度为 0，别把有效值覆盖掉
+      if (h > 0) setHeight(h);
+    };
+    report(el.clientHeight);
+    const observer = new ResizeObserver(() => report(el.clientHeight));
+    observer.observe(el);
+    observerRef.current = observer;
+  }, []);
+
+  return { height, attach };
+}
+
+function pageSizeOf(height: number) {
+  if (height <= 0) return PAGE_SIZE;
+  const rows = Math.floor((height - LIST_CHROME_HEIGHT) / ROW_HEIGHT);
+  return Math.min(MAX_PAGE_SIZE, Math.max(MIN_PAGE_SIZE, rows));
+}
+
+/** 导出为与导入完全相同的「账号----密码----clientid----refreshtoken」文本 */
+function buildExportText(accounts: PickupAccount[]) {
+  return accounts
+    .map((item) => {
+      const raw = (item.account || "").trim();
+      if (raw.split("----").length === 4) return raw;
+      return item.email;
+    })
+    .join("\n");
+}
+
 function AccountList({
   accounts,
   rows,
@@ -137,6 +189,13 @@ function AccountList({
   onRemove,
   page,
   onChangePage,
+  pageSize,
+  keyword,
+  onChangeKeyword,
+  onImport,
+  onExport,
+  total,
+  attachList,
 }: {
   accounts: PickupAccount[];
   rows: PickupAccount[];
@@ -145,12 +204,41 @@ function AccountList({
   onRemove: (account: PickupAccount) => void;
   page: number;
   onChangePage: (page: number) => void;
+  pageSize: number;
+  keyword: string;
+  onChangeKeyword: (value: string) => void;
+  onImport: () => void;
+  onExport: () => void;
+  total: number;
+  attachList: (el: HTMLDivElement | null) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="shrink-0 border-b border-[#f2f3f5] p-2">
+        <Input
+          size="small"
+          allowClear
+          value={keyword}
+          onChange={onChangeKeyword}
+          prefix={<IconSearch />}
+          placeholder="搜索账号"
+        />
+        <div className="mt-2 flex items-center gap-1">
+          <Button size="mini" type="primary" icon={<IconPlus />} onClick={onImport}>
+            导入
+          </Button>
+          <Button size="mini" icon={<IconDownload />} onClick={onExport} disabled={accounts.length === 0}>
+            导出
+          </Button>
+          <span className="ml-auto text-[11px] text-[#86909c]">{total} 个</span>
+        </div>
+      </div>
+      <div ref={attachList} className="min-h-0 flex-1 overflow-y-auto">
         {accounts.length === 0 ? (
-          <Empty style={{ marginTop: 72 }} description="还没有账号，导入后显示在这里" />
+          <Empty
+            style={{ marginTop: 48 }}
+            description={keyword ? "没有匹配的账号" : "还没有账号，导入后显示在这里"}
+          />
         ) : (
           <List
             dataSource={rows}
@@ -192,7 +280,7 @@ function AccountList({
           <Pagination
             size="small"
             total={accounts.length}
-            pageSize={PAGE_SIZE}
+            pageSize={pageSize}
             current={page}
             onChange={onChangePage}
           />
@@ -222,8 +310,12 @@ export function PickupPage() {
   const [importText, setImportText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [folder, setFolder] = useState("inbox");
+  const [keyword, setKeyword] = useState("");
 
-  const accounts = useMemo(() => {
+  const { height: listHeight, attach: attachList } = useListHeight();
+  const pageSize = pageSizeOf(listHeight);
+
+  const allAccounts = useMemo(() => {
     const map = new Map<string, PickupAccount>();
     for (const item of imported) {
       const email = emailOf(item);
@@ -234,12 +326,30 @@ export function PickupPage() {
     return Array.from(map.values()).sort((a, b) => b.createdAt - a.createdAt);
   }, [imported]);
 
-  const totalPages = Math.max(1, Math.ceil(accounts.length / PAGE_SIZE));
+  /** 搜索命中：邮箱或整行账号数据（含 clientid / refreshtoken）任一包含关键词 */
+  const accounts = useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    if (!q) return allAccounts;
+    return allAccounts.filter((item) => {
+      const haystack = (item.email + "\n" + (item.account || "")).toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [allAccounts, keyword]);
+
+  const totalPages = Math.max(1, Math.ceil(accounts.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageRows = accounts.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pageRows = accounts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = accounts.find((a) => a.id === selectedId) ?? null;
 
-  const existingEmails = useMemo(() => new Set(accounts.map((a) => a.email.toLowerCase())), [accounts]);
+  // 搜索结果或每页条数变化后，当前页可能越界，回到第一页
+  useEffect(() => {
+    setPage(1);
+  }, [keyword, pageSize]);
+
+  const existingEmails = useMemo(
+    () => new Set(allAccounts.map((a) => a.email.toLowerCase())),
+    [allAccounts],
+  );
   const parsed = useMemo(() => parseBatch(importText, existingEmails), [importText, existingEmails]);
 
   function copyEmail(email: string) {
@@ -302,6 +412,27 @@ export function PickupPage() {
     setImportText("");
   }
 
+  /** 导出当前筛选结果，格式与导入一致，可直接再导入回来 */
+  function exportAccounts() {
+    const list = accounts.length > 0 ? accounts : allAccounts;
+    if (list.length === 0) {
+      Message.warning("没有可导出的账号");
+      return;
+    }
+    const text = buildExportText(list);
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = "pickup-accounts-" + stamp + ".txt";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    Message.success("已导出 " + list.length + " 个账号");
+  }
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[#f5f6f8]">
       <header className="shrink-0 border-b border-[#e5e6eb] bg-white">
@@ -333,18 +464,22 @@ export function PickupPage() {
 
       <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col gap-3 px-4 py-3">
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-center gap-1.5">
             <span className="text-[15px] font-semibold">微软取件</span>
-            <span className="hidden text-[12px] text-[#86909c] sm:inline">
-              选择账号后点击「取件」读取邮箱，无需登录
-            </span>
+            <Tooltip
+              position="br"
+              content={
+                <div className="max-w-[260px] leading-relaxed">
+                  选择账号后点击「取件」读取邮箱，无需登录。
+                </div>
+              }
+            >
+              <IconQuestionCircle className="cursor-help text-[13px] text-[#86909c]" />
+            </Tooltip>
           </div>
           <Space size={8}>
             <Button className="lg:hidden!" size="mini" icon={<IconMenu />} onClick={() => setDrawerOpen(true)}>
               账号列表
-            </Button>
-            <Button size="mini" type="primary" icon={<IconPlus />} onClick={() => setImportOpen(true)}>
-              导入账号
             </Button>
           </Space>
         </div>
@@ -353,8 +488,6 @@ export function PickupPage() {
           <aside className="hidden w-[300px] shrink-0 lg:block">
             <Card
               bordered={false}
-              title="账号列表"
-              extra={<Tag size="small">{accounts.length} 个</Tag>}
               style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
               bodyStyle={{ padding: 0, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
             >
@@ -366,6 +499,13 @@ export function PickupPage() {
                 onRemove={removeImported}
                 page={currentPage}
                 onChangePage={setPage}
+                pageSize={pageSize}
+                keyword={keyword}
+                onChangeKeyword={setKeyword}
+                onImport={() => setImportOpen(true)}
+                onExport={exportAccounts}
+                total={accounts.length}
+                attachList={attachList}
               />
             </Card>
           </aside>
@@ -441,6 +581,16 @@ export function PickupPage() {
           onRemove={removeImported}
           page={currentPage}
           onChangePage={setPage}
+          pageSize={pageSize}
+          keyword={keyword}
+          onChangeKeyword={setKeyword}
+          onImport={() => {
+            setDrawerOpen(false);
+            setImportOpen(true);
+          }}
+          onExport={exportAccounts}
+          total={accounts.length}
+          attachList={attachList}
         />
       </Drawer>
 
