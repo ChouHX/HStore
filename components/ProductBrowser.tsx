@@ -89,8 +89,8 @@ function CategoryChips({
       </button>
       {items.map((c) => (
         <button key={c.id} type="button" onClick={() => onPick(c.id)} className={cls(dirFilter === c.id)}>
-          {boardImg(c.id, c.img) && (
-            <img src={boardImg(c.id, c.img)!} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" loading="lazy" />
+          {catImg(c.img) && (
+            <img src={catImg(c.img)!} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" loading="lazy" />
           )}
           {c.name}
         </button>

@@ -71,6 +71,9 @@ func TestUniqueAmountAcrossConcurrentOrders(t *testing.T) {
 	_, _ = d.Exec(`INSERT OR IGNORE INTO users(uid, username, balance, created_at, updated_at)
 		VALUES(961,'amt_test',0,?,?)`, nowMs, nowMs)
 
+	// 测试共用同一个库文件，上一轮残留的 961 号池订单会占用随机金额导致建单失败
+	_, _ = d.Exec(`DELETE FROM crypto_orders WHERE pool_id=961`)
+
 	seen := map[string]bool{}
 	for i := 0; i < 20; i++ {
 		amt, ok := UniqueExpectedAmount(7)
@@ -99,6 +102,8 @@ func TestUniqueAmountAvoidsExpiredUnsettled(t *testing.T) {
 	nowMs := time.Now().UnixMilli()
 
 	const amt = "7.0042"
+	// 随机尾数可能刚好等于 42，先清掉同金额的历史单，避免 UNIQUE(pool_id, usdt_amount) 冲突
+	_, _ = d.Exec(`DELETE FROM crypto_orders WHERE pool_id=961 AND usdt_amount=?`, amt)
 	// 直接插入一个 expired 且无 txid 的单
 	_, err := d.Exec(`INSERT INTO crypto_orders(uid,order_no,pool_id,sub_uid,address,chain,
 		requested_cny,requested_usdt,usdt_amount,rate,credit_cny,status,expires_at,created_at)
@@ -165,6 +170,8 @@ func TestUniqueAmountConcurrent(t *testing.T) {
 		VALUES(963,'uid-963','TTrx963','TRX','available',?)`, nowMs)
 	_, _ = d.Exec(`INSERT OR IGNORE INTO users(uid, username, balance, created_at, updated_at)
 		VALUES(963,'conc_test',0,?,?)`, nowMs, nowMs)
+	// 清掉上一轮残留，否则随机金额可能撞上历史单的 UNIQUE 约束
+	_, _ = d.Exec(`DELETE FROM crypto_orders WHERE pool_id=963`)
 
 	const n = 30
 	type res struct {
