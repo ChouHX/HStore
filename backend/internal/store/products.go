@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -606,6 +607,95 @@ func SetProductCustomInfo(goodsID int, name, desc, img string, clear bool) bool 
 
 // ===== 商城前台 =====
 
+// MetaStoreBoardOrder 是商城板块展示顺序的配置键（sync_meta.value 存逗号分隔的板块 ID）。
+const MetaStoreBoardOrder = "store_board_order"
+
+// BoardOrder 读取后台设置的板块顺序；未设置或解析失败时返回空切片。
+func BoardOrder() []int {
+	raw := strings.TrimSpace(db.GetMeta(MetaStoreBoardOrder))
+	if raw == "" {
+		return []int{}
+	}
+	out := []int{}
+	seen := map[int]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		id, e := strconv.Atoi(strings.TrimSpace(part))
+		if e != nil || id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// SetBoardOrder 保存板块展示顺序，全站生效。
+func SetBoardOrder(ids []int) error {
+	uniq := make([]int, 0, len(ids))
+	seen := map[int]bool{}
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		uniq = append(uniq, id)
+	}
+	parts := make([]string, 0, len(uniq))
+	for _, id := range uniq {
+		parts = append(parts, strconv.Itoa(id))
+	}
+	return db.SetMeta(MetaStoreBoardOrder, strings.Join(parts, ","))
+}
+
+// sortBoardsByOrder 按后台设置的顺序排列板块。
+func sortBoardsByOrder(boards []model.StoreBoard) {
+	rank := boardRank()
+	if len(rank) == 0 || len(boards) < 2 {
+		return
+	}
+	sort.SliceStable(boards, func(a, b int) bool {
+		return boardLess(rank, boards[a].ID, boards[b].ID)
+	})
+}
+
+// SortBoardOptions 按后台设置的顺序排列板块选项，规则与商城前台一致。
+func SortBoardOptions(opts []BoardOption) {
+	rank := boardRank()
+	if len(rank) == 0 || len(opts) < 2 {
+		return
+	}
+	sort.SliceStable(opts, func(a, b int) bool {
+		return boardLess(rank, opts[a].ID, opts[b].ID)
+	})
+}
+
+// boardLess 是板块排序的比较函数：已配置的排前面并按配置顺序，未配置的互相等价。
+func boardLess(rank map[int]int, a, b int) bool {
+	ra, oka := rank[a]
+	rb, okb := rank[b]
+	switch {
+	case oka && okb:
+		return ra < rb
+	case oka:
+		return true
+	default:
+		return false
+	}
+}
+
+// boardRank 把配置的板块顺序转成 id → 序号。
+func boardRank() map[int]int {
+	order := BoardOrder()
+	if len(order) == 0 {
+		return nil
+	}
+	rank := make(map[int]int, len(order))
+	for i, id := range order {
+		rank[id] = i
+	}
+	return rank
+}
+
 // StoreBoards 返回有在售商品的板块卡片。
 func StoreBoards() []model.StoreBoard {
 	d := db.Must()
@@ -664,6 +754,8 @@ func StoreBoards() []model.StoreBoard {
 		}
 		sort.Slice(out[i].Children, func(a, b int) bool { return out[i].Children[a].Name < out[i].Children[b].Name })
 	}
+	// 后台设置过板块顺序时，按设置排列；未设置的板块保持默认顺序排在后面。
+	sortBoardsByOrder(out)
 	if out == nil {
 		out = []model.StoreBoard{}
 	}

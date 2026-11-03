@@ -110,18 +110,11 @@ func (a *API) handleOrderList(w http.ResponseWriter, r *http.Request) {
 		Keyword:  r.URL.Query().Get("keyword"),
 		Limit:    pageSize,
 		Offset:   offset,
-	}
-	if user.Role != "admin" {
-		f.UID = user.UID
+		// 个人订单接口只看自己的订单；管理员的跨用户订单在后台 /admin/orders 里看。
+		UID: user.UID,
 	}
 	items := store.ListOrders(f)
 	total := store.CountOrders(f)
-	// 上游单号只给管理员看。
-	if user.Role != "admin" {
-		for i := range items {
-			items[i].UpstreamOrderNo = ""
-		}
-	}
 	ok(w, paged(items, total, page, pageSize))
 }
 

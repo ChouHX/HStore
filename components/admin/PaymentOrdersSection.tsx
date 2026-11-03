@@ -1,4 +1,4 @@
-import { Button, Card, Descriptions, Input, Message, Modal, Select, Space, Table, Tag } from "@arco-design/web-react";
+import { Button, Card, Descriptions, Input, Message, Modal, Select, Space, Table, Tag, Tooltip } from "@arco-design/web-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatPrice } from "@/lib/format";
 
@@ -20,6 +20,9 @@ interface AlipayOrder {
   paidAt: number | null;
   kind?: string;
   relatedOrderNo?: string;
+  /** 购物对应的商品，充值为空 */
+  goodsId?: number;
+  goodsName?: string;
   lastError?: string;
 }
 
@@ -41,6 +44,9 @@ interface CryptoOrder {
   paidAt: number | null;
   kind?: string;
   relatedOrderNo?: string;
+  /** 购物对应的商品，充值为空 */
+  goodsId?: number;
+  goodsName?: string;
 }
 
 /** 合并后的一行：支付宝与 USDT 共用同一套列。 */
@@ -54,6 +60,9 @@ interface Row {
   orderNo: string;
   /** 游客购物对应的业务订单号（用户端显示的订单号） */
   relatedOrderNo?: string;
+  /** 购物对应的商品；充值为空 */
+  goodsId?: number;
+  goodsName?: string;
   payText: string;
   paySub: string;
   receiveText: string;
@@ -142,6 +151,8 @@ export function PaymentOrdersSection() {
           username: o.username,
           orderNo: o.orderNo,
           relatedOrderNo: o.relatedOrderNo,
+          goodsId: o.goodsId,
+          goodsName: o.goodsName,
           payText: cents(o.payableCents),
           paySub: `申请 ¥${formatPrice(o.requestedCny)}`,
           receiveText: cents(o.receivedCents),
@@ -167,6 +178,8 @@ export function PaymentOrdersSection() {
           username: "",
           orderNo: o.orderNo || `#${o.id}`,
           relatedOrderNo: o.relatedOrderNo,
+          goodsId: o.goodsId,
+          goodsName: o.goodsName,
           payText: `${o.usdtAmount} USDT`,
           paySub: `申请 ¥${formatPrice(o.requestedCny)} · ${o.chain}`,
           receiveText: o.receivedUsdt ? `${o.receivedUsdt} USDT` : "-",
@@ -223,6 +236,8 @@ export function PaymentOrdersSection() {
         (r.relatedOrderNo || "").toLowerCase().includes(kw) ||
         String(r.uid) === kw ||
         (r.username || "").toLowerCase().includes(kw) ||
+        (r.goodsId ? String(r.goodsId) === kw : false) ||
+        (r.goodsName || "").toLowerCase().includes(kw) ||
         r.extraValue.toLowerCase().includes(kw)
       );
     });
@@ -279,6 +294,19 @@ export function PaymentOrdersSection() {
       dataIndex: "uid",
       width: 110,
       render: (_: unknown, r: Row) => <Ellipsis text={r.username || `UID ${r.uid}`} width={96} />,
+    },
+    {
+      title: "商品",
+      dataIndex: "goodsId",
+      width: 110,
+      render: (_: unknown, r: Row) =>
+        r.goodsId ? (
+          <Tooltip content={r.goodsName || `商品 #${r.goodsId}`} position="top">
+            <span className="cursor-default font-mono text-[12px] text-[#4e5969]">{r.goodsId}</span>
+          </Tooltip>
+        ) : (
+          <span className="text-[12px] text-[#c9cdd4]">-</span>
+        ),
     },
     {
       title: "应付",
@@ -412,7 +440,7 @@ export function PaymentOrdersSection() {
           allowClear
           size="small"
           value={keyword}
-          placeholder="订单号 / UID / 用户名 / TXID"
+          placeholder="订单号 / UID / 用户名 / 商品 / TXID"
           style={{ width: 240 }}
           onChange={setKeyword}
         />
@@ -430,7 +458,7 @@ export function PaymentOrdersSection() {
           data={filtered}
           loading={loading}
           pagination={{ pageSize: 10, showTotal: true, sizeCanChange: true }}
-          scroll={{ x: 1420 }}
+          scroll={{ x: 1530 }}
         />
       </Card>
 
@@ -455,6 +483,19 @@ export function PaymentOrdersSection() {
                 : []),
               { label: "支付单号", value: <span className="font-mono">{detail.orderNo}</span> },
               { label: "用户", value: detail.username || `UID ${detail.uid}` },
+              ...(detail.goodsId
+                ? [
+                    {
+                      label: "商品",
+                      value: (
+                        <span>
+                          <span className="font-mono">{detail.goodsId}</span>
+                          <span className="ml-2 text-[12px] text-[#86909c]">{detail.goodsName || "-"}</span>
+                        </span>
+                      ),
+                    },
+                  ]
+                : []),
               {
                 label: "金额",
                 value: (

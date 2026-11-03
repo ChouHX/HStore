@@ -78,6 +78,9 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/admin/catalog/import", a.handleAdminCatalogImport)
 	a.mux.HandleFunc("GET /api/admin/pricing", a.handleAdminPricing)
 	a.mux.HandleFunc("POST /api/admin/pricing", a.handleAdminPricingPost)
+	// 商城板块展示顺序（全站生效）
+	a.mux.HandleFunc("GET /api/admin/boards/order", a.handleAdminBoardOrder)
+	a.mux.HandleFunc("POST /api/admin/boards/order", a.handleAdminBoardOrderPost)
 	a.mux.HandleFunc("GET /api/admin/levels", a.handleAdminLevels)
 	a.mux.HandleFunc("POST /api/admin/levels", a.handleAdminLevelsPost)
 	a.mux.HandleFunc("GET /api/admin/users", a.handleAdminUsers)

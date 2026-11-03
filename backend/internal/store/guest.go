@@ -206,6 +206,32 @@ func GuestPaymentOrderNumbers(channel string) map[int]string {
 	return out
 }
 
+// GuestGoods 是游客购物订单对应的商品。
+type GuestGoods struct {
+	ID   int
+	Name string
+}
+
+// GuestPaymentGoods 返回支付单 id → 游客购物商品。
+// 后台订单管理用它给支付订单补上「买了什么」。
+func GuestPaymentGoods(channel string) map[int]GuestGoods {
+	out := map[int]GuestGoods{}
+	rows, err := db.Must().Query(`SELECT payment_order_id, goods_id, goods_name
+		FROM guest_purchases WHERE channel = ? AND payment_order_id > 0`, channel)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var g GuestGoods
+		if rows.Scan(&id, &g.ID, &g.Name) == nil {
+			out[id] = g
+		}
+	}
+	return out
+}
+
 func GuestPaymentIDs(channel string) map[int]bool {
 	out := map[int]bool{}
 	rows, err := db.Must().Query(

@@ -74,8 +74,6 @@ export function StoreHeader({
     else if (key === "login") navigate("/login");
     else if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
-    else if (key === "query") navigate("/orders");
-    else if (key === "recharge") navigate("/account/overview?focus=recharge");
     else if (key === "admin") navigate("/admin/overview");
     else if (key === "logout") logout();
   }
@@ -142,16 +140,6 @@ export function StoreHeader({
                       <Menu.Item key="orders">
                         <span className="inline-flex items-center gap-2">
                           <IconList /> 我的订单
-                        </span>
-                      </Menu.Item>
-                      <Menu.Item key="query">
-                        <span className="inline-flex items-center gap-2">
-                          <IconFile /> 订单查询
-                        </span>
-                      </Menu.Item>
-                      <Menu.Item key="recharge">
-                        <span className="inline-flex items-center gap-2">
-                          <IconGift /> 充值 / 兑换
                         </span>
                       </Menu.Item>
                       {isAdmin && (
@@ -224,11 +212,6 @@ export function StoreHeader({
                       <IconGift /> 兑换中心
                     </span>
                   </Menu.Item>
-                  <Menu.Item key="query">
-                    <span className="inline-flex items-center gap-2">
-                      <IconFile /> 订单查询
-                    </span>
-                  </Menu.Item>
                   {user ? (
                     <>
                       <Menu.Item key="account">
@@ -239,11 +222,6 @@ export function StoreHeader({
                       <Menu.Item key="orders">
                         <span className="inline-flex items-center gap-2">
                           <IconList /> 我的订单
-                        </span>
-                      </Menu.Item>
-                      <Menu.Item key="recharge">
-                        <span className="inline-flex items-center gap-2">
-                          <IconGift /> 充值 / 兑换
                         </span>
                       </Menu.Item>
                       {isAdmin && (

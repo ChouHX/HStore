@@ -20,6 +20,7 @@ import { IconFilter } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useState } from "react";
 import type { AdminProduct, ProductFilterOptions } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
+import { BoardOrderSection } from "@/components/admin/BoardOrderSection";
 import { PricingSection } from "@/components/admin/PricingSection";
 
 const PAGE_SIZE = 15;
@@ -118,6 +119,7 @@ export function ProductsSection() {
   const [options, setOptions] = useState<ProductFilterOptions>({ roots: [], subs: [], status: [] });
   const [selected, setSelected] = useState<(string | number)[]>([]);
   const [pricingOpen, setPricingOpen] = useState(false);
+  const [boardOrderOpen, setBoardOrderOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [priceModal, setPriceModal] = useState<{ goodsId: number; name: string; price: number; locked: boolean } | null>(null);
@@ -644,6 +646,9 @@ export function ProductsSection() {
         <Button size="small" onClick={() => setPricingOpen(true)}>
           定价规则
         </Button>
+        <Button size="small" onClick={() => setBoardOrderOpen(true)} title="调整商城首页板块的展示顺序，全站生效">
+          板块排序
+        </Button>
       </Space>
 
       <Table
@@ -855,6 +860,18 @@ export function ProductsSection() {
         unmountOnExit
       >
         <PricingSection />
+      </Modal>
+
+      {/* 板块排序：调整商城首页板块顺序，全站生效 */}
+      <Modal
+        title="商城板块排序"
+        visible={boardOrderOpen}
+        onCancel={() => setBoardOrderOpen(false)}
+        footer={<Button onClick={() => setBoardOrderOpen(false)}>关闭</Button>}
+        style={{ width: 620 }}
+        unmountOnExit
+      >
+        <BoardOrderSection />
       </Modal>
     </div>
   );

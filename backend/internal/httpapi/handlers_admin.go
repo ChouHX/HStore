@@ -483,6 +483,41 @@ func (a *API) handleAdminCatalogImport(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"count": count})
 }
 
+// ===== 商城板块排序 =====
+
+// handleAdminBoardOrder 返回全部板块（按当前展示顺序排列）与已保存的顺序。
+func (a *API) handleAdminBoardOrder(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	boards := store.ListBoardOptions()
+	store.SortBoardOptions(boards)
+	ok(w, map[string]any{"boards": boards, "order": store.BoardOrder()})
+}
+
+// handleAdminBoardOrderPost 保存商城板块顺序，全站生效。
+func (a *API) handleAdminBoardOrderPost(w http.ResponseWriter, r *http.Request) {
+	admin := requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	var body struct {
+		IDs []int `json:"ids"`
+	}
+	if e := readJSON(r, &body); e != nil {
+		fail(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	before := store.BoardOrder()
+	if e := store.SetBoardOrder(body.IDs); e != nil {
+		fail(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	after := store.BoardOrder()
+	store.WriteAudit(&admin.UID, "board_order", "store_board", "", before, after, "调整商城板块顺序")
+	ok(w, map[string]any{"order": after})
+}
+
 // ===== 定价 =====
 
 func (a *API) handleAdminPricing(w http.ResponseWriter, r *http.Request) {

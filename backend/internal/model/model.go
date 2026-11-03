@@ -316,33 +316,36 @@ type PoolSlot struct {
 }
 
 type CryptoOrder struct {
-	ID            int      `json:"id"`
-	OrderNo       string   `json:"orderNo"`
-	UID           int      `json:"uid"`
-	PoolID        int      `json:"poolId"`
-	SubUID        string   `json:"subUid"`
-	Address       string   `json:"address"`
-	Chain         string   `json:"chain"`
-	ChainLabel    string   `json:"chainLabel"`
+	ID         int    `json:"id"`
+	OrderNo    string `json:"orderNo"`
+	UID        int    `json:"uid"`
+	PoolID     int    `json:"poolId"`
+	SubUID     string `json:"subUid"`
+	Address    string `json:"address"`
+	Chain      string `json:"chain"`
+	ChainLabel string `json:"chainLabel"`
 	// ChainSlowConfirm / ChainEta 让前端能直接提示「该链到账较慢」。
-	ChainSlowConfirm bool   `json:"chainSlowConfirm,omitempty"`
-	ChainEta         string `json:"chainEta,omitempty"`
-	RequestedCny  float64  `json:"requestedCny"`
-	RequestedUsdt string   `json:"requestedUsdt"`
-	UsdtAmount    string   `json:"usdtAmount"`
-	Rate          float64  `json:"rate"`
-	CreditCny     float64  `json:"creditCny"`
-	Status        string   `json:"status"`
-	Txid          *string  `json:"txid"`
-	ReceivedUsdt  *string  `json:"receivedUsdt"`
-	Credited      *float64 `json:"credited"`
-	ExpiresAt     int64    `json:"expiresAt"`
-	CreatedAt     int64    `json:"createdAt"`
-	PaidAt        *int64   `json:"paidAt"`
+	ChainSlowConfirm bool     `json:"chainSlowConfirm,omitempty"`
+	ChainEta         string   `json:"chainEta,omitempty"`
+	RequestedCny     float64  `json:"requestedCny"`
+	RequestedUsdt    string   `json:"requestedUsdt"`
+	UsdtAmount       string   `json:"usdtAmount"`
+	Rate             float64  `json:"rate"`
+	CreditCny        float64  `json:"creditCny"`
+	Status           string   `json:"status"`
+	Txid             *string  `json:"txid"`
+	ReceivedUsdt     *string  `json:"receivedUsdt"`
+	Credited         *float64 `json:"credited"`
+	ExpiresAt        int64    `json:"expiresAt"`
+	CreatedAt        int64    `json:"createdAt"`
+	PaidAt           *int64   `json:"paidAt"`
 	// Kind 区分用途：recharge=余额充值，purchase=游客购物
 	Kind string `json:"kind"`
 	// RelatedOrderNo 是游客购物对应的业务订单号（用户端显示的订单号）
 	RelatedOrderNo string `json:"relatedOrderNo,omitempty"`
+	// GoodsID / GoodsName 是游客购物对应的商品，充值为 0 / 空
+	GoodsID   int    `json:"goodsId,omitempty"`
+	GoodsName string `json:"goodsName,omitempty"`
 }
 
 // GuestPurchase 是游客直接购买商品的支付与履约记录。
@@ -398,6 +401,9 @@ type AlipayOrder struct {
 	Kind string `json:"kind"`
 	// RelatedOrderNo 是购物对应的业务订单号（用户端看到的订单号），充值为空
 	RelatedOrderNo string `json:"relatedOrderNo"`
+	// GoodsID / GoodsName 是购物对应的商品，充值为 0 / 空
+	GoodsID        int    `json:"goodsId"`
+	GoodsName      string `json:"goodsName"`
 	LastError      string `json:"lastError"`
 	CheckoutToken  string `json:"-"`
 	CheckoutHash   string `json:"-"`

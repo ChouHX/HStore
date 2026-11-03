@@ -16,10 +16,14 @@ func alipaySnapshot() map[string]any {
 	// 游客购物也会建支付宝订单，这里按 guest_purchases 反查区分「充值 / 购物」
 	purchases := store.GuestPaymentIDs("alipay")
 	related := store.GuestPaymentOrderNumbers("alipay")
+	goods := store.GuestPaymentGoods("alipay")
 	for i := range orders {
 		if purchases[orders[i].ID] {
 			orders[i].Kind = "purchase"
 			orders[i].RelatedOrderNo = related[orders[i].ID]
+			// 后台订单管理需要知道这笔支付买了哪个商品。
+			orders[i].GoodsID = goods[orders[i].ID].ID
+			orders[i].GoodsName = goods[orders[i].ID].Name
 		} else {
 			orders[i].Kind = "recharge"
 		}

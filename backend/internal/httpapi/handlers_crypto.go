@@ -21,10 +21,14 @@ func cryptoSnapshot() map[string]any {
 	orders := store.ListCryptoOrders(0, 100)
 	purchases := store.GuestPaymentIDs("usdt")
 	related := store.GuestPaymentOrderNumbers("usdt")
+	goods := store.GuestPaymentGoods("usdt")
 	for i := range orders {
 		if purchases[orders[i].ID] {
 			orders[i].Kind = "purchase"
 			orders[i].RelatedOrderNo = related[orders[i].ID]
+			// 后台订单管理需要知道这笔支付买了哪个商品。
+			orders[i].GoodsID = goods[orders[i].ID].ID
+			orders[i].GoodsName = goods[orders[i].ID].Name
 		} else {
 			orders[i].Kind = "recharge"
 		}

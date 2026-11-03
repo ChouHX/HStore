@@ -422,9 +422,6 @@ export function OrderDetailPage() {
                 <div className="mb-1 text-[13px] font-medium">订单信息</div>
                 <div className="rounded-lg bg-[#f7f8fa] px-3">
                   <InfoRow label="订单号" value={view.orderNumber} />
-                  {user?.role === "admin" && view.upstreamOrderNo ? (
-                    <InfoRow label="上游单号" value={view.upstreamOrderNo} />
-                  ) : null}
                   <InfoRow label="商品" value={`${view.goodsName} × ${view.count}`} wrap />
                   <InfoRow label="金额" value={`¥${formatPrice(view.money)}`} />
                   <InfoRow label="状态" value={view.statusText} />

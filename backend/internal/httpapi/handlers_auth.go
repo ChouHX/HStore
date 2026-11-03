@@ -60,7 +60,11 @@ func (a *API) handleSiteConfig(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"redeemPurchaseUrl": store.GetRedeemPurchaseURL()})
 }
 
+// handleUpstreamAccount 返回上游（天启）账户余额，属于内部信息，仅管理员可用。
 func (a *API) handleUpstreamAccount(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
 	if !upstream.IsConfigured() {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "balance": nil, "message": "未配置 App-Id"})
 		return

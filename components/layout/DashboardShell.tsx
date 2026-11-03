@@ -71,18 +71,24 @@ export function DashboardShell({ user, nav, children }: Props) {
   const active = nav.find((n) => pathname === n.href || pathname.startsWith(n.href + "/")) ?? nav[0];
   const [upstream, setUpstream] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const isAdmin = user.role === "admin";
+  // 管理员身份只用来决定「能否进入管理后台」；个人中心的展示与普通用户完全一致，
+  // 上游余额等内部信息只在管理后台（/admin/*）里出现。
+  const canAdmin = user.role === "admin";
+  const adminArea = pathname === "/admin" || pathname.startsWith("/admin/");
   const hrefById = Object.fromEntries(nav.map((n) => [n.id, n.href]));
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!adminArea) {
+      setUpstream(null);
+      return;
+    }
     fetch("/api/account")
       .then((r) => r.json())
       .then((j) => {
         if (j.ok) setUpstream(j.balance);
       })
       .catch(() => {});
-  }, [isAdmin]);
+  }, [adminArea]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -122,7 +128,7 @@ export function DashboardShell({ user, nav, children }: Props) {
           <img src="/favicon.svg" alt={SITE_NAME} style={{ width: 30, height: 30, borderRadius: 8 }} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 600 }}>{SITE_NAME}</div>
-            <div style={{ fontSize: 12, color: "#86909c" }}>{isAdmin ? "管理后台" : "个人中心"}</div>
+            <div style={{ fontSize: 12, color: "#86909c" }}>{adminArea ? "管理后台" : "个人中心"}</div>
           </div>
         </div>
         {navMenu()}
@@ -144,7 +150,7 @@ export function DashboardShell({ user, nav, children }: Props) {
             <img src="/favicon.svg" alt="" style={{ width: 24, height: 24, borderRadius: 6 }} />
             {SITE_NAME}
             <span style={{ fontSize: 12, fontWeight: 400, color: "#86909c" }}>
-              {isAdmin ? "管理后台" : "个人中心"}
+              {adminArea ? "管理后台" : "个人中心"}
             </span>
           </span>
         }
@@ -189,7 +195,7 @@ export function DashboardShell({ user, nav, children }: Props) {
             <span style={{ fontSize: 13, color: "#4e5969" }}>
               余额 <span style={{ color: "#f53f3f", fontWeight: 600 }}>¥{formatPrice(user.balance)}</span>
             </span>
-            {isAdmin && (
+            {adminArea && (
               <span className="hidden sm:inline" style={{ fontSize: 13, color: "#86909c" }}>
                 上游{" "}
                 <span style={{ fontWeight: 600, color: "#1d2129" }}>
@@ -210,7 +216,7 @@ export function DashboardShell({ user, nav, children }: Props) {
                   }}
                 >
                   <Menu.Item key="account">个人中心</Menu.Item>
-                  {isAdmin && <Menu.Item key="admin">管理后台</Menu.Item>}
+                  {canAdmin && !adminArea && <Menu.Item key="admin">管理后台</Menu.Item>}
                   <Menu.Item key="shop">返回商城</Menu.Item>
                   <Menu.Item key="logout">
                     <span className="inline-flex items-center gap-1">
