@@ -3,25 +3,26 @@
 把 Redeem 的兑换码与自营库存迁入 HStore。
 
 规则（2026-11 定稿）：
-- 未使用的兑换码全部迁移，原码原样保留；
-- 已兑换的只迁移最近 24 小时（即还能访问的）记录，生成历史订单+卡密；
+- 只迁移「未使用」的兑换码，原码原样保留；
+- 已兑换的码不生成历史订单/卡密，只校正本地状态（Redeem 已兑换而本地仍是 unused 的，
+  改成 used），避免同一个码被兑换两次；
 - 只有「双令牌绑定辅邮」(type 18) 的可用库存迁成自营库存；
-- 其他类型兑换时直接走上游商品：#5768 / #5769 / #5500。
+- 其他类型兑换时直接走上游商品：#5768 / #5769 / #5500（这些商品不再属于自营）。
+
+Redeem 站点保留约一周供用户自行迁移，之后下线；届时本脚本不再需要运行。
 
 运行前先停掉 hstore 容器，迁移完成后再启动。
 python3 import_redeem.py --redeem /path/outlook_manager.db --hstore /path/faka.db [--dry-run]
 """
 import argparse
 import json
-import random
 import sqlite3
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 SELF_TYPE_ID = 18
 SELF_GOODS_ID = 900018
 TYPE_GOODS = {1: 5768, 2: 5769, 5: 5500, 18: SELF_GOODS_ID}
-TYPE_PLATFORM = {1: "microsoft", 2: "microsoft", 5: "microsoft", 18: "self"}
 
 
 def ms(dt):
@@ -36,14 +37,6 @@ def ms(dt):
 
 def now_ms():
     return int(time.time() * 1000)
-
-
-def new_order_no(hdb):
-    for _ in range(50):
-        no = "HSM%d%04d" % (int(time.time() * 1000), random.randint(1000, 9999))
-        if not hdb.execute("select 1 from orders where order_number=?", (no,)).fetchone():
-            return no
-    raise RuntimeError("生成订单号失败")
 
 
 def main():
@@ -63,7 +56,12 @@ def main():
         raise SystemExit("HStore 数据库缺少 fulfillment 字段：请先部署新版服务并启动一次以完成建表")
 
     types = {r["id"]: r for r in rdb.execute("select * from redeem_email_types")}
-    summary = {"stock": 0, "codes_unused": 0, "codes_used24": 0, "orders": 0, "cards": 0, "skipped_codes": 0}
+    summary = {
+        "stock": 0,
+        "codes_unused": 0,
+        "codes_marked_used": 0,
+        "skipped_codes": 0,
+    }
 
     # 1) 自营商品（双令牌绑定辅邮）
     t18 = types.get(SELF_TYPE_ID)
@@ -120,7 +118,6 @@ def main():
     batch = hdb.execute("select id from redeem_batches where name='Redeem 迁移'").fetchone()
     if batch:
         batch_id = batch["id"]
-        hdb.execute("update redeem_batches set count=count where id=?", (batch_id,))
     else:
         cur = hdb.execute(
             "insert into redeem_batches(name,face_value,count,used_count,status,created_at) values('Redeem 迁移',0,0,0,'active',?)",
@@ -128,84 +125,63 @@ def main():
         )
         batch_id = cur.lastrowid
 
-    def upsert_code(code, type_id, quantity, status, order_number, used_at_ms):
+    def upsert_code(code, type_id, quantity):
         goods_id = TYPE_GOODS.get(type_id)
         if not goods_id:
             summary["skipped_codes"] += 1
             return False
         cur = hdb.execute(
             """insert or ignore into redeem_codes(batch_id,code,face_value,goods_id,goods_count,order_number,
-               status,used_at,created_at) values(?,?,0,?,?,?,?,?,?)""",
-            (batch_id, code, goods_id, max(1, int(quantity or 1)), order_number, status, used_at_ms, now_ms()),
+               status,used_at,created_at) values(?,?,0,?,?,'','unused',null,?)""",
+            (batch_id, code, goods_id, max(1, int(quantity or 1)), now_ms()),
         )
         if cur.rowcount == 0:
             summary["skipped_codes"] += 1
             return False
         return True
 
-    # 4) 未使用码全部迁移
+    # 4) 未使用码全部迁移（已存在的码不动，保持幂等）
     for row in rdb.execute("select * from redeem_codes where status='unused' order by id"):
-        if upsert_code(row["code"], row["type_id"], row["quantity"], "unused", "", None):
+        if upsert_code(row["code"], row["type_id"], row["quantity"]):
             summary["codes_unused"] += 1
 
-    # 5) 最近 24 小时已兑换：生成历史订单/卡密，原码继续可用
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    for row in rdb.execute(
-        "select * from redeem_codes where status='redeemed' and redeemed_at >= ? order by id",
-        (cutoff.strftime("%Y-%m-%d %H:%M:%S"),),
-    ):
-        type_id = row["type_id"]
-        goods_id = TYPE_GOODS.get(type_id)
-        if not goods_id:
-            summary["skipped_codes"] += 1
-            continue
-        records = list(
-            rdb.execute(
-                """select r.*, i.serialized_value as inv_value
-                   from redeem_records r left join redeem_inventory i on i.id = r.inventory_id
-                   where r.code_id=? order by r.id""",
-                (row["id"],),
-            )
+    # 5) 已兑换的码：不建订单/卡密，只把本地仍是 unused 的改成 used。
+    #
+    # 之前一版脚本会把「最近 24 小时已兑换」的记录做成历史订单+卡密，但用户拿到的
+    # 卡密和自营库存是同一批，等于把同一份库存发了两遍，所以这条路径整体去掉。
+    # 这里只做状态校正：Redeem 侧已兑换、本地还显示未使用的码必须置为 used，
+    # 否则用户能在 HStore 再兑一次（实际会多发出一份货）。
+    for row in rdb.execute("select * from redeem_codes where status='redeemed' order by id"):
+        used_at = ms(row["redeemed_at"]) or now_ms()
+        cur = hdb.execute(
+            "update redeem_codes set status='used', used_at=? where code=? and status='unused'",
+            (used_at, row["code"]),
         )
-        if not records:
-            continue
-        order_no = new_order_no(hdb)
-        created = ms(row["redeemed_at"]) or now_ms()
-        tname = types[type_id]["name"] if type_id in types else "Redeem 迁移"
-        hdb.execute(
-            """insert into orders(order_number,outer_number,goods_id,goods_name,count,money,status,result,
-               platform,created_at,updated_at,sale_money,cost_money,source,user_uid,contact)
-               values(?,?,?,?,?,0,3,?,?,?,?,0,0,'migrate',null,'')""",
-            (order_no, "", goods_id, tname, len(records), "Redeem 迁移历史订单",
-             TYPE_PLATFORM.get(type_id, "microsoft"), created, created),
-        )
-        for i, rec in enumerate(records):
-            raw = rec["payload_raw"] if "payload_raw" in rec.keys() else None
-            if raw and len(raw) > 3:
-                line = raw.strip()
-            elif "payload_json" in rec.keys() and rec["payload_json"]:
-                try:
-                    line = (json.loads(rec["payload_json"]).get("raw_line") or "").strip()
-                except Exception:
-                    line = ""
-            else:
-                line = (rec["inv_value"] or "").strip() if rec["inv_value"] else ""
-            if not line:
-                continue
-            hdb.execute(
-                """insert or ignore into cards(card_id,order_number,card_no,card_pwd,status,created_at)
-                   values(?,?,?,'',0,?)""",
-                ("mig-%s-%d" % (rec["id"], i), order_no, line, created),
-            )
-            summary["cards"] += 1
-        if upsert_code(row["code"], type_id, len(records), "used", order_no, created):
-            summary["codes_used24"] += 1
-            summary["orders"] += 1
+        if cur.rowcount > 0:
+            summary["codes_marked_used"] += 1
 
     hdb.execute(
         "update redeem_batches set count=(select count(*) from redeem_codes where batch_id=?), used_count=(select count(*) from redeem_codes where batch_id=? and status='used') where id=?",
         (batch_id, batch_id, batch_id),
     )
+
+    # 6) 反向风险：本地已兑换、Redeem 侧还显示「未使用」的码。
+    #
+    # 用户在 HStore 已经兑换取件了，但码在 Redeem 站点仍然可用，等于同一份货能领两次。
+    # 这类码必须在 Redeem 侧封禁（status='disabled'）。Redeem 库这里是只读打开的，
+    # 所以只检测并打印，由管理员通过 Redeem 后台/接口封禁：
+    #   POST /api/redeem/admin/codes/{id}/status  {"status":"disabled"}
+    reverse_risk = []
+    for row in hdb.execute("select code from redeem_codes where status='used'"):
+        r = rdb.execute(
+            "select id from redeem_codes where code=? and status='unused'", (row["code"],)
+        ).fetchone()
+        if r:
+            reverse_risk.append({"id": r["id"], "code": row["code"]})
+    if reverse_risk:
+        print("!! 以下兑换码已在 HStore 兑换，但 Redeem 侧仍可兑换，请在 Redeem 后台封禁：")
+        for it in reverse_risk:
+            print("   id=%(id)s  %(code)s" % it)
 
     if args.dry_run:
         hdb.rollback()
