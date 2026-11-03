@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -665,6 +666,17 @@ func migrate(db *sql.DB) error {
 	}
 	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_crypto_orders_no ON crypto_orders(order_no)"); e != nil {
 		return e
+	}
+	// 同一地址上只能有一笔「等待付款 / 已过期且未到账」的订单占用同一个 USDT 金额，
+	// 否则用户转账后无法判断钱属于哪一单（串单）。
+	// 唯一性只需在「地址（pool_id）内」成立：不同地址各自收相同金额互不干扰，
+	// 到账匹配靠「地址 + 金额 + 链」三者。
+	// 选金额是「先查再插」，并发下可能挑到同一个尾数，这里用部分唯一索引在 DB 层兜底，
+	// 插入失败由调用方重试。万一历史数据已有冲突，跳过索引而不让启动失败。
+	if _, e := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_crypto_orders_amount_open
+		ON crypto_orders(pool_id, usdt_amount)
+		WHERE status IN ('waiting','expired') AND COALESCE(txid,'') = ''`); e != nil {
+		log.Printf("[hstore] 跳过 USDT 金额唯一索引（历史数据存在重复）: %v", e)
 	}
 	// 历史订单：旧版本直接把天启返回的 orderNumber 当本地单号写入，
 	// 导致用户看到的「订单号」就是上游单号。这里把它们彻底解耦：

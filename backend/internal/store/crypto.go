@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -42,10 +43,10 @@ var CryptoChains = []CryptoChain{
 	{Code: "BSC", Label: "BSC (BEP20)", Display: "BEP20", EVM: true,
 		Contract: "0x55d398326f99059fF775485246999027B3197955"},
 	{Code: "ARBI", Label: "Arbitrum One (USDT0)", Display: "Arbitrum", EVM: true,
-		Contract: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+		Contract:    "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
 		SlowConfirm: true, ETA: "5~10 分钟"},
 	{Code: "MATIC", Label: "Polygon PoS (USDT0)", Display: "Polygon", EVM: true,
-		Contract: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+		Contract:    "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
 		SlowConfirm: true, ETA: "5~10 分钟"},
 }
 
@@ -427,15 +428,41 @@ func CreateCryptoOrderAtomic(in NewCryptoOrderInput) (int, error) {
 }
 
 func InsertCryptoOrder(uid, poolID int, subUID, address, chain string, cny float64, requestedUsdt, usdtAmount string, rate, creditCny float64, expires int64) int {
-	res, e := db.Must().Exec(`INSERT INTO crypto_orders(uid,order_no,pool_id,sub_uid,address,chain,requested_cny,requested_usdt,usdt_amount,rate,credit_cny,status,expires_at,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,'waiting',?,?)`,
-		uid, NewOrderNo(PrefixCrypto), poolID, subUID, address, chain, cny, requestedUsdt, usdtAmount, rate, creditCny, expires, now())
-	if e != nil {
-		return 0
+	d := db.Must()
+	// usdt_amount 上有「同地址内未结束订单」的部分唯一索引。
+	// 选金额是「先查再插」，并发下两个请求可能挑到同一个尾数；
+	// 撞索引时以原金额的整数部分为基准重新取尾数重试，而不是直接失败。
+	base := math.Floor(parseFloat(usdtAmount))
+	amount := usdtAmount
+	for i := 0; i < 20; i++ {
+		res, e := d.Exec(`INSERT INTO crypto_orders(uid,order_no,pool_id,sub_uid,address,chain,requested_cny,requested_usdt,usdt_amount,rate,credit_cny,status,expires_at,created_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,'waiting',?,?)`,
+			uid, NewOrderNo(PrefixCrypto), poolID, subUID, address, chain, cny, requestedUsdt, amount, rate, creditCny, expires, now())
+		if e == nil {
+			id, _ := res.LastInsertId()
+			_, _ = d.Exec("UPDATE bybit_pool SET current_order_id=? WHERE id=?", id, poolID)
+			return int(id)
+		}
+		if !isUniqueViolation(e) {
+			return 0
+		}
+		// 金额被并发单占用：以原请求金额为基准重新取尾数。
+		next, ok := UniqueAmountOnSlot(poolID, base)
+		if !ok {
+			return 0
+		}
+		amount = next
 	}
-	id, _ := res.LastInsertId()
-	_, _ = db.Must().Exec("UPDATE bybit_pool SET current_order_id=? WHERE id=?", id, poolID)
-	return int(id)
+	return 0
+}
+
+// isUniqueViolation 判断是否是唯一约束冲突（部分唯一索引 idx_crypto_orders_amount_open）。
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "constraint failed: UNIQUE")
 }
 
 // UniqueExpectedAmount 生成不重复的待支付金额（尾数随机）。
