@@ -31,7 +31,7 @@ import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
 import { PopupAnnouncement, isPopupMutedToday } from "./store/PopupAnnouncement";
 import { isSelfFulfillment, isSoldOut } from "./store/selfStock";
-import { catImg, cleanBoardName, productImg, productTitle } from "./store/productView";
+import { boardImg, catImg, cleanBoardName, productImg, productTitle } from "./store/productView";
 
 interface Props {
   boards: StoreBoard[];
@@ -89,8 +89,8 @@ function CategoryChips({
       </button>
       {items.map((c) => (
         <button key={c.id} type="button" onClick={() => onPick(c.id)} className={cls(dirFilter === c.id)}>
-          {catImg(c.img) && (
-            <img src={catImg(c.img)!} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" loading="lazy" />
+          {boardImg(c.id, c.img) && (
+            <img src={boardImg(c.id, c.img)!} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" loading="lazy" />
           )}
           {c.name}
         </button>
@@ -405,9 +405,9 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                         : "border-[#e5e6eb] bg-white text-[#1d2129] hover:border-[#c9cdd4]"
                     }`}
                   >
-                    {catImg(b.img) && (
+                    {boardImg(b.id, b.img) && (
                       <img
-                        src={catImg(b.img)!}
+                        src={boardImg(b.id, b.img)!}
                         alt=""
                         className="h-5 w-5 shrink-0 rounded-full object-cover"
                         loading="lazy"

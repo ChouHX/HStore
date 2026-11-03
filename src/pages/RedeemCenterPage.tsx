@@ -1,9 +1,11 @@
 import { Button, Input, Message, Result, Space, Tag } from "@arco-design/web-react";
+import { IconCopy, IconDownload } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { StoreHeader } from "@/components/store/StoreHeader";
 import { formatPrice } from "@/lib/format";
+import { ORDER_STATUS } from "@/lib/status";
 import type { StoreHome } from "@/lib/api-types";
 import type { Product } from "@/lib/types";
 import { useSession } from "@/src/hooks/useSession";
@@ -11,16 +13,50 @@ import { isSoldOut } from "@/components/store/selfStock";
 import { productImg, productTitle } from "@/components/store/productView";
 
 interface RedeemCard {
-  cardId: string;
-  cardNo: string;
-  cardPwd: string;
+  cardNo?: string;
+  cardPwd?: string;
 }
 
+/** 兑换成功后返回的订单（与订单详情页同源：model.LocalOrder）。 */
 interface RedeemOrder {
   orderNumber: string;
   goodsName?: string;
   count?: number;
+  money?: number;
+  saleMoney?: number;
+  status?: number;
+  createdAt?: number;
   cards?: RedeemCard[];
+}
+
+/** 一条卡密展示成一行，与订单详情页保持完全一致。 */
+function cardLine(c: RedeemCard): string {
+  return [c.cardNo, c.cardPwd].filter(Boolean).join("----");
+}
+
+function fmtTime(ms: number): string {
+  if (!ms) return "—";
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** 一行一个字段，样式与订单详情页的 InfoRow 相同。 */
+function InfoRow({ label, value, wrap }: { label: string; value: string; wrap?: boolean }) {
+  return (
+    <div className="flex items-start gap-3 border-b border-[#f2f3f5] py-2 text-[12px] last:border-b-0">
+      <span className="w-[76px] shrink-0 text-[#86909c]">{label}</span>
+      <div className={`min-w-0 flex-1 ${wrap ? "break-words" : "overflow-x-auto"}`}>
+        <div className={wrap ? "whitespace-pre-wrap" : "whitespace-nowrap"}>{value || "—"}</div>
+      </div>
+    </div>
+  );
 }
 
 /** 随机推荐区块的数量与每个板块取几件商品。 */
@@ -50,6 +86,9 @@ export function RedeemCenterPage() {
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<RedeemOrder | null>(null);
   const [message, setMessage] = useState("");
+  const [balanceAmount, setBalanceAmount] = useState(0);
+  /** 兑换是否已成功：余额码不会返回订单，用独立标记区分「还没兑换」和「兑换成功」。 */
+  const [done, setDone] = useState(false);
   const [picks, setPicks] = useState<BoardPick[]>([]);
   const [picksLoading, setPicksLoading] = useState(true);
 
@@ -60,6 +99,11 @@ export function RedeemCenterPage() {
       return;
     }
     setLoading(true);
+    // 上一次的兑换结果不再保留，避免新兑换失败时误导用户
+    setDone(false);
+    setOrder(null);
+    setMessage("");
+    setBalanceAmount(0);
     try {
       const j = await fetch("/api/redeem", {
         method: "POST",
@@ -72,6 +116,8 @@ export function RedeemCenterPage() {
       }
       setMessage(j.message ?? "兑换成功");
       setOrder((j.order as RedeemOrder) ?? null);
+      setBalanceAmount(Number(j.amount) || 0);
+      setDone(true);
       Message.success(j.message ?? "兑换成功");
     } finally {
       setLoading(false);
@@ -80,10 +126,30 @@ export function RedeemCenterPage() {
 
   function copyCards() {
     const cards = order?.cards ?? [];
-    if (cards.length === 0) return;
-    const text = cards.map((c) => [c.cardNo, c.cardPwd].filter(Boolean).join("----")).join("\n");
-    void navigator.clipboard?.writeText(text);
+    if (cards.length === 0) {
+      Message.warning("暂无卡券可复制");
+      return;
+    }
+    void navigator.clipboard?.writeText(cards.map(cardLine).join("\n"));
     Message.success("已复制全部卡密");
+  }
+
+  function downloadTxt() {
+    const cards = order?.cards ?? [];
+    if (cards.length === 0) {
+      Message.warning("暂无卡券可导出");
+      return;
+    }
+    const blob = new Blob([cards.map(cardLine).join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `order-${order?.orderNumber || "cards"}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    Message.success("已导出 TXT");
   }
 
   // 每次进入页面都重新随机：随机挑若干个有货板块，各自随机取几件商品。
@@ -155,53 +221,84 @@ export function RedeemCenterPage() {
             </div>
           </div>
 
-          {order && (
-            <div className="mt-6 rounded-md border border-[#e5e6eb] p-4">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
+          {done && (
+            <div className="mt-6 flex flex-col gap-4">
+              <div className="flex items-center gap-2">
                 <Tag size="small" color="green">
                   {message}
                 </Tag>
-                <span className="text-[12px] text-[#4e5969]">
-                  订单号 <span className="font-mono">{order.orderNumber}</span>
-                </span>
-                {order.goodsName && (
-                  <span className="text-[12px] text-[#4e5969]">商品：{order.goodsName}</span>
-                )}
-                <span className="text-[12px] text-[#4e5969]">共 {cards.length} 条卡密</span>
               </div>
 
-              {cards.length > 0 ? (
+              {order ? (
                 <>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="text-[12px] text-[#86909c]">卡密内容</span>
-                    <Space size="small">
-                      <Button size="mini" onClick={copyCards}>
-                        复制全部
-                      </Button>
-                      {/* 兑换码取件单没有联系方式，带上兑换码才能在详情页校验通过 */}
-                      <Link to={`/order/${order.orderNumber}?code=${encodeURIComponent(code.trim())}`}>
-                        <Button size="mini" type="primary">
-                          查看订单
-                        </Button>
-                      </Link>
-                    </Space>
+                  <div>
+                    <div className="mb-1 text-[13px] font-medium">订单信息</div>
+                    <div className="rounded-lg bg-[#f7f8fa] px-3">
+                      <InfoRow label="订单号" value={order.orderNumber} />
+                      <InfoRow
+                        label="商品"
+                        value={`${order.goodsName || "—"} × ${order.count ?? 0}`}
+                        wrap
+                      />
+                      <InfoRow
+                        label="金额"
+                        value={`¥${formatPrice(Number(order.saleMoney || order.money || 0))}`}
+                      />
+                      <InfoRow
+                        label="状态"
+                        value={ORDER_STATUS[Number(order.status ?? 0)] ?? "—"}
+                      />
+                      <InfoRow label="下单时间" value={fmtTime(Number(order.createdAt ?? 0))} />
+                    </div>
                   </div>
-                  <div className="max-h-[360px] overflow-auto rounded bg-[#f7f8fa] p-3">
-                    {cards.map((c) => (
-                      <div key={c.cardId} className="flex items-center gap-2 py-0.5 font-mono text-[12px]">
-                        <span className="text-[#86909c]">{c.cardId}</span>
-                        <span className="select-all">
-                          {[c.cardNo, c.cardPwd].filter(Boolean).join("----")}
-                        </span>
+
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[13px] font-medium">卡券（{cards.length}）</span>
+                      {cards.length > 0 ? (
+                        <Space size={8}>
+                          <Button size="mini" icon={<IconCopy />} onClick={copyCards}>
+                            复制全部
+                          </Button>
+                          <Button size="mini" icon={<IconDownload />} onClick={downloadTxt}>
+                            下载 TXT
+                          </Button>
+                        </Space>
+                      ) : null}
+                    </div>
+                    {cards.length === 0 ? (
+                      <div className="rounded border border-[#e5e6eb] px-3 py-4 text-center text-[12px] text-[#86909c]">
+                        暂无卡券，上游还在发货，请稍后重新兑换或联系客服。
                       </div>
-                    ))}
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {/* 与订单详情页一致：只读文本框展示前 10 条，完整内容走下载 */}
+                        <Input.TextArea
+                          readOnly
+                          value={cards.slice(0, 10).map(cardLine).join("\n")}
+                          style={{
+                            height: 220,
+                            resize: "none",
+                            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+                            fontSize: 12,
+                            lineHeight: "20px",
+                          }}
+                        />
+                        {cards.length > 10 ? (
+                          <div className="text-[11px] leading-relaxed text-[#d25f00]">
+                            共 {cards.length} 条，文本框仅展示前 10 条；完整内容请点上方「下载
+                            TXT」查看。
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
                 <Result
                   status="success"
-                  title="兑换成功"
-                  subTitle="兑换码已充入余额，请到「个人中心 - 我的余额」查看。"
+                  title={message || "兑换成功"}
+                  subTitle={`${balanceAmount > 0 ? `已充入余额 ¥${formatPrice(balanceAmount)}，` : ""}请到「个人中心 - 我的余额」查看。`}
                 />
               )}
             </div>

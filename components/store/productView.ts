@@ -23,3 +23,18 @@ export function productTitle(p: Product): string {
 export function productImg(p: Product): string | null {
   return catImg(p.customImg || p.imgUrl);
 }
+
+/** 站点 LOGO（public/favicon.svg）。 */
+export const SITE_LOGO = "/favicon.svg";
+
+/** 自营板块（分类）ID，与后端 store.SelfCategoryID 保持一致。 */
+export const SELF_BOARD_ID = 900001;
+
+/**
+ * 板块图标：自营板块没有自己的分类图，统一显示站点 LOGO；
+ * 其他板块沿用后台同步进来的分类图。商品图片不受影响，仍用各自的自定义图。
+ */
+export function boardImg(id: number, img: string | undefined | null): string | null {
+  if (id === SELF_BOARD_ID) return SITE_LOGO;
+  return catImg(img);
+}
