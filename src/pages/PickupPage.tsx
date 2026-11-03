@@ -235,10 +235,16 @@ function AccountList({
       </div>
       <div ref={attachList} className="min-h-0 flex-1 overflow-y-auto">
         {accounts.length === 0 ? (
-          <Empty
-            style={{ marginTop: 48 }}
-            description={keyword ? "没有匹配的账号" : "还没有账号，导入后显示在这里"}
-          />
+          keyword ? (
+            <Empty style={{ marginTop: 48 }} description="没有匹配的账号" />
+          ) : (
+            <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-3 px-4 text-center">
+              <span className="text-[13px] text-[#86909c]">还没有账号</span>
+              <Button size="small" type="primary" icon={<IconPlus />} onClick={onImport}>
+                导入账号
+              </Button>
+            </div>
+          )
         ) : (
           <List
             dataSource={rows}
@@ -440,7 +446,19 @@ export function PickupPage() {
           <Link to="/" className="flex shrink-0 items-center gap-2 text-[15px] font-semibold">
             <img src="/favicon.svg" alt="HShop" className="h-6 w-6" />
             HShop
-            <span className="text-[12px] font-normal text-[#86909c]">微软取件</span>
+            <span className="flex items-center gap-1 text-[12px] font-normal text-[#86909c]">
+              微软取件
+              <Tooltip
+                position="br"
+                content={
+                  <div className="max-w-[260px] leading-relaxed">
+                    选择账号后点击「取件」读取邮箱，无需登录。
+                  </div>
+                }
+              >
+                <IconQuestionCircle className="cursor-help text-[13px]" />
+              </Tooltip>
+            </span>
           </Link>
 
           <Space size={8}>
@@ -463,25 +481,11 @@ export function PickupPage() {
       </header>
 
       <div className="mx-auto flex min-h-0 w-full max-w-[1440px] flex-1 flex-col gap-3 px-4 py-3">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[15px] font-semibold">微软取件</span>
-            <Tooltip
-              position="br"
-              content={
-                <div className="max-w-[260px] leading-relaxed">
-                  选择账号后点击「取件」读取邮箱，无需登录。
-                </div>
-              }
-            >
-              <IconQuestionCircle className="cursor-help text-[13px] text-[#86909c]" />
-            </Tooltip>
-          </div>
-          <Space size={8}>
-            <Button className="lg:hidden!" size="mini" icon={<IconMenu />} onClick={() => setDrawerOpen(true)}>
-              账号列表
-            </Button>
-          </Space>
+        {/* 移动端才需要：打开账号列表抽屉；桌面端账号列表常驻左侧，整行不占位 */}
+        <div className="flex shrink-0 items-center justify-end gap-2 lg:hidden">
+          <Button size="mini" icon={<IconMenu />} onClick={() => setDrawerOpen(true)}>
+            账号列表
+          </Button>
         </div>
 
         <div className="flex min-h-0 flex-1 gap-3">
