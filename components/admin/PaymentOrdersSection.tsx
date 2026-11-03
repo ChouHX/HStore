@@ -32,6 +32,8 @@ interface CryptoOrder {
   orderNo: string;
   uid: number;
   chain: string;
+  /** 链路的中文/展示名，如 TRON (TRC20)；chain 只是 Bybit 内部代号 */
+  chainLabel: string;
   address: string;
   requestedCny: number;
   usdtAmount: string;
@@ -181,7 +183,7 @@ export function PaymentOrdersSection() {
           goodsId: o.goodsId,
           goodsName: o.goodsName,
           payText: `${o.usdtAmount} USDT`,
-          paySub: `申请 ¥${formatPrice(o.requestedCny)} · ${o.chain}`,
+          paySub: `申请 ¥${formatPrice(o.requestedCny)} · ${o.chainLabel || o.chain}`,
           receiveText: o.receivedUsdt ? `${o.receivedUsdt} USDT` : "-",
           creditedText: `¥${formatPrice(o.creditCny)}`,
           status: o.status,
@@ -311,11 +313,12 @@ export function PaymentOrdersSection() {
     {
       title: "应付",
       dataIndex: "payText",
-      width: 140,
+      width: 170,
       render: (_: unknown, r: Row) => (
         <div className="text-[12px]">
           <div className="text-[#f53f3f]">{r.payText}</div>
-          <div className="text-[11px] text-[#86909c]">{r.paySub}</div>
+          {/* 链路名比内部代号长（如 Arbitrum One (USDT0)），截断并悬停看全量，避免挤到相邻列 */}
+          <Ellipsis text={r.paySub} width={150} />
         </div>
       ),
     },
@@ -525,7 +528,10 @@ export function PaymentOrdersSection() {
                 : []),
               ...(usdtDetail
                 ? [
-                    { label: "链", value: usdtDetail.chain },
+                    {
+                      label: "链",
+                      value: usdtDetail.chainLabel || usdtDetail.chain,
+                    },
                     { label: "收款地址", value: <span className="break-all font-mono">{usdtDetail.address}</span> },
                     { label: "TXID", value: <span className="break-all font-mono">{usdtDetail.txid || "-"}</span> },
                   ]

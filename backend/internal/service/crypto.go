@@ -21,7 +21,11 @@ type RefreshResult struct {
 	Errors  []string `json:"errors"`
 }
 
-// RefreshPoolAddresses 刷新地址池的 TRX/BSC 地址。
+// RefreshPoolAddresses 刷新地址池的 TRON / EVM 地址。
+//
+// 逐条链调用 Bybit（chainType 必须用短代号 TRX / BSC / ARBI / MATIC，
+// 传展示名会返回 131001）：非 EVM 链（TRX）写入 address_trx，
+// 所有 EVM 链（BSC / ARBI / MATIC）共用同一个 address_evm。
 func RefreshPoolAddresses() RefreshResult {
 	res := RefreshResult{Errors: []string{}}
 	if !upstream.IsBybitConfigured() {

@@ -31,6 +31,7 @@ interface Slot {
   address: string;
   addressTrx: string;
   addressBsc: string;
+  addressEvm: string;
   chain: string;
   status: "available" | "reserved" | "disabled";
   currentOrderId: number | null;
@@ -159,18 +160,20 @@ export function CryptoSection() {
     { title: "ID", dataIndex: "id", width: 60 },
     { title: "子账户 UID", dataIndex: "subUid", width: 130 },
     {
-      title: "TRC20 地址",
+      title: "TRON 地址",
       dataIndex: "addressTrx",
       render: (_: unknown, r: Slot) => (
         <span className="font-mono text-[11px]">{r.addressTrx || <span className="text-[#c9cdd4]">未获取</span>}</span>
       ),
     },
     {
-      title: "BEP20 地址",
-      dataIndex: "addressBsc",
-      render: (_: unknown, r: Slot) => (
-        <span className="font-mono text-[11px]">{r.addressBsc || <span className="text-[#c9cdd4]">未获取</span>}</span>
-      ),
+      // BSC / Arbitrum One / Polygon PoS 共用同一个 EVM 地址
+      title: "EVM 地址（BSC / Arbitrum / Polygon）",
+      dataIndex: "addressEvm",
+      render: (_: unknown, r: Slot) => {
+        const evm = r.addressEvm || r.addressBsc;
+        return <span className="font-mono text-[11px]">{evm || <span className="text-[#c9cdd4]">未获取</span>}</span>;
+      },
     },
     {
       title: "状态",
@@ -333,7 +336,9 @@ export function CryptoSection() {
               管理子账号
             </Button>
           </div>
-          <div className="mt-1 text-[11px] text-[#86909c]">每个子账号对应一条 TRC20 / BEP20 地址。</div>
+          <div className="mt-1 text-[11px] text-[#86909c]">
+            每个子账号对应一条 TRON 地址，以及一条 BSC / Arbitrum One / Polygon PoS 共用的 EVM 地址。
+          </div>
         </div>
       </Card>
 
