@@ -28,6 +28,8 @@ import (
 	"hstore/backend/internal/httpapi"
 	"hstore/backend/internal/imagecache"
 	"hstore/backend/internal/service"
+	"hstore/backend/internal/store"
+	"hstore/backend/internal/upstream"
 	"hstore/backend/web"
 )
 
@@ -59,6 +61,7 @@ func main() {
 
 	go cryptoLoop(ctx)
 	go alipayLoop(ctx)
+	go stockLoop(ctx)
 
 	go func() {
 		log.Printf("[hstore] 监听 http://%s", srv.Addr)
@@ -128,6 +131,72 @@ func alipayLoop(ctx context.Context) {
 			}()
 		}
 	}
+}
+
+// stockLoop 后台定时同步上游商品库存。
+//
+// 库存不再跟着「用户打开首页」刷新：那会让每个访客都替全站商品回源一次上游，
+// 首屏还得等它。改成后台每 stockTick 取一批最久没同步的在售上游商品，
+// 用 4 并发 + 80ms 间隔慢慢刷完（229 个商品约 18 秒），前端列表直接读本地
+// stock_count 即可；用户点「购买」时才用 fresh=1 单独回源拿实时库存。
+func stockLoop(ctx context.Context) {
+	// 启动后先等一会儿，避免和首屏流量、其它启动任务抢上游配额。
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(20 * time.Second):
+	}
+	ticker := time.NewTicker(stockTick)
+	defer ticker.Stop()
+	for {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[hstore] 库存同步 panic: %v", r)
+				}
+			}()
+			syncStaleStock()
+		}()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// stockTick 是库存同步周期；配合 stockBatch 决定单个商品的最长刷新间隔。
+//
+// 当前在售上游商品约 230 个：每轮最多 120 个、每 2 分钟一轮，
+// 每个商品的库存大约每 6 分钟被刷新一次（stockAgeMS 即这个上限），
+// 单轮耗时 3~8 秒（4 并发 + 80ms 间隔，见 upstream.FetchStockCounts）。
+// 上游负载 ≈ 40 次/分钟，远低于以前「每个访客每次翻页都刷 20 个」的量。
+const (
+	stockTick  = 2 * time.Minute
+	stockAgeMS = 6 * 60 * 1000 // 超过 6 分钟未同步视为陈旧
+	stockBatch = 120           // 每轮最多刷新 120 个
+)
+
+// syncStaleStock 刷新一批陈旧商品的库存，返回本轮实际更新的商品数。
+func syncStaleStock() int {
+	if !upstream.IsConfigured() {
+		return 0
+	}
+	ids := store.StaleEnabledStockIDs(stockAgeMS, stockBatch)
+	if len(ids) == 0 {
+		return 0
+	}
+	stocks := upstream.FetchStockCounts(ids, stockBatch)
+	for id, stock := range stocks {
+		store.UpdateStock(id, stock)
+	}
+	if len(stocks) > 0 {
+		log.Printf("[hstore] 库存同步: %d/%d 个商品已更新", len(stocks), len(ids))
+	} else {
+		// 全失败通常意味着 App-Id / 上游不可用，留痕方便排查。
+		log.Printf("[hstore] 库存同步失败: %d 个商品全部未取到库存", len(ids))
+	}
+	return len(stocks)
 }
 
 // pendingCryptoOrders 返回仍在等待中的链上订单 ID。

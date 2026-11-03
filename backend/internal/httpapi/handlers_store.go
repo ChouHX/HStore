@@ -135,8 +135,9 @@ func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 
 // handleGoodsDetail 商品详情：直接返回本地缓存的原始 JSON。
 //
-// 缓存由「同步商品 / 刷新库存」写入（见 upstream.GetDetail），所以正常情况这里
-// 一次上游请求都不发；只有从没同步过的新商品才会同步回源一次。
+// 缓存由「后台库存同步 / 购买时强刷」写入（见 upstream.GetDetail），所以正常
+// 浏览路径一次上游请求都不发；只有从没同步过的新商品才会同步回源一次。
+// 带 fresh=1 时强制回源，用于购买弹窗展示「此刻」的真实库存。
 func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 	id := queryInt(r, "id")
 	if id == 0 {
@@ -152,7 +153,14 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "未配置 App-Id")
 		return
 	}
-	raw, e := upstream.DetailCached(id)
+	var raw json.RawMessage
+	var e error
+	if r.URL.Query().Get("fresh") == "1" {
+		// 购买弹窗要的是「此刻」的真实库存，不能给 10 分钟 TTL 的缓存。
+		raw, e = upstream.DetailFresh(id)
+	} else {
+		raw, e = upstream.DetailCached(id)
+	}
 	if e != nil {
 		fail(w, http.StatusInternalServerError, e.Error())
 		return
@@ -196,8 +204,9 @@ func selfProductDetail(p *model.Product) model.GoodsDetail {
 
 // withLocalStock 用本地库存覆盖详情缓存里的旧值。
 //
-// 本地 stock_count 由商品列表加载时的 60 秒节流刷新维护，比 10 分钟 TTL 的
-// 详情缓存更新，所以前端看到的库存以本地为准。
+// 本地 stock_count 由后台库存同步循环维护（见 cmd/server stockLoop），
+// 比 10 分钟 TTL 的详情缓存更新，所以前端看到的库存以本地为准。
+// fresh=1 路径下 DetailFresh 刚把上游库存写回本地，这里覆盖等于无操作。
 func withLocalStock(goodsID int, raw json.RawMessage) json.RawMessage {
 	p := store.GetProduct(goodsID)
 	if p == nil || p.StockCount < 0 {

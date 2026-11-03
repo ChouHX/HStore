@@ -198,7 +198,9 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     setContact((prev) => prev || loadLastContact() || user?.phone || user?.email || "");
     setLoading(true);
 
-    fetch(`/api/goods/detail?id=${product.goodsId}`)
+    // fresh=1：用户点了购买才回源上游拿「此刻」的真实库存。
+    // 列表页展示的是后台定时同步的本地库存，可能有几分钟延迟。
+    fetch(`/api/goods/detail?id=${product.goodsId}&fresh=1`)
       .then((r) => r.json())
       .then((j) => {
         if (j.ok) setDetail(j.detail);

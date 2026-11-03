@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"hstore/backend/internal/model"
 	"hstore/backend/internal/store"
 )
 
@@ -68,4 +69,29 @@ func refreshDetailAsync(goodsID int) {
 			store.UpdateStock(goodsID, d.StockCount)
 		}
 	}()
+}
+
+// DetailFresh 强制回源拉取商品详情，并顺手刷新本地详情缓存与库存。
+//
+// 只在「用户点了购买」这种必须知道此刻真实库存的场景调用：浏览路径一律走
+// DetailCached，不能让访客等上游 WAF 挑战。回源失败时退回本地缓存，
+// 保证弹窗至少能打开（库存可能是旧的，但下单时上游还会再校验一次）。
+func DetailFresh(goodsID int) (json.RawMessage, error) {
+	if goodsID <= 0 {
+		return nil, &APIError{Code: -1, Message: "缺少商品编号"}
+	}
+	raw, e := GetDetailRaw(goodsID)
+	if e != nil {
+		if cached, _, ok := store.GetProductDetail(goodsID); ok {
+			log.Printf("[hstore] 强刷商品详情失败，退回缓存 %d: %v", goodsID, e)
+			return json.RawMessage(cached), nil
+		}
+		return nil, e
+	}
+	store.SaveProductDetail(goodsID, raw)
+	var d model.GoodsDetail
+	if json.Unmarshal(raw, &d) == nil {
+		store.UpdateStock(goodsID, d.StockCount)
+	}
+	return raw, nil
 }

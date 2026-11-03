@@ -271,7 +271,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
   const [items, setItems] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [stockSyncing, setStockSyncing] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
   // 公告弹窗受控：关闭后 header 右侧常驻公告 icon，可随时重新打开
   const [noticeOpen, setNoticeOpen] = useState(false);
@@ -327,22 +326,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         setItems(list);
         setTotal(j.total as number);
         if (page > 1 && list.length === 0) setPage(1);
-        // 后台同步上游库存（不阻塞列表渲染）
-        const ids = list.map((p) => p.goodsId);
-        if (ids.length > 0) {
-          setStockSyncing(true);
-          fetch(`/api/store/stock?ids=${ids.join(",")}`)
-            .then((r) => r.json())
-            .then((st) => {
-              if (!st.ok) return;
-              const stocks = st.stocks as Record<string, number>;
-              setItems((prev) =>
-                prev.map((p) => (stocks[p.goodsId] != null ? { ...p, stockCount: stocks[p.goodsId] } : p)),
-              );
-            })
-            .catch(() => {})
-            .finally(() => setStockSyncing(false));
-        }
       }
     } finally {
       setLoading(false);
@@ -533,7 +516,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                     <div className="flex shrink-0 items-center gap-2">
                       <span className="hidden text-[12px] text-[#86909c] lg:inline">
                         共 {total} 件
-                        {stockSyncing && <span className="ml-3 text-[#165dff]">库存同步中…</span>}
                         {lastSync && <span className="ml-3">更新于 {new Date(lastSync).toLocaleString("zh-CN")}</span>}
                       </span>
                       <Space size={2}>

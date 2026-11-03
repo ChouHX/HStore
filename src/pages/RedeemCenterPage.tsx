@@ -129,28 +129,31 @@ export function RedeemCenterPage() {
   const cards = order?.cards ?? [];
 
   return (
-    <div className="min-h-screen bg-[#f5f6f8]">
+    <div className="min-h-screen bg-[#f7f8fa]">
       <StoreHeader user={user ?? null} announcements={[]} />
-      <main className="mx-auto w-full max-w-[1100px] px-4 py-8">
+      <main className="mx-auto flex w-full max-w-[1000px] flex-col gap-4 px-4 py-5">
         <div className="rounded-lg bg-white p-6 shadow-sm">
-          <div className="mb-1 text-[16px] font-semibold text-[#1d2129]">兑换中心</div>
-          <div className="mb-5 text-[12px] text-[#86909c]">
-            输入兑换码即可自动发货，未登录也可使用；兑换记录可在「订单查询」中查看。
+          <div className="flex flex-col gap-3">
+            <div className="text-center">
+              <div className="text-[15px] font-medium text-[#1d2129]">兑换中心</div>
+              <div className="mt-1 text-[12px] text-[#86909c]">
+                输入兑换码即可自动发货，未登录也可使用；兑换记录可在「订单查询」中查看。
+              </div>
+            </div>
+            <div className="mx-auto flex w-full max-w-[520px] flex-col gap-2 sm:flex-row">
+              <Input
+                allowClear
+                size="large"
+                value={code}
+                onChange={setCode}
+                placeholder="请输入兑换码，例如 XXXX-XXXX-XXXX-XXXX"
+                onPressEnter={submit}
+              />
+              <Button type="primary" size="large" loading={loading} onClick={submit}>
+                立即兑换
+              </Button>
+            </div>
           </div>
-
-          <Space className="w-full">
-            <Input
-              value={code}
-              onChange={setCode}
-              placeholder="请输入兑换码，例如 XXXX-XXXX-XXXX-XXXX"
-              style={{ width: 360 }}
-              onPressEnter={submit}
-              allowClear
-            />
-            <Button type="primary" loading={loading} onClick={submit}>
-              立即兑换
-            </Button>
-          </Space>
 
           {order && (
             <div className="mt-6 rounded-md border border-[#e5e6eb] p-4">

@@ -444,6 +444,36 @@ func StaleStockIDs(ids []int) []int {
 	return out
 }
 
+// StaleEnabledStockIDs 返回「在售的上游商品」里库存同步超过 maxAgeMS 的 ID。
+//
+// 只取 fulfillment <> 'self'：自营商品的库存来自本地卡密，不需要回源。
+// 按 stock_synced_at 升序返回，让最久没更新的商品优先被刷新。
+func StaleEnabledStockIDs(maxAgeMS int64, limit int) []int {
+	if maxAgeMS <= 0 {
+		maxAgeMS = 600_000
+	}
+	if limit <= 0 {
+		limit = 40
+	}
+	cutoff := now() - maxAgeMS
+	rows, e := db.Must().Query(
+		`SELECT goods_id FROM products
+		 WHERE enabled = 1 AND fulfillment <> 'self' AND stock_synced_at < ?
+		 ORDER BY stock_synced_at ASC LIMIT ?`, cutoff, limit)
+	if e != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []int
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // UnknownStockIDs 返回库存未知（<0）的商品。
 func UnknownStockIDs() []int {
 	rows, e := db.Must().Query("SELECT goods_id FROM products WHERE stock_count < 0 AND fulfillment <> 'self'")
