@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,11 +14,26 @@ import (
 	"hstore/backend/internal/store"
 )
 
-// setupStoreDB 用临时库跑一遍完整的建表 / 迁移 / 种子，供商城接口测试使用。
-// 必须在用到 store 包之前调用（db 是进程内单例）。
+// TestMain 给整个包定一个存活到全部用例结束的临时库。
+//
+// db.Open 是进程内单例，路径只认第一次调用。之前每个用例各自 t.Setenv + t.TempDir()，
+// 第一个用例跑完目录就被删了，后面的用例拿到的是指向已删除文件的连接，
+// 写入直接报 "unable to open database file: out of memory"。
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "hstore-httpapi-test-")
+	if err != nil {
+		panic(err)
+	}
+	_ = os.Setenv("FAKA_DB_PATH", filepath.Join(dir, "test.db"))
+	code := m.Run()
+	_ = db.Close()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+// setupStoreDB 建表 / 迁移 / 种子，供商城接口测试使用。
 func setupStoreDB(t *testing.T) {
 	t.Helper()
-	t.Setenv("FAKA_DB_PATH", filepath.Join(t.TempDir(), "test.db"))
 	if _, err := db.Open(); err != nil {
 		t.Fatalf("open db: %v", err)
 	}

@@ -274,6 +274,21 @@ func (a *API) handleAdminCryptoPost(w http.ResponseWriter, r *http.Request) {
 		snap := cryptoSnapshot()
 		snap["order"] = order
 		writeJSON(w, http.StatusOK, snap)
+	case "deleteOrder":
+		if orderID == 0 {
+			fail(w, http.StatusBadRequest, "缺少订单")
+			return
+		}
+		order, err := store.DeleteCryptoOrder(orderID)
+		snap := cryptoSnapshot()
+		if err != nil {
+			snap["ok"] = false
+			snap["message"] = err.Error()
+			writeJSON(w, http.StatusBadRequest, snap)
+			return
+		}
+		store.WriteAudit(&admin.UID, "crypto_order_delete", "", itoa(orderID), order, nil, "删除 USDT 充值订单（清理测试数据）")
+		ok(w, snap)
 	default:
 		fail(w, http.StatusBadRequest, "未知操作")
 	}

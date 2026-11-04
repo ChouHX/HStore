@@ -114,6 +114,22 @@ func GetGuestPurchaseByPayment(channel string, paymentOrderID int) *model.GuestP
 	return &g
 }
 
+// DeleteGuestPurchasesForPaymentTx 删除指向某笔支付订单、且尚未履约的游客直购记录。
+//
+// 支付订单被物理删除后，这些记录再也无法推进：guestOrderView 会报
+// 「支付订单不存在」，后台轮询也会一直认为它们未终结，所以随订单一并清理。
+// 已履约（fulfilled）和履约中（fulfilling）的记录不删——它们必然对应已到账的
+// 支付订单，而那种订单本身就不允许删除。
+func DeleteGuestPurchasesForPaymentTx(tx *sql.Tx, channel string, paymentOrderID int) error {
+	if channel == "" || paymentOrderID == 0 {
+		return nil
+	}
+	_, err := tx.Exec(`DELETE FROM guest_purchases
+		WHERE channel=? AND payment_order_id=? AND status NOT IN ('fulfilled','fulfilling')`,
+		channel, paymentOrderID)
+	return err
+}
+
 // ListPendingGuestPurchases 返回等待支付或上次履约失败的游客订单。
 func ListPendingGuestPurchases(limit int) []model.GuestPurchase {
 	if limit <= 0 {

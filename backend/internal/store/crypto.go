@@ -591,6 +591,45 @@ func CancelCryptoOrder(id int) {
 	}
 }
 
+// DeleteCryptoOrder 物理删除一笔未到账的 USDT 充值订单（后台清理测试数据用）。
+//
+// 只允许删除「确定没有收到币」的订单：已到账（paid）的订单已经给用户加过余额
+// 并写入 ledger，删掉会让账目对不上，所以直接拒绝。等待中（waiting）的订单
+// 也可以删除，删除时一并释放它占用的地址池槽位。
+func DeleteCryptoOrder(id int) (*model.CryptoOrder, error) {
+	d := db.Must()
+	tx, e := d.Begin()
+	if e != nil {
+		return nil, e
+	}
+	defer tx.Rollback()
+	row := tx.QueryRow("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE id=?", id)
+	order, e := scanCryptoOrder(row)
+	if e != nil {
+		if errors.Is(e, sql.ErrNoRows) {
+			return nil, errors.New("订单不存在")
+		}
+		return nil, e
+	}
+	if order.Status == "paid" || order.PaidAt != nil {
+		return nil, errors.New("该订单已到账并记账，不能删除")
+	}
+	// 地址不再冻结，这里只清理历史遗留的占用字段（若有）
+	if _, e := tx.Exec("UPDATE bybit_pool SET status='available', current_order_id=NULL, reserved_until=NULL WHERE current_order_id=?", id); e != nil {
+		return nil, e
+	}
+	if e := DeleteGuestPurchasesForPaymentTx(tx, "usdt", id); e != nil {
+		return nil, e
+	}
+	if _, e := tx.Exec("DELETE FROM crypto_orders WHERE id=?", id); e != nil {
+		return nil, e
+	}
+	if e := tx.Commit(); e != nil {
+		return nil, e
+	}
+	return &order, nil
+}
+
 func parseFloat(s string) float64 {
 	f, _ := strconv.ParseFloat(s, 64)
 	return f

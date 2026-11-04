@@ -1,4 +1,4 @@
-import { Button, Card, Descriptions, Input, Message, Modal, Select, Space, Table, Tag, Tooltip } from "@arco-design/web-react";
+import { Button, Card, Descriptions, Dropdown, Input, Menu, Message, Modal, Select, Table, Tag, Tooltip } from "@arco-design/web-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatPrice } from "@/lib/format";
 
@@ -368,48 +368,57 @@ export function PaymentOrdersSection() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 210,
-      render: (_: unknown, r: Row) => (
-        <Space>
-          <Button size="small" onClick={() => setDetail(r)}>
-            详情
-          </Button>
-          {r.channel === "alipay" && r.checkoutUrl && (
-            <Button size="small" href={r.checkoutUrl} target="_blank" rel="noreferrer">
-              收银台
-            </Button>
-          )}
-          {r.status === "waiting" && r.channel === "alipay" && (
-            <Button
-              size="small"
-              status="danger"
-              disabled={busy}
-              onClick={() => act("/api/admin/alipay", { action: "closeOrder", orderId: r.id }, "订单已关闭")}
-            >
-              关闭
-            </Button>
-          )}
-          {r.status === "waiting" && r.channel === "usdt" && (
-            <>
-              <Button
-                size="small"
-                disabled={busy}
-                onClick={() => act("/api/admin/crypto", { action: "checkOrder", orderId: r.id }, "已检查订单")}
+      width: 90,
+      fixed: "right" as const,
+      render: (_: unknown, r: Row) => {
+        // 已到账的订单不允许删除：它已经记账、加过余额，删掉账目就对不上了。
+        const deletable = r.status !== "paid" && r.status !== "disputed";
+        return (
+          <Dropdown
+            trigger="click"
+            position="br"
+            droplist={
+              <Menu
+                onClickMenuItem={(key) => {
+                  if (key === "detail") setDetail(r);
+                  if (key === "checkout" && r.checkoutUrl) window.open(r.checkoutUrl, "_blank", "noopener,noreferrer");
+                  if (key === "close") act("/api/admin/alipay", { action: "closeOrder", orderId: r.id }, "订单已关闭");
+                  if (key === "check") act("/api/admin/crypto", { action: "checkOrder", orderId: r.id }, "已检查订单");
+                  if (key === "simulate") act("/api/admin/crypto", { action: "simulate", orderId: r.id }, "已模拟到账（测试）");
+                  if (key === "delete") {
+                    Modal.confirm({
+                      title: "删除订单",
+                      content: `确定删除支付单 ${r.orderNo} 吗？删除后不可恢复，该订单占用的金额/地址会一并释放。`,
+                      okText: "删除",
+                      cancelText: "取消",
+                      okButtonProps: { status: "danger" },
+                      onOk: () =>
+                        act(
+                          r.channel === "alipay" ? "/api/admin/alipay" : "/api/admin/crypto",
+                          { action: "deleteOrder", orderId: r.id },
+                          "订单已删除",
+                        ),
+                    });
+                  }
+                }}
               >
-                检查
-              </Button>
-              <Button
-                size="small"
-                status="warning"
-                disabled={busy}
-                onClick={() => act("/api/admin/crypto", { action: "simulate", orderId: r.id }, "已模拟到账（测试）")}
-              >
-                模拟到账
-              </Button>
-            </>
-          )}
-        </Space>
-      ),
+                <Menu.Item key="detail">详情</Menu.Item>
+                {r.channel === "alipay" && r.checkoutUrl && <Menu.Item key="checkout">打开收银台</Menu.Item>}
+                {r.status === "waiting" && r.channel === "alipay" && <Menu.Item key="close">关闭订单</Menu.Item>}
+                {r.status === "waiting" && r.channel === "usdt" && <Menu.Item key="check">检查订单</Menu.Item>}
+                {r.status === "waiting" && r.channel === "usdt" && <Menu.Item key="simulate">模拟到账</Menu.Item>}
+                <Menu.Item key="delete" disabled={!deletable || busy} style={deletable ? { color: "#f53f3f" } : undefined}>
+                  {deletable ? "删除订单" : "删除订单（已到账，不可删）"}
+                </Menu.Item>
+              </Menu>
+            }
+          >
+            <Button size="small" disabled={busy}>
+              操作
+            </Button>
+          </Dropdown>
+        );
+      },
     },
   ];
 
@@ -461,7 +470,7 @@ export function PaymentOrdersSection() {
           data={filtered}
           loading={loading}
           pagination={{ pageSize: 10, showTotal: true, sizeCanChange: true }}
-          scroll={{ x: 1530 }}
+          scroll={{ x: 1420 }}
         />
       </Card>
 

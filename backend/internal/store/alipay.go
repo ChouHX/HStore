@@ -507,6 +507,55 @@ func CloseAlipayOrder(id int) (*model.AlipayOrder, error) {
 	return GetAlipayOrder(id), nil
 }
 
+// DeleteAlipayOrder 物理删除一笔未到账的支付宝订单（后台清理测试数据用）。
+//
+// 只允许删除「确定没有收到钱」的订单：已确认（CONFIRMED）的订单已经记账、
+// 已给用户加过余额，删掉会让账目对不上，所以直接拒绝；存在争议（DISPUTED）
+// 的订单同样拒绝，避免把待核实的资金线索删掉。
+//
+// 删除时会一并清掉这笔订单占用的金额槽（alipay_amount_slots），否则该金额
+// 会一直被认为是「被占用」，同金额的新订单拿不到它。
+func DeleteAlipayOrder(id int) (*model.AlipayOrder, error) {
+	d := db.Must()
+	tx, err := d.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	order, err := getAlipayOrderTx(tx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("订单不存在")
+		}
+		return nil, err
+	}
+	if order.PaymentStatus == "CONFIRMED" || order.PaidAt != nil || order.LedgerEntryID != nil {
+		return nil, errors.New("该订单已到账并记账，不能删除")
+	}
+	if order.PaymentStatus == "DISPUTED" {
+		return nil, errors.New("该订单存在支付争议，不能删除")
+	}
+	if _, err := tx.Exec("DELETE FROM alipay_amount_slots WHERE order_id=?", id); err != nil {
+		return nil, err
+	}
+	// 账务流水里的 order_id 指向本单，删除后置空，避免留下悬空引用
+	// （流水本身是支付宝侧的原始记录，不能删）。
+	if _, err := tx.Exec(`UPDATE alipay_ledger_entries SET order_id=NULL, state='UNALLOCATED', updated_at=?
+		WHERE order_id=?`, now(), id); err != nil {
+		return nil, err
+	}
+	if err := DeleteGuestPurchasesForPaymentTx(tx, "alipay", id); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec("DELETE FROM alipay_orders WHERE id=?", id); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return order, nil
+}
+
 func getAlipayOrderTx(tx *sql.Tx, id int) (*model.AlipayOrder, error) {
 	row := tx.QueryRow("SELECT "+alipayOrderCols+" FROM alipay_orders o WHERE o.id=?", id)
 	o, err := scanAlipayOrder(row)

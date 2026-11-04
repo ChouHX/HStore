@@ -280,6 +280,21 @@ func (a *API) handleAdminAlipayPost(w http.ResponseWriter, r *http.Request) {
 		}
 		store.WriteAudit(&admin.UID, "alipay_order_close", "", itoa(orderID), nil, nil, "关闭支付宝充值订单")
 		ok(w, snap)
+	case "deleteOrder":
+		if orderID == 0 {
+			fail(w, http.StatusBadRequest, "缺少订单")
+			return
+		}
+		order, err := store.DeleteAlipayOrder(orderID)
+		snap := alipaySnapshot()
+		if err != nil {
+			snap["ok"] = false
+			snap["message"] = err.Error()
+			writeJSON(w, http.StatusBadRequest, snap)
+			return
+		}
+		store.WriteAudit(&admin.UID, "alipay_order_delete", "", itoa(orderID), order, nil, "删除支付宝充值订单（清理测试数据）")
+		ok(w, snap)
 	case "manualMatch":
 		ledgerID, _ := store.ToInt(body["ledgerId"])
 		if orderID == 0 || ledgerID == 0 {
