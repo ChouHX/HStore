@@ -247,3 +247,78 @@ func TestNewLegacyOrderNoStable(t *testing.T) {
 		}
 	}
 }
+
+// TestBackfillRedeemOrderSaleMoney 历史兑换码订单必须补记销售额，
+// 且只补「兑换码核销过 + 金额为 0 + 能查到售价」的那些行。
+func TestBackfillRedeemOrderSaleMoney(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Exec(`
+CREATE TABLE products (
+  goods_id    INTEGER PRIMARY KEY,
+  final_price REAL NOT NULL DEFAULT 0,
+  sales_price REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE orders (
+  order_number TEXT PRIMARY KEY,
+  goods_id     INTEGER NOT NULL,
+  count        INTEGER NOT NULL DEFAULT 0,
+  money        REAL NOT NULL DEFAULT 0,
+  sale_money   REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE redeem_codes (
+  id           INTEGER PRIMARY KEY,
+  order_number TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO products(goods_id, final_price, sales_price) VALUES
+  (5768, 0.064, 0.1),  -- 有售价
+  (900018, 0, 0.07);   -- final_price 为 0，回退到 sales_price
+INSERT INTO orders(order_number, goods_id, count, money, sale_money) VALUES
+  ('HSCODEFILL1', 5768, 10, 0, 0),    -- 兑换码核销过：应补 0.64
+  ('HSCODEFILL2', 900018, 100, 0, 0), -- 兑换码核销过：应补 7
+  ('HSNORMAL001', 5768, 5, 0, 0),     -- 普通零元单：不该动
+  ('HSPAID00001', 5768, 3, 0.192, 0.192); -- 已记账：不该动
+INSERT INTO redeem_codes(id, order_number) VALUES (1, 'HSCODEFILL1'), (2, 'HSCODEFILL2');
+`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := backfillRedeemOrderSaleMoney(conn); err != nil {
+		t.Fatal(err)
+	}
+
+	type row struct{ money, sale float64 }
+	read := func(no string) row {
+		t.Helper()
+		var r row
+		if err := conn.QueryRow("SELECT money, sale_money FROM orders WHERE order_number = ?", no).
+			Scan(&r.money, &r.sale); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	if got := read("HSCODEFILL1"); got.money != 0.64 || got.sale != 0.64 {
+		t.Fatalf("兑换码订单销售额回填不对: money=%v sale=%v，期望 0.64", got.money, got.sale)
+	}
+	if got := read("HSCODEFILL2"); got.money != 7 || got.sale != 7 {
+		t.Fatalf("final_price 为 0 时应回退 sales_price: money=%v sale=%v，期望 7", got.money, got.sale)
+	}
+	if got := read("HSNORMAL001"); got.money != 0 || got.sale != 0 {
+		t.Fatalf("非兑换码订单不应被补金额: money=%v sale=%v", got.money, got.sale)
+	}
+	if got := read("HSPAID00001"); got.money != 0.192 || got.sale != 0.192 {
+		t.Fatalf("已记账订单不应被覆盖: money=%v sale=%v", got.money, got.sale)
+	}
+
+	// 幂等：再跑一次结果不变
+	if err := backfillRedeemOrderSaleMoney(conn); err != nil {
+		t.Fatal(err)
+	}
+	if got := read("HSCODEFILL1"); got.money != 0.64 || got.sale != 0.64 {
+		t.Fatalf("重复回填改动了结果: money=%v sale=%v", got.money, got.sale)
+	}
+}

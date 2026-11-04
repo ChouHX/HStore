@@ -737,6 +737,27 @@ func migrateLegacyOrderNumbers(db *sql.DB) error {
 	return tx.Commit()
 }
 
+// backfillRedeemOrderSaleMoney 给历史兑换码订单补记销售额。
+//
+// 旧逻辑里 payment='code' 的订单会把 sale_money 强制清零，后台「销售额 / 毛利」
+// 因此长期偏低（成本照记，收入为 0，毛利甚至是负的）。兑换码在别的平台也是
+// 按售价卖出去的，只是收款不发生在站内，所以按「数量 × 售价」补记一次。
+//
+// 幂等：只处理 money 与 sale_money 都为 0、确实被兑换码核销过（redeem_codes
+// 里有对应 order_number）、且能查到售价的订单。已经补过的行不会再次命中。
+func backfillRedeemOrderSaleMoney(db *sql.DB) error {
+	_, e := db.Exec(`UPDATE orders SET
+			money = ROUND(count * COALESCE((SELECT COALESCE(NULLIF(final_price, 0), sales_price, 0)
+				FROM products WHERE goods_id = orders.goods_id), 0), 4),
+			sale_money = ROUND(count * COALESCE((SELECT COALESCE(NULLIF(final_price, 0), sales_price, 0)
+				FROM products WHERE goods_id = orders.goods_id), 0), 4)
+		WHERE COALESCE(money, 0) = 0 AND COALESCE(sale_money, 0) = 0 AND count > 0
+			AND EXISTS (SELECT 1 FROM redeem_codes c WHERE c.order_number = orders.order_number)
+			AND COALESCE((SELECT COALESCE(NULLIF(final_price, 0), sales_price, 0)
+				FROM products WHERE goods_id = orders.goods_id), 0) > 0`)
+	return e
+}
+
 func migrate(db *sql.DB) error {
 	if e := addColumns(db, "products", [][2]string{{"cost_price", "REAL NOT NULL DEFAULT 0"},
 		{"final_price", "REAL NOT NULL DEFAULT 0"},
@@ -780,6 +801,12 @@ func migrate(db *sql.DB) error {
 		return e
 	}
 	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_contact ON orders(contact)"); e != nil {
+		return e
+	}
+	// 历史兑换码订单没有记账销售额（旧逻辑把 payment='code' 的金额强制清零），
+	// 导致后台「销售额 / 毛利」长期偏低。兑换码在别的平台同样是按售价卖出去的，
+	// 只是收款不发生在站内，所以这里按「数量 × 售价」补记一次。
+	if e := backfillRedeemOrderSaleMoney(db); e != nil {
 		return e
 	}
 
