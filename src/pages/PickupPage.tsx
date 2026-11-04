@@ -540,14 +540,14 @@ export function PickupPage() {
                   {MAIL_FOLDERS.map((f) => (
                     <Button
                       key={f.key}
-                      size="small"
+                      size="mini"
                       type={folder === f.key ? "primary" : "secondary"}
                       onClick={() => setFolder(f.key)}
                     >
                       {f.label}
                     </Button>
                   ))}
-                  <Button size="small" type="primary" icon={<IconEmail />} disabled={!selected} onClick={pickup}>
+                  <Button size="mini" type="primary" icon={<IconEmail />} disabled={!selected} onClick={pickup}>
                     取件
                   </Button>
                 </div>

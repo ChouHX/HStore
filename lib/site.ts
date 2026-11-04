@@ -1,15 +1,11 @@
 /** 站点品牌名：侧边栏、页头、公开页统一用这个。 */
 export const SITE_NAME = "HShop";
 
+/** 首页轮播单张 banner 的数据结构。 */
 export interface Banner {
   title: string;
   subtitle: string;
-  bg: string;
-}
-
-export interface Banner {
-  title: string;
-  subtitle: string;
+  /** CSS background，直接贴到幻灯片容器上 */
   bg: string;
   badge: string;
   icon: "mail" | "bolt" | "gift";

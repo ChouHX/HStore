@@ -147,6 +147,96 @@ body {
   overflow-y: auto;
 }
 
+/* 首页轮播：底部条状指示器改成渐变胶囊，隐藏 Arco 默认的渐变遮罩 */
+.store-hero .arco-carousel-indicator-wrapper-bottom {
+  height: 56px;
+  background: none;
+  pointer-events: none;
+}
+.store-hero-indicator.arco-carousel-indicator-slider {
+  width: 84px;
+  height: 5px;
+  bottom: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  pointer-events: auto;
+  overflow: hidden;
+}
+.store-hero-indicator.arco-carousel-indicator-slider .arco-carousel-indicator-item {
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.55);
+}
+/* 箭头挪到右下角与张数角标并排，避免压在左侧文案上 */
+.store-hero .arco-carousel-arrow-left,
+.store-hero .arco-carousel-arrow-right {
+  top: auto;
+  bottom: 11px;
+  transform: none;
+}
+.store-hero .arco-carousel-arrow-left {
+  left: auto;
+  right: 94px;
+}
+.store-hero .arco-carousel-arrow-right {
+  right: 62px;
+}
+.store-hero .arco-carousel-arrow > div {
+  width: 26px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(4px);
+}
+.store-hero .arco-carousel-arrow > div:hover {
+  background: rgba(255, 255, 255, 0.38);
+}
+.store-hero .arco-carousel-arrow > div > svg {
+  font-size: 14px;
+}
+@media (max-width: 767px) {
+  .store-hero .arco-carousel-arrow {
+    display: none;
+  }
+}
+/* 每次切到某张时，文案逐级淡入（配合 Arco 的 slide-in 时机） */
+.store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > * {
+  animation: store-hero-copy-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(2) { animation-delay: 0.06s; }
+.store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(3) { animation-delay: 0.12s; }
+.store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(4) { animation-delay: 0.18s; }
+.store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(5) { animation-delay: 0.24s; }
+@keyframes store-hero-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* 主按钮 hover 轻微抬起，弱化次要按钮 */
+.store-hero-btn {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.store-hero-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
+}
+.store-hero-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  border-color: rgba(255, 255, 255, 0.8) !important;
+}
+/* 减少动态偏好下关掉轮播入场动画 */
+@media (prefers-reduced-motion: reduce) {
+  .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > * {
+    animation: none;
+  }
+}
+
 /* Tailwind preflight 会把 svg 设为 display:block，导致 Arco 表单项的必填星号独占一行 */
 .arco-form-item-symbol > svg {
   display: inline-block;

@@ -25,7 +25,6 @@ import {
   IconUser,
   IconUserGroup,
 } from "@arco-design/web-react/icon";
-import { Link } from "react-router-dom";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { SITE_NAME } from "@/lib/site";
@@ -105,6 +104,12 @@ export function DashboardShell({ user, nav, children }: Props) {
         mode="vertical"
         selectedKeys={active ? [active.id] : []}
         onClickMenuItem={(key) => {
+          // 「返回商城」不属于本区导航，单独处理
+          if (key === "shop") {
+            navigate("/");
+            after?.();
+            return;
+          }
           const href = hrefById[String(key)];
           if (href) navigate(href);
           after?.();
@@ -119,6 +124,12 @@ export function DashboardShell({ user, nav, children }: Props) {
             </span>
           </Menu.Item>
         ))}
+        {/* 个人中心 / 管理后台都不是商城，菜单末尾统一给一个回商城的入口 */}
+        <Menu.Item key="shop">
+          <span className="inline-flex items-center gap-2">
+            <IconHome /> 返回商城
+          </span>
+        </Menu.Item>
       </Menu>
     );
   }
@@ -135,13 +146,6 @@ export function DashboardShell({ user, nav, children }: Props) {
           </div>
         </div>
         {navMenu()}
-        <div style={{ padding: 12 }}>
-          <Link to="/">
-            <Button long icon={<IconHome />} size="small">
-              返回商城
-            </Button>
-          </Link>
-        </div>
       </Sider>
 
       {/* 移动端抽屉侧边栏 */}
@@ -163,13 +167,6 @@ export function DashboardShell({ user, nav, children }: Props) {
         unmountOnExit
       >
         {navMenu(() => setMobileOpen(false))}
-        <div style={{ marginTop: 12 }}>
-          <Link to="/">
-            <Button long icon={<IconHome />} size="small">
-              返回商城
-            </Button>
-          </Link>
-        </div>
       </Drawer>
 
       <Layout>
@@ -186,7 +183,14 @@ export function DashboardShell({ user, nav, children }: Props) {
         >
           <div className="flex items-center gap-2">
             <span className="md:hidden">
-              <Button size="small" shape="circle" icon={<IconMenu />} onClick={() => setMobileOpen(true)} />
+              <Button
+                size="small"
+                shape="circle"
+                icon={<IconMenu />}
+                aria-label="菜单"
+                title="菜单"
+                onClick={() => setMobileOpen(true)}
+              />
             </span>
             <span className="md:hidden">
               <img src="/favicon.svg" alt={SITE_NAME} style={{ width: 24, height: 24, borderRadius: 6 }} />

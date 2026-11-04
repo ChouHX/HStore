@@ -66,9 +66,9 @@ export function StoreHeader({
     window.location.reload();
   }
 
+  // 公告入口只保留 header 顶部的公告按钮，菜单里不再重复放一项
   function onMenu(key: string) {
     if (key === "search") setSearchOpen(true);
-    else if (key === "notice") setNoticeOpen(true);
     else if (key === "pickup") navigate("/pickup");
     else if (key === "redeem") navigate("/redeem");
     else if (key === "login") navigate("/login");
@@ -197,11 +197,6 @@ export function StoreHeader({
                   </div>
                 )}
                 <Menu onClickMenuItem={onMenu} style={{ border: "none" }}>
-                  <Menu.Item key="notice">
-                    <span className="inline-flex items-center gap-2">
-                      <IconNotification /> 公告{announcements.length > 0 ? `（${announcements.length}）` : ""}
-                    </span>
-                  </Menu.Item>
                   <Menu.Item key="pickup">
                     <span className="inline-flex items-center gap-2">
                       <IconEmail /> 微软取件
