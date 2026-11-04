@@ -423,27 +423,6 @@ func UpdateStock(goodsID, stock int) {
 	_, _ = db.Must().Exec("UPDATE products SET stock_count = ?, stock_synced_at = ? WHERE goods_id = ?", stock, now(), goodsID)
 }
 
-// StaleStockIDs 返回 60 秒内未同步过库存的商品。
-func StaleStockIDs(ids []int) []int {
-	if len(ids) == 0 {
-		return nil
-	}
-	cutoff := now() - 60_000
-	rows, e := db.Must().Query("SELECT goods_id FROM products WHERE goods_id IN ("+joinInts(ids)+") AND stock_synced_at < ?", cutoff)
-	if e != nil {
-		return nil
-	}
-	defer rows.Close()
-	var out []int
-	for rows.Next() {
-		var id int
-		if rows.Scan(&id) == nil {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
 // StaleEnabledStockIDs 返回「在售的上游商品」里库存同步超过 maxAgeMS 的 ID。
 //
 // 只取 fulfillment <> 'self'：自营商品的库存来自本地卡密，不需要回源。

@@ -16,10 +16,17 @@ import (
 // （stale-while-revalidate）：商详是浏览路径，宁可慢一拍也不能让人等 WAF 挑战。
 const DetailCacheTTL = 10 * time.Minute
 
+// DetailFreshInterval 是「强刷」同一商品的最小间隔。
+//
+// 购买弹窗会带 fresh=1 打开，热门商品被反复点开时不能每次都回源：
+// 同一商品 30 秒内只放行一次强刷，其余请求直接回退本地缓存。
+const DetailFreshInterval = 30 * time.Second
+
 // 同一个商品同时只允许一个后台刷新任务，避免热门商品把上游打爆。
 var (
 	detailMu         sync.Mutex
 	detailRefreshing = map[int]bool{}
+	detailFreshAt    = map[int]time.Time{}
 )
 
 // DetailCached 返回商品详情 JSON：优先本地缓存，未命中才同步回源。
@@ -74,12 +81,31 @@ func refreshDetailAsync(goodsID int) {
 // DetailFresh 强制回源拉取商品详情，并顺手刷新本地详情缓存与库存。
 //
 // 只在「用户点了购买」这种必须知道此刻真实库存的场景调用：浏览路径一律走
-// DetailCached，不能让访客等上游 WAF 挑战。回源失败时退回本地缓存，
-// 保证弹窗至少能打开（库存可能是旧的，但下单时上游还会再校验一次）。
+// DetailCached，不能让访客等上游 WAF 挑战。同一商品 30 秒内只放行一次回源，
+// 被节流或回源失败时都退回本地缓存，保证弹窗至少能打开
+// （库存可能是旧的，但下单时上游还会再校验一次）。
 func DetailFresh(goodsID int) (json.RawMessage, error) {
 	if goodsID <= 0 {
 		return nil, &APIError{Code: -1, Message: "缺少商品编号"}
 	}
+	// 节流 + 单飞：热门商品被反复点开时不能每次都去敲上游。
+	detailMu.Lock()
+	busy := detailRefreshing[goodsID] || time.Since(detailFreshAt[goodsID]) < DetailFreshInterval
+	if !busy {
+		detailFreshAt[goodsID] = time.Now()
+		detailRefreshing[goodsID] = true
+	}
+	detailMu.Unlock()
+	if busy {
+		if cached, _, ok := store.GetProductDetail(goodsID); ok {
+			return json.RawMessage(cached), nil
+		}
+	}
+	defer func() {
+		detailMu.Lock()
+		delete(detailRefreshing, goodsID)
+		detailMu.Unlock()
+	}()
 	raw, e := GetDetailRaw(goodsID)
 	if e != nil {
 		if cached, _, ok := store.GetProductDetail(goodsID); ok {

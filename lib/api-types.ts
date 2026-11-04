@@ -3,7 +3,7 @@
  * 迁移到 Vite 后，Node 端的 lib/queries.ts、lib/users.ts、lib/announcements.ts 已删除，
  * 组件统一从这里取类型。
  */
-import type { Product } from "./types";
+import type { Product, StoreProduct } from "./types";
 
 export type AnnouncementType = "normal" | "popup";
 
@@ -58,7 +58,8 @@ export interface StoreRoot {
   name: string;
   img: string;
   children: StoreSubCategory[];
-  products: Product[];
+  /** 商城前台商品（白名单字段，不是后台 Product） */
+  products: StoreProduct[];
   stats: PlatformStats;
 }
 

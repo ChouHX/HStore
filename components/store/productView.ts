@@ -1,4 +1,4 @@
-import type { Product } from "@/lib/types";
+import type { StoreProduct } from "@/lib/types";
 
 /**
  * 商品展示层的公共取值逻辑（商城列表、兑换中心等页面共用）。
@@ -16,11 +16,11 @@ export function cleanBoardName(name: string): string {
   return cleaned || name;
 }
 
-export function productTitle(p: Product): string {
+export function productTitle(p: Pick<StoreProduct, "customName" | "name">): string {
   return p.customName || p.name;
 }
 
-export function productImg(p: Product): string | null {
+export function productImg(p: Pick<StoreProduct, "customImg" | "imgUrl">): string | null {
   return catImg(p.customImg || p.imgUrl);
 }
 

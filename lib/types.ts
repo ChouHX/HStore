@@ -102,17 +102,54 @@ export interface RechargeTemplate {
   options?: RechargeTemplateOption[];
 }
 
-export interface GoodsDetail extends RemoteProduct {
+/**
+ * 商城前台商品（`GET /api/store/products` 的 items）。
+ *
+ * 后端只下发白名单字段：成本价、上游平台、目录 ID、同步时间等后台字段不会出现在
+ * 这个响应里，所以商城 / 兑换中心一律用 StoreProduct，不要用后台的 Product。
+ */
+export interface StoreProduct {
+  goodsId: number;
+  name: string;
+  customName?: string | null;
+  customDesc?: string | null;
+  customImg?: string | null;
+  imgUrl: string;
+  /** 定价规则计算后的销售价 */
+  finalPrice: number;
+  goodsType: number;
+  status: number;
+  /** 库存数量，-1 表示未知；自营商品是本地真实可用条数 */
+  stockCount: number;
+  /** 发货方式：upstream（上游）/ self（自营库存） */
+  fulfillment?: "upstream" | "self";
+  /** 自营商品本地缺货时是否有上游兜底商品可发货 */
+  hasFallback?: boolean;
+}
+
+/**
+ * 商品详情（`GET /api/goods/detail`）。
+ *
+ * 同样是白名单结构：后台编辑商品用到的 name / goodsDescribe / goodsDetail / imgUrl
+ * 保留，成本价、目录、SKU 等字段不下发。
+ */
+export interface GoodsDetail {
+  goodsId: number;
+  name: string;
+  imgUrl: string;
+  salesPrice: number;
+  faceValue: number;
+  goodsType: number;
+  status: number;
+  /** 自营商品是本地真实可用条数 */
+  stockCount: number;
   minQuantity: number;
   maxQuantity: number;
-  stockCount: number;
+  warrantyDays?: number;
   goodsDescribe?: string;
   goodsDetail?: string;
   buyNotice?: string;
-  limitBalance?: number;
   rechargeTemplates?: RechargeTemplate[];
-  goodsTags?: { name: string; color: string };
-  serviceTags?: { name: string; image?: string; color?: string }[];
 }
 
 export interface Card {

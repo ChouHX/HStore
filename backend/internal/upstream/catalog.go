@@ -116,61 +116,6 @@ func EnrichImportedStock(ids []int) {
 	}
 }
 
-// StockItem 是商城库存刷新入参/出参。
-type StockItem struct {
-	GoodsID    int `json:"goodsId"`
-	StockCount int `json:"stockCount"`
-}
-
-// RefreshStockForProducts 商城加载商品后批量刷新库存（60 秒节流）。
-func RefreshStockForProducts(items []StockItem, max int) {
-	if max <= 0 {
-		max = 20
-	}
-	var ids []int
-	for _, it := range items {
-		if len(ids) >= max {
-			break
-		}
-		if it.GoodsID > 0 {
-			ids = append(ids, it.GoodsID)
-		}
-	}
-	if len(ids) == 0 {
-		return
-	}
-	stale := store.StaleStockIDs(ids)
-	if len(stale) == 0 {
-		return
-	}
-	ch := make(chan int)
-	done := make(chan struct{}, 4)
-	workers := 4
-	if len(stale) < workers {
-		workers = len(stale)
-	}
-	for i := 0; i < workers; i++ {
-		go func() {
-			for id := range ch {
-				if d, e := GetDetail(id); e == nil {
-					store.UpdateStock(id, d.StockCount)
-				}
-				time.Sleep(80 * time.Millisecond)
-				done <- struct{}{}
-			}
-		}()
-	}
-	go func() {
-		for _, id := range stale {
-			ch <- id
-		}
-		close(ch)
-	}()
-	for range stale {
-		<-done
-	}
-}
-
 // FetchStockCounts 并发拉取一组上游商品的详情库存，用于商品同步页展示。
 // 失败的商品不会出现在返回值中，由调用方显示为未知。
 func FetchStockCounts(ids []int, max int) map[int]int {

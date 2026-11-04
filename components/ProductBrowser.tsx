@@ -19,7 +19,7 @@ import {
   IconUnorderedList,
 } from "@arco-design/web-react/icon";
 import { Suspense, lazy, useCallback, useEffect, useState } from "react";
-import type { Product, User } from "@/lib/types";
+import type { StoreProduct, User } from "@/lib/types";
 import type { StoreBoard, StoreSubCategory } from "@/lib/api-types";
 import type { Announcement } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
@@ -30,7 +30,7 @@ const PurchaseModal = lazy(() =>
 import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
 import { PopupAnnouncement, isPopupMutedToday } from "./store/PopupAnnouncement";
-import { isSelfFulfillment, isSoldOut } from "./store/selfStock";
+import { isSoldOut } from "./store/selfStock";
 import { boardImg, catImg, cleanBoardName, productImg, productTitle } from "./store/productView";
 
 interface Props {
@@ -53,17 +53,13 @@ const SORTS: { value: SortKey; label: string }[] = [
   { value: "stock-desc", label: "库存优先" },
 ];
 
-function stockTag(p: Product) {
-  // 自营商品不显示库存数字，只显示「有货 / 缺货」；上游商品保持原样
-  if (isSelfFulfillment(p)) {
-    return isSoldOut(p) ? (
-      <Tag size="small" color="red">缺货</Tag>
-    ) : (
-      <Tag size="small" color="green">有货</Tag>
-    );
-  }
+function stockTag(p: StoreProduct) {
+  // 自营与上游统一展示真实库存条数；自营本地无货但有关联兜底商品时仍可下单
   if (p.stockCount < 0) return <Tag size="small">库存 -</Tag>;
-  if (p.stockCount === 0) return <Tag size="small" color="red">缺货</Tag>;
+  if (p.stockCount === 0) {
+    if (isSoldOut(p)) return <Tag size="small" color="red">缺货</Tag>;
+    return <Tag size="small" color="orange">库存 0</Tag>;
+  }
   return <Tag size="small" color="green">库存 {p.stockCount}</Tag>;
 }
 
@@ -159,9 +155,9 @@ function ProductCard({
   onBuy,
   mode = "grid",
 }: {
-  p: Product;
+  p: StoreProduct;
   discount: number;
-  onBuy: (p: Product) => void;
+  onBuy: (p: StoreProduct) => void;
   mode?: "grid" | "list";
 }) {
   const outOfStock = isSoldOut(p);
@@ -261,14 +257,14 @@ function ProductCard({
 }
 
 export function ProductBrowser({ boards, configured, lastSync, user, discount, announcements, popup }: Props) {
-  const [purchaseProduct, setPurchaseProduct] = useState<Product | null>(null);
+  const [purchaseProduct, setPurchaseProduct] = useState<StoreProduct | null>(null);
   const [boardId, setBoardId] = useState<number | null>(boards[0]?.id ?? null);
   const [dirFilter, setDirFilter] = useState(0);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("name-asc");
   const [layout, setLayout] = useState<"list" | "2" | "4">("4");
   const [page, setPage] = useState(1);
-  const [items, setItems] = useState<Product[]>([]);
+  const [items, setItems] = useState<StoreProduct[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
@@ -322,7 +318,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
       }
       const j = await fetch(`/api/store/products?${sp}`).then((r) => r.json());
       if (j.ok) {
-        const list = j.items as Product[];
+        const list = j.items as StoreProduct[];
         setItems(list);
         setTotal(j.total as number);
         if (page > 1 && list.length === 0) setPage(1);
@@ -345,7 +341,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     setDirFilter(id);
     setPage(1);
   }
-  function handleBuy(p: Product) {
+  function handleBuy(p: StoreProduct) {
     // 购买按钮始终打开购买弹窗：历史订单只从「订单查询 / 我的订单」进入，
     // 避免买过一次后再次购买被自动跳转到旧订单详情。
     setPurchaseProduct(p);

@@ -51,7 +51,7 @@ function copy(text: string) {
   Message.success("已复制");
 }
 
-// 兑换码形如 XXXX-XXXX-XXXX；订单号形如 HS + 十六进制，两者不会混淆。
+// 兑换码形如 XXXX-XXXX-XXXX；订单号形如 HS + 时间 + 混淆串（不含短横线），两者不会混淆。
 function looksLikeRedeemCode(v: string): boolean {
   const s = v.trim();
   return /^[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}$/.test(s);

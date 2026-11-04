@@ -6,7 +6,7 @@ import { IconMinus, IconPlus } from "@arco-design/web-react/icon";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { GoodsDetail, Product, RechargeTemplate, User } from "@/lib/types";
+import type { GoodsDetail, RechargeTemplate, StoreProduct, User } from "@/lib/types";
 import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
 import { detailPurchasable, detailStockLabel } from "@/components/store/selfStock";
 import {
@@ -19,7 +19,7 @@ import {
 } from "@/lib/orderStorage";
 
 interface Props {
-  product: Product | null;
+  product: StoreProduct | null;
   open: boolean;
   discount?: number;
   user: User | null;

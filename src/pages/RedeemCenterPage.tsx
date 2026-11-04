@@ -7,7 +7,7 @@ import { StoreHeader } from "@/components/store/StoreHeader";
 import { formatPrice } from "@/lib/format";
 import { ORDER_STATUS } from "@/lib/status";
 import type { StoreHome } from "@/lib/api-types";
-import type { Product } from "@/lib/types";
+import type { StoreProduct } from "@/lib/types";
 import { useSession } from "@/src/hooks/useSession";
 import { isSoldOut } from "@/components/store/selfStock";
 import { productImg, productTitle } from "@/components/store/productView";
@@ -83,7 +83,7 @@ export function RedeemCenterPage() {
   const [balanceAmount, setBalanceAmount] = useState(0);
   /** 兑换是否已成功：余额码不会返回订单，用独立标记区分「还没兑换」和「兑换成功」。 */
   const [done, setDone] = useState(false);
-  const [picks, setPicks] = useState<Product[]>([]);
+  const [picks, setPicks] = useState<StoreProduct[]>([]);
   const [picksLoading, setPicksLoading] = useState(true);
 
   async function submit() {
@@ -166,7 +166,7 @@ export function RedeemCenterPage() {
             });
             const j = await fetch(`/api/store/products?${sp}`).then((r) => r.json());
             if (!j.ok) return [];
-            return (j.items as Product[]).filter((p) => p.status === 1 && !isSoldOut(p));
+            return (j.items as StoreProduct[]).filter((p) => p.status === 1 && !isSoldOut(p));
           } catch {
             return [];
           }

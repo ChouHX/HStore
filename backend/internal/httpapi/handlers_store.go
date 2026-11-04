@@ -1,11 +1,13 @@
 package httpapi
 
 import (
-	"bytes"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/imagecache"
@@ -13,6 +15,47 @@ import (
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
 )
+
+// ===== 商城对外字段白名单 =====
+//
+// products 表里的 model.Product 是后台结构，含成本价、上游平台、目录 ID、同步时间等
+// 内部字段；商城列表 / 详情一律只下发下面两个白名单结构，避免成本价等核心数据泄露。
+
+// storeProductView 是商城列表下发的商品字段。
+type storeProductView struct {
+	GoodsID     int     `json:"goodsId"`
+	Name        string  `json:"name"`
+	CustomName  *string `json:"customName,omitempty"`
+	CustomDesc  *string `json:"customDesc,omitempty"`
+	CustomImg   *string `json:"customImg,omitempty"`
+	ImgURL      string  `json:"imgUrl"`
+	FinalPrice  float64 `json:"finalPrice"`
+	GoodsType   int     `json:"goodsType"`
+	Status      int     `json:"status"`
+	StockCount  int     `json:"stockCount"`
+	Fulfillment string  `json:"fulfillment,omitempty"`
+	// HasFallback 表示自营商品本地缺货时还能由上游兜底商品发货（前端据此放开下单）。
+	HasFallback bool `json:"hasFallback,omitempty"`
+}
+
+// storeDetailView 是商品详情下发的字段。
+type storeDetailView struct {
+	GoodsID           int             `json:"goodsId"`
+	Name              string          `json:"name"`
+	ImgURL            string          `json:"imgUrl"`
+	SalesPrice        float64         `json:"salesPrice"`
+	FaceValue         float64         `json:"faceValue"`
+	GoodsType         int             `json:"goodsType"`
+	Status            int             `json:"status"`
+	StockCount        int             `json:"stockCount"`
+	MinQuantity       int             `json:"minQuantity"`
+	MaxQuantity       int             `json:"maxQuantity"`
+	WarrantyDays      int             `json:"warrantyDays,omitempty"`
+	GoodsDescribe     string          `json:"goodsDescribe,omitempty"`
+	GoodsDetail       string          `json:"goodsDetail,omitempty"`
+	BuyNotice         string          `json:"buyNotice,omitempty"`
+	RechargeTemplates json.RawMessage `json:"rechargeTemplates,omitempty"`
+}
 
 func (a *API) handleStoreProducts(w http.ResponseWriter, r *http.Request) {
 	rootID := queryInt(r, "rootId")
@@ -34,57 +77,85 @@ func (a *API) handleStoreProducts(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 	}
 	items, total := store.ListStoreProducts(q)
-	sanitizeSelfProducts(items)
-	localizeProductImages(items)
-	ok(w, paged(items, total, page, pageSize))
-}
-
-// ===== 自营商品的库存展示口径 =====
-//
-// 自营商品的真实库存条数属于内部信息，前台一律不展示数字，只给语义化状态：
-//   - 本地可用库存 > 0                 → 有货 / 可下单（showStock=true）
-//   - 本地为 0 且关联了上游兜底商品     → 有货 / 可下单（下单时走上游采购）
-//   - 本地为 0 且没有兜底商品           → 缺货，不可下单（showStock=false）
-
-// isSelfProduct 判断商品是否走自营库存发货。
-func isSelfProduct(p *model.Product) bool {
-	return p != nil && p.Fulfillment == "self"
-}
-
-// selfStockAvailable 返回自营商品当前是否可售（本地有货，或配置了上游兜底）。
-func selfStockAvailable(goodsID int) bool {
-	avail := store.SelfStockCount(goodsID)
-	if avail > 0 {
-		return true
+	views := make([]storeProductView, 0, len(items))
+	for _, p := range items {
+		views = append(views, storeProductViewOf(p))
 	}
-	p := store.GetProduct(goodsID)
-	if p == nil || p.Fulfillment != "self" {
-		return avail > 0
-	}
-	return p.FallbackGoodsID > 0
+	ok(w, paged(views, total, page, pageSize))
 }
 
-// maskSelfProductStock 把自营商品的库存数字换成「有货 / 缺货」。
+// storeProductViewOf 把后台商品结构裁剪成商城可见字段，并把图片换成本地代理地址。
 //
-// stockCount>0 表示可售；0 表示缺货。上游商品的 stockCount 语义不变（-1 未知、0 缺货）。
-func maskSelfProductStock(p *model.Product) {
-	if !isSelfProduct(p) {
+// 自营商品的 stockCount 由 store.scanProduct 覆盖为本地可用条数（self_stock 中
+// status=available 的行数），所以这里直接下发即可，前端展示的就是真实库存。
+func storeProductViewOf(p model.Product) storeProductView {
+	v := storeProductView{
+		GoodsID:     p.GoodsID,
+		Name:        p.Name,
+		CustomName:  p.CustomName,
+		CustomDesc:  p.CustomDesc,
+		ImgURL:      imagecache.LocalURL(p.ImgURL),
+		FinalPrice:  p.FinalPrice,
+		GoodsType:   p.GoodsType,
+		Status:      p.Status,
+		StockCount:  p.StockCount,
+		Fulfillment: p.Fulfillment,
+	}
+	if p.CustomImg != nil {
+		img := imagecache.LocalURL(*p.CustomImg)
+		v.CustomImg = &img
+	}
+	if p.Fulfillment == "self" {
+		v.HasFallback = p.FallbackGoodsID > 0
+	}
+	return v
+}
+
+// ===== 商城库存刷新 =====
+//
+// 列表页展示的是后台定时同步的本地库存（cmd/server stockLoop，2 分钟一轮），
+// 所以 /api/store/stock 直接返回库里的值，最多在后台补一次上游刷新：
+// 60 秒节流 + 单飞，绝不阻塞请求。
+
+const storeStockRefreshInterval = 60 * time.Second
+
+var (
+	storeStockMu         sync.Mutex
+	storeStockRefreshing bool
+	storeStockRefreshed  time.Time
+)
+
+// refreshStoreStockAsync 触发一次后台库存刷新；60 秒内最多一次，同一时间最多一个任务。
+func refreshStoreStockAsync(ids []int) {
+	if len(ids) == 0 {
 		return
 	}
-	if selfStockAvailable(p.GoodsID) {
-		p.StockCount = 1
+	storeStockMu.Lock()
+	if storeStockRefreshing || time.Since(storeStockRefreshed) < storeStockRefreshInterval {
+		storeStockMu.Unlock()
 		return
 	}
-	p.StockCount = 0
+	storeStockRefreshing = true
+	storeStockRefreshed = time.Now()
+	storeStockMu.Unlock()
+
+	go func() {
+		defer func() {
+			if v := recover(); v != nil {
+				log.Printf("[hstore] 商城库存刷新 panic: %v", v)
+			}
+			storeStockMu.Lock()
+			storeStockRefreshing = false
+			storeStockMu.Unlock()
+		}()
+		counts := upstream.FetchStockCounts(ids, 20)
+		for id, n := range counts {
+			store.UpdateStock(id, n)
+		}
+	}()
 }
 
-// sanitizeSelfProducts 对商城列表里的自营商品做脱敏（就地修改）。
-func sanitizeSelfProducts(items []model.Product) {
-	for i := range items {
-		maskSelfProductStock(&items[i])
-	}
-}
-
+// handleStoreStock 返回商品库存快照：全部读本地库，自营商品给本地可用条数。
 func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 	raw := strings.TrimSpace(r.URL.Query().Get("ids"))
 	var ids []int
@@ -97,56 +168,39 @@ func (a *API) handleStoreStock(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "缺少商品编号")
 		return
 	}
-	items := make([]upstream.StockItem, 0, len(ids))
-	// 自营商品不请求上游，单独按本地库存给出语义化状态
-	selfAvail := map[string]bool{}
+	stocks := map[string]int{}
+	upstreamIDs := make([]int, 0, len(ids))
 	for _, id := range ids {
 		p := store.GetProduct(id)
 		if p == nil {
 			continue
 		}
 		if p.Fulfillment == "self" {
-			selfAvail[itoa(id)] = selfStockAvailable(id)
+			stocks[itoa(id)] = store.SelfStockCount(id)
 			continue
 		}
-		items = append(items, upstream.StockItem{GoodsID: id, StockCount: p.StockCount})
+		stocks[itoa(id)] = p.StockCount
+		upstreamIDs = append(upstreamIDs, id)
 	}
-	upstream.RefreshStockForProducts(items, 20)
-
-	stocks := map[string]int{}
-	for _, it := range items {
-		if p := store.GetProduct(it.GoodsID); p != nil {
-			stocks[itoa(it.GoodsID)] = p.StockCount
-		}
-	}
-	// 自营商品返回「是否可售」而非库存条数；上游商品金额不变。
-	statuses := map[string]string{}
-	for id, avail := range selfAvail {
-		if avail {
-			stocks[id] = 1
-			statuses[id] = "in_stock"
-			continue
-		}
-		stocks[id] = 0
-		statuses[id] = "out_of_stock"
-	}
-	ok(w, map[string]any{"stocks": stocks, "stockStatus": statuses, "selfStockHidden": true})
+	// 上游商品的库存由后台异步补刷，本次请求先用库里的值应答。
+	refreshStoreStockAsync(upstreamIDs)
+	ok(w, map[string]any{"stocks": stocks})
 }
 
-// handleGoodsDetail 商品详情：直接返回本地缓存的原始 JSON。
+// handleGoodsDetail 商品详情。
 //
-// 缓存由「后台库存同步 / 购买时强刷」写入（见 upstream.GetDetail），所以正常
-// 浏览路径一次上游请求都不发；只有从没同步过的新商品才会同步回源一次。
-// 带 fresh=1 时强制回源，用于购买弹窗展示「此刻」的真实库存。
+// 上游商品的详情来自本地 detail_json 缓存（后台库存同步 / 首次访问时写入），
+// 浏览路径不额外请求上游；只有从没缓存过的新商品才会同步回源一次。
+// 带 fresh=1 时尝试回源拿「此刻」的库存，但同一商品 30 秒内只放行一次，
+// 其余请求直接回退本地缓存（见 upstream.DetailFresh），避免购买弹窗把上游打爆。
 func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 	id := queryInt(r, "id")
-	if id == 0 {
+	if id <= 0 {
 		fail(w, http.StatusBadRequest, "缺少商品编号")
 		return
 	}
 	if p := store.GetProduct(id); p != nil && p.Fulfillment == "self" {
-		detail := selfProductDetail(p)
-		ok(w, map[string]any{"detail": detail})
+		ok(w, map[string]any{"detail": selfProductDetail(p)})
 		return
 	}
 	if !upstream.IsConfigured() {
@@ -156,7 +210,6 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 	var raw json.RawMessage
 	var e error
 	if r.URL.Query().Get("fresh") == "1" {
-		// 购买弹窗要的是「此刻」的真实库存，不能给 10 分钟 TTL 的缓存。
 		raw, e = upstream.DetailFresh(id)
 	} else {
 		raw, e = upstream.DetailCached(id)
@@ -165,19 +218,58 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, e.Error())
 		return
 	}
-	ok(w, map[string]any{"detail": withLocalImage(withLocalStock(id, raw))})
+	detail, e := buildStoreDetail(id, raw)
+	if e != nil {
+		fail(w, http.StatusInternalServerError, "解析商品详情失败")
+		return
+	}
+	ok(w, map[string]any{"detail": detail})
+}
+
+// buildStoreDetail 把上游详情 JSON 裁剪成白名单字段。
+//
+// 缓存里的原始 JSON 带成本价（salesPrice）、上游目录 ID、SKU 结构等内部信息，
+// 不能整包下发；库存优先用本地 stock_count（后台同步比 10 分钟 TTL 的缓存更新）。
+func buildStoreDetail(goodsID int, raw json.RawMessage) (storeDetailView, error) {
+	var d model.GoodsDetail
+	if e := json.Unmarshal(raw, &d); e != nil {
+		return storeDetailView{}, e
+	}
+	stock := d.StockCount
+	if p := store.GetProduct(goodsID); p != nil && p.StockCount >= 0 {
+		stock = p.StockCount
+	}
+	minQty, maxQty := d.MinQuantity, d.MaxQuantity
+	if minQty < 1 {
+		minQty = 1
+	}
+	if maxQty < 1 {
+		maxQty = 999999
+	}
+	return storeDetailView{
+		GoodsID:           goodsID,
+		Name:              d.Name,
+		ImgURL:            imagecache.LocalURL(d.ImgURL),
+		SalesPrice:        d.SalesPrice,
+		FaceValue:         d.FaceValue,
+		GoodsType:         d.GoodsType,
+		Status:            d.Status,
+		StockCount:        stock,
+		MinQuantity:       minQty,
+		MaxQuantity:       maxQty,
+		WarrantyDays:      d.WarrantyDays,
+		GoodsDescribe:     d.GoodsDescribe,
+		GoodsDetail:       d.GoodsDetail,
+		BuyNotice:         d.BuyNotice,
+		RechargeTemplates: d.RechargeTemplates,
+	}, nil
 }
 
 // selfProductDetail 为自营商品构造与上游一致的详情结构。
 //
-// 自营商品的 stockCount 是脱敏后的「可售标记」：>0 表示有货（含上游兜底），
-// 0 表示缺货；真实库存条数不对外暴露。
-func selfProductDetail(p *model.Product) model.GoodsDetail {
-	available := selfStockAvailable(p.GoodsID)
-	stockFlag := 0
-	if available {
-		stockFlag = 1
-	}
+// stockCount 是本地真实可用条数（与列表页同一口径）。本地为 0 但配置了上游兜底
+// 商品时仍然可以下单，前端据列表里的 hasFallback 判断是否放开按钮。
+func selfProductDetail(p *model.Product) storeDetailView {
 	name := p.Name
 	if p.CustomName != nil && strings.TrimSpace(*p.CustomName) != "" {
 		name = strings.TrimSpace(*p.CustomName)
@@ -190,64 +282,20 @@ func selfProductDetail(p *model.Product) model.GoodsDetail {
 	if p.CustomImg != nil && *p.CustomImg != "" {
 		img = *p.CustomImg
 	}
-	return model.GoodsDetail{
-		RemoteProduct: model.RemoteProduct{
-			GoodsID: p.GoodsID, Name: name, SalesPrice: p.FinalPrice, FaceValue: p.FaceValue,
-			GoodsType: p.GoodsType, WarrantyDays: p.WarrantyDays, Status: p.Status,
-			ImgURL: img, StockCount: stockFlag,
-		},
+	return storeDetailView{
+		GoodsID:       p.GoodsID,
+		Name:          name,
+		ImgURL:        imagecache.LocalURL(img),
+		SalesPrice:    p.FinalPrice,
+		FaceValue:     p.FaceValue,
+		GoodsType:     p.GoodsType,
+		Status:        p.Status,
+		StockCount:    store.SelfStockCount(p.GoodsID),
 		MinQuantity:   1,
 		MaxQuantity:   999999,
+		WarrantyDays:  p.WarrantyDays,
 		GoodsDescribe: desc,
 	}
-}
-
-// withLocalStock 用本地库存覆盖详情缓存里的旧值。
-//
-// 本地 stock_count 由后台库存同步循环维护（见 cmd/server stockLoop），
-// 比 10 分钟 TTL 的详情缓存更新，所以前端看到的库存以本地为准。
-// fresh=1 路径下 DetailFresh 刚把上游库存写回本地，这里覆盖等于无操作。
-func withLocalStock(goodsID int, raw json.RawMessage) json.RawMessage {
-	p := store.GetProduct(goodsID)
-	if p == nil || p.StockCount < 0 {
-		return raw
-	}
-	// UseNumber：避免 float64 往返把大整数或小数写成科学计数法
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var obj map[string]any
-	if e := dec.Decode(&obj); e != nil {
-		return raw
-	}
-	if cur, ok := obj["stockCount"].(json.Number); ok {
-		if n, e := cur.Int64(); e == nil && int(n) == p.StockCount {
-			return raw
-		}
-	}
-	obj["stockCount"] = p.StockCount
-	if b, e := json.Marshal(obj); e == nil {
-		return b
-	}
-	return raw
-}
-
-// withLocalImage 把详情里的 imgUrl 换成本地缓存地址，避免泄露上游域名。
-func withLocalImage(raw json.RawMessage) json.RawMessage {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var obj map[string]any
-	if e := dec.Decode(&obj); e != nil {
-		return raw
-	}
-	v, ok := obj["imgUrl"].(string)
-	if !ok || v == "" {
-		return raw
-	}
-	obj["imgUrl"] = imagecache.LocalURL(v)
-	if b, e := json.Marshal(obj); e == nil {
-		return b
-	}
-	return raw
 }
 
 // localizeBoards 把板块 / 子分类图标换成本地缓存地址。
@@ -271,17 +319,6 @@ func (a *API) handleCachedImage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", e.ContentType)
 	w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
 	http.ServeFile(w, r, e.Path())
-}
-
-// localizeProductImages 把商品图地址替换成本地缓存地址。
-func localizeProductImages(items []model.Product) {
-	for i := range items {
-		items[i].ImgURL = imagecache.LocalURL(items[i].ImgURL)
-		if items[i].CustomImg != nil {
-			v := imagecache.LocalURL(*items[i].CustomImg)
-			items[i].CustomImg = &v
-		}
-	}
 }
 
 // handleStoreHome 首页一次性数据：板块树、商品数、上游配置状态、最后同步时间、
