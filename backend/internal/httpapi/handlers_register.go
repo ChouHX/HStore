@@ -33,12 +33,14 @@ func (a *API) handleRegisterCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "请输入正确的邮箱地址")
 		return
 	}
-	if store.EmailRegistered(email) {
-		fail(w, http.StatusBadRequest, "该邮箱已注册，请直接登录")
-		return
-	}
+	// 先限流再查重：否则攻击者可以无限调用本接口，
+	// 用「该邮箱已注册」的提示枚举站点上有哪些邮箱。
 	if !allowRegisterCode(clientIP(r)) {
 		fail(w, http.StatusTooManyRequests, "操作过于频繁，请稍后再试")
+		return
+	}
+	if store.EmailRegistered(email) {
+		fail(w, http.StatusBadRequest, "该邮箱已注册，请直接登录")
 		return
 	}
 	cfg := store.GetSMTPConfig()
@@ -107,6 +109,11 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "昵称最多 32 个字符")
 		return
 	}
+	// 与发验证码接口一致：先限流再查重，避免用「已注册」提示枚举邮箱。
+	if !allowRegisterCode(clientIP(r)) {
+		fail(w, http.StatusTooManyRequests, "操作过于频繁，请稍后再试")
+		return
+	}
 	if store.EmailRegistered(email) {
 		fail(w, http.StatusBadRequest, "该邮箱已注册，请直接登录")
 		return
@@ -129,6 +136,7 @@ func (a *API) handleRegister(w http.ResponseWriter, r *http.Request) {
 		Value:    db.SignSession(user.UID),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   60 * 60 * 24 * 7,
 	})

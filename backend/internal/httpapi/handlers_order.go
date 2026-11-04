@@ -131,7 +131,14 @@ func (a *API) handleCardVoid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := store.CardOwner(body.CardID)
-	if owner != "" && user.Role != "admin" {
+	// CardOwner 查不到时返回空串。不能因为「查不到」就把 cardID 直接透传给上游
+	// 作废接口：那样任意未登记的 cardID 都能被批量提交（骚扰上游 / 越权作废他人卡密）。
+	// 管理员保留原行为（后台需要处理未入库的卡密）。
+	if user.Role != "admin" {
+		if owner == "" {
+			fail(w, http.StatusForbidden, "无权操作该卡密")
+			return
+		}
 		order := store.GetOrder(owner)
 		if order == nil || order.UserUID == nil || *order.UserUID != user.UID {
 			fail(w, http.StatusForbidden, "无权操作")

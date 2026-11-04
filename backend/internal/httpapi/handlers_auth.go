@@ -2,12 +2,23 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
 )
+
+// cookieSecure 判断当前请求是否走 HTTPS，决定会话 Cookie 是否带 Secure。
+// 服务在 1Panel openresty 后面，TLS 在边缘终结，所以还要看 X-Forwarded-Proto。
+// 本地 http 调试时两者都不满足，Cookie 不带 Secure，仍然可用。
+func cookieSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.Contains(strings.ToLower(r.Header.Get("X-Forwarded-Proto")), "https")
+}
 
 func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -22,8 +33,29 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "请输入用户名和密码")
 		return
 	}
+	ip := clientIP(r)
+	// 先限流再校验：Authenticate 是 scrypt，代价很高，不能让它被无限调用。
+	if !allowLogin(ip) {
+		fail(w, http.StatusTooManyRequests, "登录尝试过于频繁，请稍后再试")
+		return
+	}
+	// 按账号的失败锁定。提示对所有账号统一措辞，不泄露账号是否存在。
+	if loginLocked(body.Username) {
+		fail(w, http.StatusTooManyRequests, "登录失败次数过多，请 15 分钟后再试")
+		return
+	}
 	user := store.Authenticate(body.Username, body.Password)
 	if user == nil {
+		locked := noteLoginFailure(body.Username)
+		reason := "用户名或密码错误"
+		if locked {
+			reason = "用户名或密码错误，账号已临时锁定"
+		}
+		target := body.Username
+		if target == "" {
+			target = ip
+		}
+		store.WriteAudit(nil, "login_failed", "user", target, nil, nil, reason+"（IP "+ip+"）")
 		fail(w, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
@@ -31,14 +63,17 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "账号已被冻结")
 		return
 	}
+	clearLoginFailures(body.Username)
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookie,
 		Value:    db.SignSession(user.UID),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   60 * 60 * 24 * 7,
 	})
+	store.WriteAudit(&user.UID, "login", "user", itoa(user.UID), nil, nil, "登录成功（IP "+ip+"）")
 	ok(w, map[string]any{"user": user})
 }
 

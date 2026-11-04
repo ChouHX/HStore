@@ -500,39 +500,189 @@ func addColumns(db *sql.DB, table string, defs [][2]string) error {
 	return nil
 }
 
+// legacyOrderNoSuffixLen 是本地单号里「加密混淆串」的长度。
+// 新单号结构：HS + 12 位时间（yyMMddHHmmss，Asia/Shanghai）+ 4 位混淆串 = 18 位。
+// 时间部分不加密：单号本来就要在用户界面上展示，加了时间只是让它可读；
+// 真正的防护在最后 4 位带密钥的 HMAC 混淆串，没有密钥无法由旧单号推导。
+const legacyOrderNoSuffixLen = 4
+
+// legacyOrderNoAlphabet 是混淆串用的 base32 字符集（RFC4648 大写字母表），
+// 20 bit → 4 个字符，去掉容易看错的 0/1/8/9 之外仍保持 32 个符号。
+const legacyOrderNoAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+// legacyOrderNoTimeLayout 是单号里的时间格式（本地时间 Asia/Shanghai）。
+const legacyOrderNoTimeLayout = "060102150405"
+
+// legacyOrderTimeZone 单号时间统一按 Asia/Shanghai 展示。
+var legacyOrderTimeZone = func() *time.Location {
+	if loc, e := time.LoadLocation("Asia/Shanghai"); e == nil {
+		return loc
+	}
+	// 精简镜像（无 tzdata）时退化为东八区固定偏移，结果一致。
+	return time.FixedZone("CST", 8*3600)
+}()
+
+var (
+	legacyOrderKeyMu sync.Mutex
+	legacyOrderKey   string
+)
+
+// legacyOrderSecret 返回历史单号混淆用的 HMAC 密钥。
+//
+// 单独在 sync_meta 里存一份（legacy_order_secret），首次使用时随机生成并落库：
+//   - 不复用 session_secret，避免以后换会话密钥时连带影响已迁移的单号；
+//   - 传 nil 表示「只读缓存」，用于 newLegacyOrderNo 这种拿不到连接的地方；
+//   - 迁移入口会先用真实连接预热缓存，此时 sync_meta 早已由 createTables 建好。
+func legacyOrderSecret(conn *sql.DB) string {
+	legacyOrderKeyMu.Lock()
+	defer legacyOrderKeyMu.Unlock()
+	if legacyOrderKey != "" {
+		return legacyOrderKey
+	}
+	key := ""
+	if conn != nil {
+		var v string
+		if e := conn.QueryRow("SELECT value FROM sync_meta WHERE key = ?", "legacy_order_secret").Scan(&v); e == nil {
+			key = v
+		}
+	}
+	if key == "" {
+		buf := make([]byte, 32)
+		if _, e := rand.Read(buf); e == nil {
+			key = hex.EncodeToString(buf)
+		} else {
+			// 极端情况下退化为进程内随机值，只影响本次启动的单号映射
+			key = strconv.FormatInt(time.Now().UnixNano(), 36)
+		}
+		if conn != nil {
+			_, _ = conn.Exec(`INSERT INTO sync_meta(key, value) VALUES(?, ?)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value`, "legacy_order_secret", key)
+		}
+	}
+	legacyOrderKey = key
+	return key
+}
+
+// legacyOrderNoTime 取单号里的 12 位时间串；created_at 非法时用当前时间兜底。
+func legacyOrderNoTime(createdAt int64) string {
+	ms := createdAt
+	// 正常 created_at 是毫秒。极小概率存在按「秒」写入的历史行，量级小于 1e12
+	// 时按秒解释，避免单号里出现 1970 年。
+	if ms > 0 && ms < 1e12 {
+		ms *= 1000
+	}
+	if ms <= 0 {
+		ms = time.Now().UnixMilli()
+	}
+	return time.UnixMilli(ms).In(legacyOrderTimeZone).Format(legacyOrderNoTimeLayout)
+}
+
+// legacyOrderNoSuffix 用 HMAC-SHA256 对旧单号做混淆，取前 20 bit 映射到 base32。
+// 同一旧单号永远得到同一结果（幂等）；没有密钥则无法由旧单号反推新单号。
+func legacyOrderNoSuffix(old string) string {
+	mac := hmac.New(sha256.New, []byte(legacyOrderSecret(nil)))
+	mac.Write([]byte("legacy-order:" + old))
+	sum := mac.Sum(nil)
+	// 前 20 bit：sum[0] 占 8 bit，sum[1] 占 8 bit，sum[2] 的高 4 bit 补齐。
+	v := uint32(sum[0])<<12 | uint32(sum[1])<<4 | uint32(sum[2])>>4
+	out := make([]byte, legacyOrderNoSuffixLen)
+	for i := 0; i < legacyOrderNoSuffixLen; i++ {
+		out[i] = legacyOrderNoAlphabet[(v>>uint(5*(legacyOrderNoSuffixLen-1-i)))&31]
+	}
+	return string(out)
+}
+
+// newLegacyOrderNo 为一条历史订单生成稳定的本地单号（18 位）。
+// 时间来自订单自身的 created_at，混淆串来自带密钥的 HMAC，二者都是确定性的，
+// 因此重复执行迁移得到相同单号。
+// 注意：调用前必须已经通过 legacyOrderSecret(conn) 预热密钥，否则会临时生成随机密钥。
+func newLegacyOrderNo(old string, createdAt int64) string {
+	return "HS" + legacyOrderNoTime(createdAt) + legacyOrderNoSuffix(old)
+}
+
+// isLegacyOrderNoFormat 判断单号是否是「上一版迁移」生成的 12 位格式
+// （HS + 10 位大写 hex）。这些单号完全由旧单号推导，需要重映射成新格式。
+func isLegacyOrderNoFormat(no string) bool {
+	if len(no) != 12 || !strings.HasPrefix(no, "HS") {
+		return false
+	}
+	for _, c := range no[2:] {
+		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 // migrateLegacyOrderNumbers 把历史订单的「上游单号」换成本地单号。
 //
 // 旧版本 PlaceOrder 直接把天启返回的 orderNumber 写进 orders.order_number，
 // 于是用户订单页显示的就是上游单号。这里统一修正：
 //   - 旧单号归档到 upstream_order_no
-//   - order_number 换成新的本地单号
-//   - cards / ledger / redeem_codes / guest_purchases 里的引用同步改掉
+//   - order_number 换成新的本地单号（HS + 时间 + 混淆串，18 位）
+//   - cards / redeem_codes / guest_purchases 里的引用同步改掉（ledger 是只增
+//     不改的账本，保留历史快照，见下面 refs 的说明）
 //
 // 判定条件：upstream_order_no 为空（从未归档）或与 order_number 相同
 // （归档了但没换单号），两种都是「上游号仍当本地单号用」的状态。
 // 不能用单一条件：早一版迁移只回填了 upstream_order_no 而没换单号。
+//
+// 另外还要做一次「重映射」：上一版迁移用的是 HS + sha256(旧单号) 前 10 位 hex，
+// 旧单号可推导，等于谁都能算出别人的新单号。这类行（长度 12、HS+10 位 hex、
+// 且已有 upstream_order_no）改用 upstream_order_no + created_at 重新生成。
+// 新格式固定 18 位，所以重跑不会重复处理，整个迁移保持启动幂等。
 func migrateLegacyOrderNumbers(db *sql.DB) error {
-	rows, e := db.Query(`SELECT order_number FROM orders
+	type legacyOrder struct {
+		no        string
+		upstream  string
+		createdAt int64
+	}
+
+	// 先预热混淆密钥（必要时生成并落库），保证下面所有单号都用同一把密钥推导。
+	legacyOrderSecret(db)
+
+	rows, e := db.Query(`SELECT order_number, COALESCE(upstream_order_no,''), created_at FROM orders
 		WHERE COALESCE(upstream_order_no,'') = '' OR order_number = upstream_order_no`)
 	if e != nil {
 		return e
 	}
-	var legacy []string
+	var legacy []legacyOrder
 	for rows.Next() {
-		var no string
-		if rows.Scan(&no) == nil && no != "" {
-			legacy = append(legacy, no)
+		var it legacyOrder
+		if rows.Scan(&it.no, &it.upstream, &it.createdAt) == nil && it.no != "" {
+			legacy = append(legacy, it)
 		}
 	}
 	rows.Close()
-	if len(legacy) == 0 {
+
+	// 重映射候选：上一版 12 位格式且已归档上游单号的行。
+	// 排除 order_number = upstream_order_no 的情况，那属于上面 legacy 的判定范围。
+	rows, e = db.Query(`SELECT order_number, upstream_order_no, created_at FROM orders
+		WHERE COALESCE(upstream_order_no,'') <> '' AND order_number <> upstream_order_no
+		  AND LENGTH(order_number) = 12`)
+	if e != nil {
+		return e
+	}
+	var remap []legacyOrder
+	for rows.Next() {
+		var it legacyOrder
+		if rows.Scan(&it.no, &it.upstream, &it.createdAt) == nil && isLegacyOrderNoFormat(it.no) {
+			remap = append(remap, it)
+		}
+	}
+	rows.Close()
+
+	if len(legacy) == 0 && len(remap) == 0 {
 		return nil
 	}
 
 	// 引用表：列名 → 表名。只改指向 orders.order_number 的那些。
+	//
+	// ledger 不在此列：账本按设计只增不改（migrate 里 ledger_no_update /
+	// ledger_no_delete 两个触发器会直接 ABORT），其中的 order_number 只是
+	// 记账时的历史快照，且没有任何查询按它反查订单，改了反而破坏不可篡改语义。
 	refs := []struct{ table, column string }{
 		{"cards", "order_number"},
-		{"ledger", "order_number"},
 		{"redeem_codes", "order_number"},
 	}
 
@@ -542,40 +692,49 @@ func migrateLegacyOrderNumbers(db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	for _, old := range legacy {
-		newNo := newLegacyOrderNo(old)
-		// 极少数情况下新单号可能与已有单碰撞（同秒同随机），跳过避免写坏数据
+	// renameOrder 改单号并同步所有引用表；撞号返回 false 由调用方跳过。
+	renameOrder := func(old, newNo, upstream string) (bool, error) {
+		if old == newNo {
+			return false, nil
+		}
+		// 极少数情况下新单号可能与已有单碰撞（同一旧号撞上同秒），跳过避免写坏数据
 		var exists int
 		if e := tx.QueryRow("SELECT COUNT(*) FROM orders WHERE order_number = ?", newNo).Scan(&exists); e != nil {
-			return e
+			return false, e
 		}
 		if exists > 0 {
-			continue
+			return false, nil
 		}
 		if _, e := tx.Exec(`UPDATE orders SET order_number = ?, upstream_order_no = ? WHERE order_number = ?`,
-			newNo, old, old); e != nil {
-			return e
+			newNo, upstream, old); e != nil {
+			return false, e
 		}
 		for _, r := range refs {
 			if _, e := tx.Exec(fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?", r.table, r.column, r.column),
 				newNo, old); e != nil {
-				return e
+				return false, e
 			}
 		}
 		// guest_purchases.upstream_order_no 历史语义存的是本地订单号
 		if _, e := tx.Exec(`UPDATE guest_purchases SET upstream_order_no = ? WHERE upstream_order_no = ?`,
 			newNo, old); e != nil {
+			return false, e
+		}
+		return true, nil
+	}
+
+	for _, it := range legacy {
+		if _, e := renameOrder(it.no, newLegacyOrderNo(it.no, it.createdAt), it.no); e != nil {
+			return e
+		}
+	}
+	// 重映射：用已归档的上游单号重新生成，upstream_order_no 保持不变。
+	for _, it := range remap {
+		if _, e := renameOrder(it.no, newLegacyOrderNo(it.upstream, it.createdAt), it.upstream); e != nil {
 			return e
 		}
 	}
 	return tx.Commit()
-}
-
-// newLegacyOrderNo 为一条历史订单生成稳定的本地单号。
-// 用旧单号做哈希种子，保证每次启动得到相同结果（幂等），且不依赖随机数。
-func newLegacyOrderNo(old string) string {
-	sum := sha256.Sum256([]byte("legacy-order:" + old))
-	return "HS" + strings.ToUpper(hex.EncodeToString(sum[:5]))
 }
 
 func migrate(db *sql.DB) error {
@@ -681,7 +840,7 @@ func migrate(db *sql.DB) error {
 	// 历史订单：旧版本直接把天启返回的 orderNumber 当本地单号写入，
 	// 导致用户看到的「订单号」就是上游单号。这里把它们彻底解耦：
 	//   1) 旧单号存进 upstream_order_no（管理员仍可排查）
-	//   2) 重新生成本地单号 HS+时间+随机，并同步更新所有引用表
+	//   2) 重新生成本地单号 HS+时间+带密钥混淆串，并同步更新引用表
 	// 用 upstream_order_no 为空作为「未迁移」标记，保证幂等。
 	if e := migrateLegacyOrderNumbers(db); e != nil {
 		return e
