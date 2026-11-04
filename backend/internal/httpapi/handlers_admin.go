@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -38,11 +39,86 @@ func (a *API) handleAdminUpstreamStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// cstZone 是业务统一使用的时区（Asia/Shanghai，无夏令时，用固定偏移最省事）。
+// 统计口径里的「今日」「某天 00:00」都必须按这个时区算，不能用 UTC。
+func cstZone() *time.Location { return time.FixedZone("CST", 8*60*60) }
+
+// salesWindow 是一段闭区间时间窗口内的订单统计。
+// total 只算真实销售单（source IN user/guest），sale/cost 同理，与旧逻辑口径一致。
+type salesWindow struct {
+	Total int     `json:"total"`
+	Sale  float64 `json:"sale"`
+	Cost  float64 `json:"cost"`
+}
+
+// sumSales 统计 created_at ∈ [fromMs, toMs] 的销售数据。
+func sumSales(d *sql.DB, fromMs, toMs int64) salesWindow {
+	w := salesWindow{}
+	_ = d.QueryRow(`SELECT COUNT(*),
+		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN sale_money ELSE 0 END),2),0),
+		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN cost_money ELSE 0 END),2),0)
+		FROM orders WHERE created_at >= ? AND created_at <= ?`, fromMs, toMs).Scan(&w.Total, &w.Sale, &w.Cost)
+	return w
+}
+
+// sumSalesAllTime 统计全部订单的销售数据（不加时间过滤）。
+func sumSalesAllTime(d *sql.DB) salesWindow {
+	w := salesWindow{}
+	_ = d.QueryRow(`SELECT COUNT(*),
+		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN sale_money ELSE 0 END),2),0),
+		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN cost_money ELSE 0 END),2),0)
+		FROM orders`).Scan(&w.Total, &w.Sale, &w.Cost)
+	return w
+}
+
+// roundMoney 收敛两位小数的浮点误差，避免 JSON 里出现 12.340000000000001。
+// 不能直接用包里的 round2（那份对负数有偏差），毛利可能是负数，单独实现。
+func roundMoney(v float64) float64 {
+	if v < 0 {
+		return -float64(int64(-v*100+0.5)) / 100
+	}
+	return float64(int64(v*100+0.5)) / 100
+}
+
 func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
 	d := db.Must()
+	// 时间口径：from/to 由前端传 epoch 毫秒（含端点）。
+	// - 不传：from = 今日 00:00（Asia/Shanghai），to = 现在。
+	// - 传 from=0：表示不限起点（前端「全部时间」用这个）。
+	// 注意不能用 queryInt64 判断，它把「没传」和「传 0」混成 0。
+	cst := cstZone()
+	now := time.Now().In(cst)
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, cst).UnixMilli()
+	nowMs := now.UnixMilli()
+	q := r.URL.Query()
+	fromMs, toMs := todayStart, nowMs
+	if q.Has("from") {
+		if v, e := strconv.ParseInt(strings.TrimSpace(q.Get("from")), 10, 64); e == nil {
+			fromMs = v
+		}
+	}
+	if q.Has("to") {
+		if v, e := strconv.ParseInt(strings.TrimSpace(q.Get("to")), 10, 64); e == nil && v > 0 {
+			toMs = v
+		}
+	}
+	if fromMs < 0 {
+		fromMs = 0
+	}
+	// 防御：区间反了就交换；to 不允许超过当前时间（未来数据没意义，也避免缓存脏值）。
+	if fromMs > toMs {
+		fromMs, toMs = toMs, fromMs
+	}
+	if toMs > nowMs {
+		toMs = nowMs
+	}
+	if fromMs > toMs {
+		fromMs = toMs
+	}
+
 	var pTotal, pEnabled, pDisabled int
 	_ = d.QueryRow(`SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END),0),
@@ -53,11 +129,15 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		COALESCE(SUM(CASE WHEN status='active' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status='frozen' THEN 1 ELSE 0 END),0),
 		COALESCE(ROUND(SUM(balance),2),0) FROM users WHERE role <> 'guest'`).Scan(&uTotal, &uActive, &uFrozen, &uBalance)
-	var oTotal int
-	var oSale, oCost float64
-	_ = d.QueryRow(`SELECT COUNT(*),
-		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN sale_money ELSE 0 END),2),0),
-		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN cost_money ELSE 0 END),2),0) FROM orders`).Scan(&oTotal, &oSale, &oCost)
+
+	today := sumSales(d, todayStart, nowMs)
+	rangeStat := sumSales(d, fromMs, toMs)
+	allTime := sumSalesAllTime(d)
+	// 成本可能为 0（未配置成本价），毛利直接用销售额减成本，前端只展示。
+	todayProfit := roundMoney(today.Sale - today.Cost)
+	rangeProfit := roundMoney(rangeStat.Sale - rangeStat.Cost)
+	allProfit := roundMoney(allTime.Sale - allTime.Cost)
+
 	var batches, codes, used int
 	_ = d.QueryRow(`SELECT (SELECT COUNT(*) FROM redeem_batches),
 		(SELECT COUNT(*) FROM redeem_codes),
@@ -131,12 +211,27 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ok(w, map[string]any{
-		"products":        map[string]any{"total": pTotal, "enabled": pEnabled, "disabled": pDisabled},
-		"users":           map[string]any{"total": uTotal, "active": uActive, "frozen": uFrozen, "balance": uBalance},
-		"orders":          map[string]any{"total": oTotal, "sale": oSale, "cost": oCost},
+		"products": map[string]any{"total": pTotal, "enabled": pEnabled, "disabled": pDisabled},
+		"users":    map[string]any{"total": uTotal, "active": uActive, "frozen": uFrozen, "balance": uBalance},
+		// today：今日 00:00（Asia/Shanghai）→ 现在，后台大卡片只看这个。
+		"today": map[string]any{
+			"total": today.Total, "sale": today.Sale, "cost": today.Cost, "profit": todayProfit,
+		},
+		// range：前端筛选的时间段（含端点），from/to 为实际生效的 epoch 毫秒。
+		"range": map[string]any{
+			"from": fromMs, "to": toMs,
+			"total": rangeStat.Total, "sale": rangeStat.Sale, "cost": rangeStat.Cost, "profit": rangeProfit,
+		},
+		// allTime：全量总额，不受筛选影响。
+		"allTime": map[string]any{
+			"total": allTime.Total, "sale": allTime.Sale, "cost": allTime.Cost, "profit": allProfit,
+		},
+		// orders 保留为 allTime 的别名：老前端/脚本还在读这个字段，避免静默变成 0。
+		"orders":          map[string]any{"total": allTime.Total, "sale": allTime.Sale, "cost": allTime.Cost},
 		"redeem":          map[string]any{"batches": batches, "codes": codes, "used": used},
 		"byPlatform":      byPlatform,
 		"recentRecharges": recent,
+		"generatedAt":     nowMs,
 	})
 }
 
