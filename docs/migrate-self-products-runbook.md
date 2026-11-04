@@ -1,7 +1,15 @@
 # 生产执行手册：#5768 / #5769 / #5500 迁移为自营商品
 
-> 本文件只是**待执行的操作手册**，本次任务**没有**对生产库做过任何写操作。
-> 唯一的只读确认已经做过（见「0. 实测到的生产现状」），可以放心照抄。
+> ✅ **已于 2026-11-04 09:00 在生产执行完毕**，本文件转为「执行记录 + 回滚手册」保留。
+>
+> 实际执行结果：
+>
+> - 镜像：`ghcr.io/chouhx/hstore:latest`（提交 `b1779e1`，含 6b 的自营保护，同步不再冲掉 `root_category_id` / 价格）；
+> - 备份：`/root/api/shop/data/faka.db.bak-20261104085451`（`.backup` 生成，4.7MB）；
+> - 迁移：`sqlite3 data/faka.db < migrate_self_products.sql`；重跑一次 `RowsAffected=0`（幂等已验证）；
+> - 结果：`5500 / 5768 / 5769` 三行 = `self | fallback=自身 | root=900001`，价格与上下架未变，自检 SQL 无输出。
+>
+> 下面第 0~5 节保留原始步骤与当时的实测值，供复盘与回滚参考；**不要重复执行第 3 节**（虽然幂等）。
 
 ---
 
@@ -18,13 +26,16 @@
 | 宿主机工具 | 有 `sqlite3 3.37.2`；容器内**没有** sqlite3、没有 go |
 | 目录内多余文件 | 有个误建的 `+%Y%m%d%H%M%S)` 空文件（以前备份命令引号写错留下的），无害，可删 |
 
-三商品当前状态（**与迁移前一致，说明还没人动过**）：
+三商品**迁移前**状态（2026-11-04 备份后实测，`goods_id|platform|fulfillment|fallback|root|enabled|stock_count|price|price_locked`）：
 
 ```
-5500|microsoft|upstream|0|17|1|195664
-5768|microsoft|upstream|0|17|1|159221
-5769|microsoft|upstream|0|17|1|304675
+5500|microsoft|upstream|0|17|1|195541|0.05|0
+5768|microsoft|upstream|0|17|1|121448|0.064|0
+5769|microsoft|upstream|0|17|1|543205|0.064|0
 ```
+
+> 早期的草稿里记过 `195664 / 159221 / 304675`，那是更早一次只读采样；
+> `stock_count` 每两分钟被 `stockLoop` 刷新，数字会变，**不是**判断依据，看 `fulfillment / root` 即可。
 
 `categories` 里 `900001|自营商品|self` **已经存在**，所以迁移只需要动 `products` 三行。
 
@@ -70,12 +81,12 @@ sqlite3 /root/api/shop/data/faka.db \
    FROM products WHERE goods_id IN (5768,5769,5500) ORDER BY goods_id;"
 ```
 
-预期输出（执行前，2026-11-03 实测值）：
+预期输出（执行前，2026-11-04 实测值）：
 
 ```
-5500|microsoft|upstream|0|17|1|195664
-5768|microsoft|upstream|0|17|1|159221
-5769|microsoft|upstream|0|17|1|304675
+5500|microsoft|upstream|0|17|1|195541
+5768|microsoft|upstream|0|17|1|121448
+5769|microsoft|upstream|0|17|1|543205
 ```
 
 记录要点：`fulfillment=upstream`、`fallback_goods_id=0`、`root_cat=17`、`enabled=1`。
@@ -115,10 +126,13 @@ sqlite3 /root/api/shop/data/faka.db \
 预期输出（执行后）——**只有 fulfillment / fallback / root_cat 三列变化，价格/库存/上下架原封不动**：
 
 ```
-5500|microsoft|self|5500|900001|1|195664
-5768|microsoft|self|5768|900001|1|159221
-5769|microsoft|self|5769|900001|1|304675
+5500|microsoft|self|5500|900001|1|195541
+5768|microsoft|self|5768|900001|1|121448
+5769|microsoft|self|5769|900001|1|543205
 ```
+
+> 2026-11-04 实际执行输出与上面完全一致（`stock_count` 之后每两分钟随 `stockLoop` 变化，属正常）。
+> 备份文件：`/root/api/shop/data/faka.db.bak-20261104085451`。
 
 再确认自营分类还在（脚本会 upsert 它，理论上不变）：
 
@@ -131,11 +145,12 @@ sqlite3 data/faka.db "SELECT id,name,platform FROM categories WHERE id=900001;"
 
 ## 5. 功能确认
 
-> ⚠️ 「库存脱敏成 1/0」依赖 `handlers_store.go` 里的 `selfStockAvailable()` / `maskSelfProductStock()`，
-> 这**两个函数同样只存在于未提交的工作区**（HEAD 里 `grep -c selfStockAvailable` = 0），
-> 当前线上镜像**没有**这段逻辑。线上 `stock_count` 会原样返回上游的数字。
-> 这不影响下单（真正决定能不能买的是 `service/order.go` 的 `placeSelfOrder`），
-> 只是前台展示口径的差别。部署含此改动的镜像后才会变成 1/0。
+> 📌 早期版本的 `selfStockAvailable()` / `maskSelfProductStock()` 已废弃，改为
+> `handlers_store.go` 里的字段白名单（`storeProductViewOf` / `storeDetailView`）：
+> `stock_count` 按真实数字返回（-1 未知 / 0 缺货 / N 可售），前台展示为「库存 -」「缺货」「库存 N」。
+> 2026-11-04 实测线上 `?rootId=900001` 返回 `stockCount` 0/0/0/1204，字段集合
+> `customDesc,customImg,customName,finalPrice,fulfillment,goodsId,goodsType,imgUrl,name,status,stockCount`，
+> 无 `platform` / `cost` / 上游编号泄漏。
 
 直接确认商品在前台可见：
 
@@ -154,43 +169,27 @@ curl -s --noproxy '*' 'http://127.0.0.1:3001/api/store/products?rootId=900001&pa
 
 ---
 
-## 6. ⚠️ 同步行为取决于线上跑的是哪份二进制（**必读**）
+## 6. 同步行为：线上已是「保护版」（本节留作背景）
 
-这里有两种行为，**取决于线上镜像里编进去的是哪个版本的 `catalog.go`**：
+### 6a. 旧镜像的行为（**已不再适用**）
 
-### 6a. 当前线上镜像：**会**把 `root_category_id` 冲回 17
+线上镜像构建于 `2026-11-02T16:24:58Z`，那份 `catalog.go` 会把 `root_category_id` 冲回 `17`、
+`final_price` 冲回上游价。**这段描述对应部署 `b1779e1` 之前的镜像，已作废。**
 
-线上镜像构建于 `2026-11-02T16:24:58Z`，容器内 `hstore-server` 时间戳 `Nov 3 00:24`，
-而修复改动（见 6b）是这之后才写进工作区的（`catalog.go` mtime `11-03 00:54`），
-**没进当前镜像**。所以现在点「同步商品」之后：
+| 字段 | 旧镜像 | 现镜像（`b1779e1`） |
+| --- | --- | --- |
+| `fulfillment` | ✅ 保住 | ✅ 保住 |
+| `fallback_goods_id` | ✅ 保住 | ✅ 保住 |
+| `root_category_id` | ❌ 冲回 17 | ✅ 保住（`CASE WHEN fulfillment='self'`） |
+| `final_price` | ❌ 冲回上游价 | ✅ 保住（`self` 或 `price_locked=1`） |
+| `name` / `stock_count` | ❌ 被上游覆盖 | ❌ 仍被上游覆盖（正常） |
+| `enabled` | ✅ 保住 | ✅ 保住 |
 
-| 字段 | 行为 |
-| --- | --- |
-| `fulfillment` | ✅ 保住（清理语句 `... AND COALESCE(fulfillment,'upstream') <> 'self'` 跳过它们，不会被删） |
-| `fallback_goods_id` | ✅ 保住（不在 UPDATE 列表里） |
-| `root_category_id` | ❌ **被改回 `17`** |
-| `final_price` | ❌ **被改回上游价**（实测 0.06/0.05 → 9.90） |
-| `name` / `stock_count` | ❌ 被上游覆盖（本来就是上游商品，正常） |
-| `enabled` | ✅ 保住（不在 UPDATE 列表里） |
+→ 现镜像下**同步不再需要补刀**；若哪天回滚到旧镜像，才需要「同步后重跑迁移脚本」。
 
-→ **暂缓同步 / 同步后立即重跑迁移脚本**，把 `root_category_id` 补回来：
+### 6b. 保护版 SQL（**已提交、已部署**）
 
-```bash
-cd /root/api/shop && sqlite3 data/faka.db < migrate_self_products.sql
-```
-
-> 注意：脚本只补 `fulfillment / fallback_goods_id / root_category_id`，**不负责价格**。
-> 价格若被同步冲掉，需要在后台「商品管理」重新设价并勾上 `price_locked`，
-> 或者先部署 6b 的镜像再同步。
->
-> 另外这里有个**线上现状需要你确认**：仓库工作区里的 `catalog.go` 有一份未提交的修复
-> （即 6b），但线上镜像不含它。如果这份修复是别的同事正准备提交部署的，那么**部署后
-> 同步就安全了**，本节的补刀动作可以省略。请以最终部署的镜像版本为准。
-
-### 6b. 修复后的代码（已在本仓库工作区，**未提交、未部署**）
-
-`backend/internal/upstream/catalog.go` 工作区里已有一版未提交的修改，对
-`fulfillment='self'` 的商品做了保护：
+`backend/internal/upstream/catalog.go` 对 `fulfillment='self'` 的商品做了保护：
 
 ```sql
 root_category_id = CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
@@ -200,12 +199,8 @@ final_price = CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
   THEN products.final_price ELSE excluded.final_price END,
 ```
 
-**本地已验证这版是有效的**：用假上游跑真实的 `upstream.RunSync()`，
-迁移后的三商品 `root_category_id` 保持 `900001`、`final_price` 保持原值、
-`fulfillment='self'`、`fallback` 指回自身，只有 `name`/`stock_count` 被上游覆盖（正常）。
-对照实验：同一场景换成 HEAD 版 SQL（= 线上镜像行为），三者 `root` 全变 `17`、价格变 `9.90`。
-
-→ **建议：先部署包含 6b 修复的新镜像，再执行本迁移。** 之后同步就无需再补刀。
+提交 `dcd5197` / `b1779e1`，CI 通过后已随 `ghcr.io/chouhx/hstore:latest` 上线（2026-11-04）。
+本地对照实验结论仍成立：保护版同步后三者 `root` 保持 `900001`、价格不变。
 
 自查（应该没有任何输出）：
 
@@ -221,8 +216,8 @@ cd /root/api/shop && sqlite3 data/faka.db \
 ## 7. 回滚
 
 ```bash
-# 用第 1 步打印的备份文件名
-TS=<你的备份时间戳>
+# 用第 1 步打印的备份文件名（本次执行的是 20261104085451）
+TS=20261104085451
 
 # 停容器，避免回滚时 WAL 仍在写
 docker stop hstore
@@ -230,7 +225,7 @@ docker stop hstore
 cd /root/api/shop/data
 rm -f faka.db faka.db-wal faka.db-shm
 cp faka.db.bak-${TS} faka.db
-chown 100:101 faka.db      # 实测原文件属主 100:101（容器内 app:app），不改会写不进去
+chown 100:101 faka.db      # 容器内是 app(100:101)，不改属主会被拒绝写入
 chmod 644 faka.db
 
 docker start hstore
@@ -238,6 +233,13 @@ docker ps --filter name=hstore --format '{{.Names}}\t{{.Status}}'
 docker logs --tail 20 hstore
 ```
 
+> 现网 `data/` 目录是 `drwxrwxrwx`，所以即便宿主机 `faka.db` 属主是 `_apt:systemd-journal`
+> 容器也能正常读写（2026-11-04 实测 healthy）。回滚时仍建议显式 `chown 100:101`，
+> 免得以后目录权限被收紧。
+>
+> `.backup` 会顺带生成 `faka.db.bak-<TS>-shm` / `-wal` 两个伴生文件（本次为 0 字节），
+> 属于正常现象，不要拿它们当数据文件。
+>
 > 只回滚这三行也可以，不必整库回滚（见附录脚本）。
 > 但整库回滚会丢掉备份之后产生的订单，**优先用附录的定向回滚**。
 
