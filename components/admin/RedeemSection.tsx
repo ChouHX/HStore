@@ -21,6 +21,44 @@ import type { RedeemCode } from "@/lib/types";
 
 const PAGE_SIZE = 15;
 
+/** 把码值列表拼成可粘贴的文本（每行一个）。 */
+function codesToText(codes: string[]): string {
+  return codes.join("\n");
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // 非安全上下文（http）下 clipboard 不可用，退回 execCommand
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** 触发浏览器下载，用于导出本批码值。 */
+function downloadCodes(codes: string[], filename: string) {
+  const blob = new Blob([codesToText(codes)], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const STATUS_TAG: Record<string, { color: string; label: string }> = {
   unused: { color: "green", label: "未使用" },
   redeeming: { color: "orange", label: "核销中" },
@@ -117,10 +155,25 @@ export function RedeemSection() {
   // 商品筛选：只显示关联到某个商品的兑换码
   const [filterGoodsId, setFilterGoodsId] = useState<number>(0);
   const [filterProduct, setFilterProduct] = useState<ProductOption | null>(null);
-  const hasFilter = keyword !== "" || status !== "all" || filterGoodsId > 0;
+  // 批次筛选：从「批量管理」点「查看」时设置
+  const [batchFilter, setBatchFilter] = useState<number>(0);
+  const hasFilter = keyword !== "" || status !== "all" || filterGoodsId > 0 || batchFilter > 0;
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // 生成成功后弹出：展示本次生成的码值
+  const [created, setCreated] = useState<{ batchId: number; codes: string[] } | null>(null);
+
+  // 批量管理
+  const [selected, setSelected] = useState<number[]>([]);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batches, setBatches] = useState<
+    { batchId: number; total: number; unused: number; used: number; voided: number; faceValue: number; goodsId: number | null; goodsName: string; goodsCount: number; createdAt: number }[]
+  >([]);
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const [kind, setKind] = useState<"balance" | "product">("balance");
   const [product, setProduct] = useState<ProductOption | null>(null);
@@ -146,8 +199,9 @@ export function RedeemSection() {
     if (status !== "all") sp.set("status", status);
     if (keyword) sp.set("keyword", keyword);
     if (filterGoodsId > 0) sp.set("goodsId", String(filterGoodsId));
+    if (batchFilter > 0) sp.set("batchId", String(batchFilter));
     return sp;
-  }, [status, keyword, filterGoodsId]);
+  }, [status, keyword, filterGoodsId, batchFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,18 +255,22 @@ export function RedeemSection() {
         }),
       }).then((r) => r.json());
       if (j.ok) {
+        const codes = (j.codes as string[]) ?? [];
         Message.success(`已生成 ${j.count} 张兑换码`);
         setOpen(false);
         resetForm();
+        setSelected([]);
         load();
+        if (codes.length > 0) {
+          setCreated({ batchId: Number(j.batchId) || 0, codes });
+        }
       } else Message.error(j.message ?? "生成失败");
     } finally {
       setSaving(false);
     }
   }
 
-  async function voidCode(codeId: number) {
-    const j = await fetch("/api/admin/redeem", {
+  async function voidCode(codeId: number) {    const j = await fetch("/api/admin/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "voidCode", codeId }),
@@ -234,6 +292,44 @@ export function RedeemSection() {
       load();
     } else Message.error(j.message ?? "删除失败");
   }
+
+  async function batchAction(action: "voidCodes" | "deleteCodes" | "voidBatch" | "deleteBatch", payload: { codeIds?: number[]; batchId?: number }) {
+    setSaving(true);
+    try {
+      const j = await fetch("/api/admin/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...payload }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success(`已处理 ${j.count} 张兑换码`);
+        setSelected([]);
+        load();
+        if (batchMode) loadBatches();
+      } else Message.error(j.message ?? "操作失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const loadBatches = useCallback(async () => {
+    setBatchLoading(true);
+    try {
+      const j = await fetch(`/api/admin/redeem/batches?page=${batchPage}&pageSize=10`).then((r) =>
+        r.json(),
+      );
+      if (j.ok) {
+        setBatches(j.items);
+        setBatchTotal(j.total as number);
+      } else Message.error(j.message);
+    } finally {
+      setBatchLoading(false);
+    }
+  }, [batchPage]);
+
+  useEffect(() => {
+    if (batchMode) loadBatches();
+  }, [batchMode, loadBatches]);
 
   async function saveEdit() {
     if (!editing) return;
@@ -396,6 +492,7 @@ export function RedeemSection() {
               setStatus("all");
               setFilterGoodsId(0);
               setFilterProduct(null);
+              setBatchFilter(0);
               setPage(1);
             }}
           >
@@ -411,7 +508,172 @@ export function RedeemSection() {
         <Button size="small" type="primary" onClick={() => setOpen(true)}>
           生成兑换码
         </Button>
+        <Button
+          size="small"
+          type={batchMode ? "primary" : "secondary"}
+          onClick={() => {
+            setBatchMode((v) => !v);
+            setSelected([]);
+          }}
+        >
+          {batchMode ? "返回码列表" : "批量管理"}
+        </Button>
       </Space>
+
+      {batchMode ? (
+        <Table
+          rowKey="batchId"
+          loading={batchLoading}
+          data={batches}
+          scroll={{ x: "100%" }}
+          pagination={{
+            current: batchPage,
+            pageSize: 10,
+            total: batchTotal,
+            showTotal: true,
+            onChange: (p) => setBatchPage(p),
+          }}
+          columns={[
+            {
+              title: "批次号",
+              dataIndex: "batchId",
+              width: 150,
+              render: (v: number) => <span className="font-mono text-[12px]">{v}</span>,
+            },
+            {
+              title: "类型",
+              dataIndex: "goodsId",
+              width: 180,
+              render: (_: unknown, b: (typeof batches)[number]) =>
+                b.goodsId ? (
+                  <Tooltip content={b.goodsName || `商品 ${b.goodsId}`}>
+                    <span className="text-[12px]">
+                      {b.goodsName || `商品 ${b.goodsId}`}
+                      {b.goodsCount > 1 ? ` ×${b.goodsCount}` : ""}
+                    </span>
+                  </Tooltip>
+                ) : (
+                  <span className="text-[12px] text-[#f53f3f]">¥{formatPrice(b.faceValue)}</span>
+                ),
+            },
+            {
+              title: "总量",
+              dataIndex: "total",
+              width: 80,
+              render: (v: number) => <b>{v}</b>,
+            },
+            {
+              title: "状态分布",
+              dataIndex: "dist",
+              render: (_: unknown, b: (typeof batches)[number]) => (
+                <Space size="mini" wrap>
+                  <Tag size="small" color="green">
+                    未用 {b.unused}
+                  </Tag>
+                  <Tag size="small" color="gray">
+                    已用 {b.used}
+                  </Tag>
+                  {b.voided > 0 && (
+                    <Tag size="small" color="red">
+                      作废 {b.voided}
+                    </Tag>
+                  )}
+                </Space>
+              ),
+            },
+            {
+              title: "生成时间",
+              dataIndex: "createdAt",
+              width: 160,
+              render: (v: number) => (
+                <span className="text-[12px] text-[#86909c]">
+                  {new Date(v).toLocaleString("zh-CN")}
+                </span>
+              ),
+            },
+            {
+              title: "操作",
+              dataIndex: "op",
+              width: 230,
+              fixed: "right" as const,
+              render: (_: unknown, b: (typeof batches)[number]) => (
+                <Space size="mini">
+                  <Button
+                    size="mini"
+                    onClick={() => {
+                      setBatchMode(false);
+                      setPage(1);
+                      // 复用码列表页，按批次筛选
+                      setFilterGoodsId(0);
+                      setFilterProduct(null);
+                      setKeyword("");
+                      setStatus("all");
+                      setBatchFilter(b.batchId);
+                    }}
+                  >
+                    查看
+                  </Button>
+                  <Popconfirm
+                    title={`作废批次 ${b.batchId} 中全部未使用兑换码（${b.unused} 张）？`}
+                    onOk={() => batchAction("voidBatch", { batchId: b.batchId })}
+                    disabled={b.unused === 0}
+                  >
+                    <Button size="mini" status="warning" disabled={b.unused === 0}>
+                      整批作废
+                    </Button>
+                  </Popconfirm>
+                  <Popconfirm
+                    title={`删除批次 ${b.batchId} 中未使用/已作废的兑换码？已使用的会保留。`}
+                    onOk={() => batchAction("deleteBatch", { batchId: b.batchId })}
+                  >
+                    <Button size="mini" status="danger">
+                      整批删除
+                    </Button>
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      ) : (
+      <>
+      {selected.length > 0 && (
+        <Space wrap>
+          <span className="text-[12px] text-[#86909c]">已选 {selected.length} 张</span>
+          <Popconfirm
+            title={`作废选中的 ${selected.length} 张兑换码？（仅未使用/核销中的会生效）`}
+            onOk={() => batchAction("voidCodes", { codeIds: selected })}
+          >
+            <Button size="small" status="warning" loading={saving}>
+              批量作废
+            </Button>
+          </Popconfirm>
+          <Popconfirm
+            title={`删除选中的 ${selected.length} 张兑换码？已使用的会保留。`}
+            onOk={() => batchAction("deleteCodes", { codeIds: selected })}
+          >
+            <Button size="small" status="danger" loading={saving}>
+              批量删除
+            </Button>
+          </Popconfirm>
+          <Button
+            size="small"
+            onClick={() => {
+              const codes = items
+                .filter((c) => selected.includes(c.id))
+                .map((c) => c.code);
+              void copyText(codesToText(codes)).then((ok) =>
+                ok ? Message.success(`已复制 ${codes.length} 张兑换码`) : Message.error("复制失败"),
+              );
+            }}
+          >
+            复制选中
+          </Button>
+          <Button size="small" onClick={() => setSelected([])}>
+            取消选择
+          </Button>
+        </Space>
+      )}
 
       <Table
         rowKey="id"
@@ -419,6 +681,10 @@ export function RedeemSection() {
         columns={columns}
         data={items}
         scroll={{ x: "100%" }}
+        rowSelection={{
+          selectedRowKeys: selected,
+          onChange: (keys) => setSelected(keys as number[]),
+        }}
         pagination={{
           current: page,
           pageSize,
@@ -431,6 +697,8 @@ export function RedeemSection() {
           },
         }}
       />
+      </>
+      )}
 
       <Modal
         title="生成兑换码"
@@ -586,6 +854,57 @@ export function RedeemSection() {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* 生成成功后展示本次生成的码值，便于立即分发 */}
+      <Modal
+        title={created ? `本次生成 ${created.codes.length} 张兑换码` : "生成结果"}
+        visible={created !== null}
+        onCancel={() => setCreated(null)}
+        footer={
+          <Space>
+            <Button onClick={() => setCreated(null)}>关闭</Button>
+            <Button
+              onClick={() => {
+                if (!created) return;
+                downloadCodes(created.codes, `redeem-${created.batchId || "codes"}.txt`);
+              }}
+            >
+              下载 TXT
+            </Button>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (!created) return;
+                void copyText(codesToText(created.codes)).then((ok) =>
+                  ok
+                    ? Message.success(`已复制 ${created.codes.length} 张兑换码`)
+                    : Message.error("复制失败，请手动选择"),
+                );
+              }}
+            >
+              复制全部
+            </Button>
+          </Space>
+        }
+        style={{ width: 560 }}
+        unmountOnExit
+      >
+        {created && (
+          <div className="flex flex-col gap-2">
+            <div className="text-[12px] text-[#86909c]">
+              批次号 <span className="font-mono">{created.batchId}</span>
+              {created.batchId > 0 && "，可在「批量管理」中整批作废或删除"}
+            </div>
+            <div
+              className="max-h-[320px] overflow-auto rounded border border-[#e5e6eb] bg-[#f7f8fa] p-3 font-mono text-[13px] leading-relaxed select-all"
+            >
+              {created.codes.map((c) => (
+                <div key={c}>{c}</div>
+              ))}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

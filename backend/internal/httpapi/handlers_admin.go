@@ -977,6 +977,17 @@ func (a *API) handleAdminRedeem(w http.ResponseWriter, r *http.Request) {
 	ok(w, paged(items, total, page, pageSize))
 }
 
+// handleAdminRedeemBatches 返回生成批次汇总列表。
+func (a *API) handleAdminRedeemBatches(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	page, pageSize, offset := parsePage(r, 20)
+	items := store.ListBatches(pageSize, offset)
+	total := store.CountBatches()
+	ok(w, paged(items, total, page, pageSize))
+}
+
 func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 	admin := requireAdmin(w, r)
 	if admin == nil {
@@ -992,6 +1003,8 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 		StartAt    *int64  `json:"startAt"`
 		EndAt      *int64  `json:"endAt"`
 		CodeID     int     `json:"codeId"`
+		CodeIDs    []int   `json:"codeIds"`
+		BatchID    int64   `json:"batchId"`
 		NewGoodsID *int    `json:"newGoodsId"`
 	}
 	if e := readJSON(r, &body); e != nil {
@@ -1022,27 +1035,27 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 			if goodsCount < 1 {
 				goodsCount = 1
 			}
-			n := store.CreateCodes(store.CreateCodesInput{
+			batchID, codes := store.CreateCodesBatch(store.CreateCodesInput{
 				GoodsID: body.GoodsID, GoodsCount: goodsCount, Count: body.Count,
 				StartAt: body.StartAt, EndAt: body.EndAt,
 			})
 			store.WriteAudit(&admin.UID, "redeem_create", "redeem_code", itoa(*body.GoodsID), nil,
-				map[string]any{"goodsId": *body.GoodsID, "goodsCount": goodsCount, "count": n},
-				"生成商品兑换码 "+itoa(n)+" 张（"+product.Name+" × "+itoa(goodsCount)+"）")
-			ok(w, map[string]any{"count": n})
+				map[string]any{"goodsId": *body.GoodsID, "goodsCount": goodsCount, "count": len(codes), "batchId": batchID},
+				"生成商品兑换码 "+itoa(len(codes))+" 张（"+product.Name+" × "+itoa(goodsCount)+"）")
+			ok(w, map[string]any{"count": len(codes), "batchId": batchID, "codes": codes})
 			return
 		}
 		if body.FaceValue <= 0 {
 			fail(w, http.StatusBadRequest, "面值必须大于 0")
 			return
 		}
-		n := store.CreateCodes(store.CreateCodesInput{
+		batchID, codes := store.CreateCodesBatch(store.CreateCodesInput{
 			FaceValue: body.FaceValue, Count: body.Count, StartAt: body.StartAt, EndAt: body.EndAt,
 		})
 		store.WriteAudit(&admin.UID, "redeem_create", "redeem_code", "", nil,
-			map[string]any{"faceValue": body.FaceValue, "count": n},
-			"生成余额兑换码 "+itoa(n)+" 张，面值 "+store.TrimFloat(body.FaceValue))
-		ok(w, map[string]any{"count": n})
+			map[string]any{"faceValue": body.FaceValue, "count": len(codes), "batchId": batchID},
+			"生成余额兑换码 "+itoa(len(codes))+" 张，面值 "+store.TrimFloat(body.FaceValue))
+		ok(w, map[string]any{"count": len(codes), "batchId": batchID, "codes": codes})
 	case "voidCode":
 		if body.CodeID == 0 {
 			fail(w, http.StatusBadRequest, "缺少券码 ID")
@@ -1088,6 +1101,42 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"goodsId": body.NewGoodsID, "goodsCount": goodsCount, "faceValue": body.FaceValue},
 			"修改兑换码关联商品")
 		ok(w, nil)
+	case "voidCodes":
+		if len(body.CodeIDs) == 0 {
+			fail(w, http.StatusBadRequest, "请选择要作废的兑换码")
+			return
+		}
+		n := store.VoidCodes(body.CodeIDs)
+		store.WriteAudit(&admin.UID, "redeem_code_void", "redeem_code", "", nil,
+			map[string]any{"codeIds": body.CodeIDs, "count": n}, "批量作废 "+itoa(n)+" 张兑换码")
+		ok(w, map[string]any{"count": n})
+	case "deleteCodes":
+		if len(body.CodeIDs) == 0 {
+			fail(w, http.StatusBadRequest, "请选择要删除的兑换码")
+			return
+		}
+		n := store.DeleteCodes(body.CodeIDs)
+		store.WriteAudit(&admin.UID, "redeem_code_delete", "redeem_code", "", nil,
+			map[string]any{"codeIds": body.CodeIDs, "count": n}, "批量删除 "+itoa(n)+" 张兑换码")
+		ok(w, map[string]any{"count": n})
+	case "voidBatch":
+		if body.BatchID <= 0 {
+			fail(w, http.StatusBadRequest, "缺少批次号")
+			return
+		}
+		n := store.VoidBatch(body.BatchID)
+		store.WriteAudit(&admin.UID, "redeem_batch_void", "redeem_code", "", nil,
+			map[string]any{"batchId": body.BatchID, "count": n}, "作废批次 "+itoa64(body.BatchID)+" 共 "+itoa(n)+" 张")
+		ok(w, map[string]any{"count": n})
+	case "deleteBatch":
+		if body.BatchID <= 0 {
+			fail(w, http.StatusBadRequest, "缺少批次号")
+			return
+		}
+		n := store.DeleteBatch(body.BatchID)
+		store.WriteAudit(&admin.UID, "redeem_batch_delete", "redeem_code", "", nil,
+			map[string]any{"batchId": body.BatchID, "count": n}, "删除批次 "+itoa64(body.BatchID)+" 共 "+itoa(n)+" 张")
+		ok(w, map[string]any{"count": n})
 	default:
 		fail(w, http.StatusBadRequest, "未知操作")
 	}

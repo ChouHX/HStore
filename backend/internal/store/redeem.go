@@ -149,8 +149,20 @@ type CreateCodesInput struct {
 	EndAt      *int64
 }
 
-// CreateCodes 批量生成兑换码。
-func CreateCodes(in CreateCodesInput) int {
+// nextBatchID 返回一个单调递增的批次号（毫秒时间戳，并保证大于现有最大批次）。
+// 同一次生成请求内的所有兑换码共用一个批次号，便于事后按批管理。
+func nextBatchID() int64 {
+	ts := now()
+	var max int64
+	_ = db.Must().QueryRow("SELECT COALESCE(MAX(batch_id), 0) FROM redeem_codes").Scan(&max)
+	if ts <= max {
+		return max + 1
+	}
+	return ts
+}
+
+// CreateCodesBatch 批量生成兑换码，返回批次号与本批生成的码值。
+func CreateCodesBatch(in CreateCodesInput) (int64, []string) {
 	d := db.Must()
 	count := in.Count
 	if count < 1 {
@@ -167,24 +179,32 @@ func CreateCodes(in CreateCodesInput) int {
 	if goodsCount < 1 {
 		goodsCount = 1
 	}
+	batchID := nextBatchID()
 	ts := now()
-	inserted := 0
-	for guard := 0; inserted < count && guard < count*5; guard++ {
+	codes := make([]string, 0, count)
+	for guard := 0; len(codes) < count && guard < count*5; guard++ {
 		var goods any
 		if in.GoodsID != nil {
 			goods = *in.GoodsID
 		}
+		code := RandomRedeemCode()
 		res, e := d.Exec(`INSERT OR IGNORE INTO redeem_codes(batch_id, code, face_value, goods_id, goods_count, status, start_at, end_at, created_at)
-			VALUES(0, ?, ?, ?, ?, 'unused', ?, ?, ?)`,
-			RandomRedeemCode(), faceValue, goods, goodsCount, in.StartAt, in.EndAt, ts)
+			VALUES(?, ?, ?, ?, ?, 'unused', ?, ?, ?)`,
+			batchID, code, faceValue, goods, goodsCount, in.StartAt, in.EndAt, ts)
 		if e != nil {
 			continue
 		}
 		if n, _ := res.RowsAffected(); n == 1 {
-			inserted++
+			codes = append(codes, code)
 		}
 	}
-	return inserted
+	return batchID, codes
+}
+
+// CreateCodes 批量生成兑换码，返回生成数量（保留原签名供内部调用）。
+func CreateCodes(in CreateCodesInput) int {
+	_, codes := CreateCodesBatch(in)
+	return len(codes)
 }
 
 // ListCodes 兑换码分页列表。
@@ -285,6 +305,127 @@ func DeleteCode(id int) bool {
 	}
 	n, _ := res.RowsAffected()
 	return n > 0
+}
+
+// VoidCodes 批量作废，返回实际作废数量。
+func VoidCodes(ids []int) int {
+	total := 0
+	for _, id := range ids {
+		res, e := db.Must().Exec(
+			"UPDATE redeem_codes SET status = 'voided' WHERE id = ? AND status IN ('unused','redeeming')", id)
+		if e != nil {
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			total++
+		}
+	}
+	return total
+}
+
+// DeleteCodes 批量删除未使用/已作废的兑换码，返回实际删除数量。
+func DeleteCodes(ids []int) int {
+	total := 0
+	for _, id := range ids {
+		res, e := db.Must().Exec(
+			"DELETE FROM redeem_codes WHERE id = ? AND status IN ('unused','voided')", id)
+		if e != nil {
+			continue
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			total++
+		}
+	}
+	return total
+}
+
+// VoidBatch 作废整批未使用的兑换码，返回实际作废数量。
+func VoidBatch(batchID int64) int {
+	if batchID <= 0 {
+		return 0
+	}
+	res, e := db.Must().Exec(
+		"UPDATE redeem_codes SET status = 'voided' WHERE batch_id = ? AND status IN ('unused','redeeming')", batchID)
+	if e != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return int(n)
+}
+
+// DeleteBatch 删除整批中未使用/已作废的兑换码，返回实际删除数量。
+func DeleteBatch(batchID int64) int {
+	if batchID <= 0 {
+		return 0
+	}
+	res, e := db.Must().Exec(
+		"DELETE FROM redeem_codes WHERE batch_id = ? AND status IN ('unused','voided')", batchID)
+	if e != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return int(n)
+}
+
+// BatchSummary 是一个生成批次的汇总信息。
+type BatchSummary struct {
+	BatchID    int64   `json:"batchId"`
+	Total      int     `json:"total"`
+	Unused     int     `json:"unused"`
+	Used       int     `json:"used"`
+	Voided     int     `json:"voided"`
+	Redeeming  int     `json:"redeeming"`
+	FaceValue  float64 `json:"faceValue"`
+	GoodsID    *int    `json:"goodsId"`
+	GoodsName  string  `json:"goodsName"`
+	GoodsCount int     `json:"goodsCount"`
+	CreatedAt  int64   `json:"createdAt"`
+}
+
+// ListBatches 返回批次汇总列表（按批次号倒序）。
+func ListBatches(limit, offset int) []BatchSummary {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, e := db.Must().Query(`SELECT rc.batch_id,
+		COUNT(*),
+		SUM(CASE WHEN rc.status = 'unused' THEN 1 ELSE 0 END),
+		SUM(CASE WHEN rc.status = 'used' THEN 1 ELSE 0 END),
+		SUM(CASE WHEN rc.status = 'voided' THEN 1 ELSE 0 END),
+		SUM(CASE WHEN rc.status = 'redeeming' THEN 1 ELSE 0 END),
+		MAX(rc.face_value), MAX(rc.goods_id), MAX(rc.goods_count), MAX(rc.created_at),
+		COALESCE(MAX(p.name), '')
+		FROM redeem_codes rc LEFT JOIN products p ON p.goods_id = rc.goods_id
+		WHERE rc.batch_id > 0
+		GROUP BY rc.batch_id
+		ORDER BY rc.batch_id DESC
+		LIMIT ? OFFSET ?`, limit, offset)
+	if e != nil {
+		return []BatchSummary{}
+	}
+	defer rows.Close()
+	out := []BatchSummary{}
+	for rows.Next() {
+		var b BatchSummary
+		var goodsID sql.NullInt64
+		if e := rows.Scan(&b.BatchID, &b.Total, &b.Unused, &b.Used, &b.Voided, &b.Redeeming,
+			&b.FaceValue, &goodsID, &b.GoodsCount, &b.CreatedAt, &b.GoodsName); e != nil {
+			continue
+		}
+		if goodsID.Valid {
+			v := int(goodsID.Int64)
+			b.GoodsID = &v
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+// CountBatches 批次总数。
+func CountBatches() int {
+	var c int
+	_ = db.Must().QueryRow("SELECT COUNT(DISTINCT batch_id) FROM redeem_codes WHERE batch_id > 0").Scan(&c)
+	return c
 }
 
 // UpdateCodeGoods 修改未使用兑换码关联的商品。
