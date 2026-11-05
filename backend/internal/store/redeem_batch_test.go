@@ -140,12 +140,12 @@ func TestUsedCodeProtected(t *testing.T) {
 // 从未被兑换码引用的商品不应出现。
 func TestListCodeGoodsIDsOnlyReferenced(t *testing.T) {
 	EnsureSelfCategory()
-	used, e := CreateSelfProduct(SelfProductInput{GoodsID: 940201, Name: "有兑换码的商品", Price: 0.5, Enabled: true})
+	used, e := CreateSelfProduct(SelfProductInput{GoodsID: 940301, Name: "有兑换码的商品", Price: 0.5, Enabled: true})
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { _, _ = DeleteSelfProduct(used) })
-	unused, e := CreateSelfProduct(SelfProductInput{GoodsID: 940202, Name: "无兑换码的商品", Price: 0.6, Enabled: true})
+	unused, e := CreateSelfProduct(SelfProductInput{GoodsID: 940302, Name: "无兑换码的商品", Price: 0.6, Enabled: true})
 	if e != nil {
 		t.Fatal(e)
 	}
