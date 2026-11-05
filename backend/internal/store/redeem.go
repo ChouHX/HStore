@@ -428,6 +428,48 @@ func CountBatches() int {
 	return c
 }
 
+// ListCodeGoodsIDs 返回兑换码实际关联到的商品 ID（去重、倒序）。
+// 用做列表页商品筛选下拉的候选集：只列真正有兑换码的商品，
+// 避免下拉里出现一堆从未被引用过的商品。
+func ListCodeGoodsIDs() []int {
+	rows, e := db.Must().Query(`SELECT DISTINCT goods_id FROM redeem_codes
+		WHERE goods_id IS NOT NULL AND goods_id > 0
+		ORDER BY goods_id DESC`)
+	if e != nil {
+		return []int{}
+	}
+	defer rows.Close()
+	out := []int{}
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// ListProductsByGoodsIDs 按 goods_id 批量取商品展示信息（名称/现价）。
+// 用于把 ListCodeGoodsIDs 的结果补全为下拉选项：商品已被删除但
+// 兑换码还留着时，仍给一个可读选项，否则没法按该商品筛选。
+func ListProductsByGoodsIDs(ids []int) []model.Product {
+	if len(ids) == 0 {
+		return []model.Product{}
+	}
+	out := make([]model.Product, 0, len(ids))
+	for _, id := range ids {
+		if p := GetProduct(id); p != nil {
+			out = append(out, *p)
+			continue
+		}
+		out = append(out, model.Product{
+			GoodsID: id,
+			Name:    "商品 " + strconvItoa(id) + "（已下架）",
+		})
+	}
+	return out
+}
+
 // UpdateCodeGoods 修改未使用兑换码关联的商品。
 // goodsID 为 nil 表示改成面值码（需提供 faceValue > 0）。
 // 返回是否更新成功。

@@ -988,6 +988,17 @@ func (a *API) handleAdminRedeemBatches(w http.ResponseWriter, r *http.Request) {
 	ok(w, paged(items, total, page, pageSize))
 }
 
+// handleAdminRedeemProducts 返回兑换码实际关联到的商品，
+// 用于列表页商品筛选下拉：只列真被引用的商品，而不是全量商品。
+func (a *API) handleAdminRedeemProducts(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	ids := store.ListCodeGoodsIDs()
+	items := store.ListProductsByGoodsIDs(ids)
+	ok(w, map[string]any{"items": items, "total": len(items)})
+}
+
 func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 	admin := requireAdmin(w, r)
 	if admin == nil {

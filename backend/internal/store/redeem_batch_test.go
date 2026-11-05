@@ -135,3 +135,65 @@ func TestUsedCodeProtected(t *testing.T) {
 		t.Fatalf("已使用的码不应被删除，实际删除 %d", n)
 	}
 }
+
+// 商品筛选下拉只应列出「兑换码实际关联到」的商品，
+// 从未被兑换码引用的商品不应出现。
+func TestListCodeGoodsIDsOnlyReferenced(t *testing.T) {
+	EnsureSelfCategory()
+	used, e := CreateSelfProduct(SelfProductInput{GoodsID: 940201, Name: "有兑换码的商品", Price: 0.5, Enabled: true})
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { _, _ = DeleteSelfProduct(used) })
+	unused, e := CreateSelfProduct(SelfProductInput{GoodsID: 940202, Name: "无兑换码的商品", Price: 0.6, Enabled: true})
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { _, _ = DeleteSelfProduct(unused) })
+
+	gid := used
+	batchID, _ := CreateCodesBatch(CreateCodesInput{GoodsID: &gid, GoodsCount: 1, Count: 2})
+	t.Cleanup(func() { DeleteBatch(batchID) })
+
+	ids := ListCodeGoodsIDs()
+	hasUsed, hasUnused := false, false
+	for _, id := range ids {
+		if id == used {
+			hasUsed = true
+		}
+		if id == unused {
+			hasUnused = true
+		}
+	}
+	if !hasUsed {
+		t.Fatalf("有兑换码的商品 %d 应出现在候选集里: %v", used, ids)
+	}
+	if hasUnused {
+		t.Fatalf("无兑换码的商品 %d 不应出现: %v", unused, ids)
+	}
+
+	items := ListProductsByGoodsIDs(ids)
+	found := false
+	for _, p := range items {
+		if p.GoodsID == used {
+			found = true
+			if p.Name == "" {
+				t.Fatal("选项应带商品名称")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("候选集里应含商品 %d", used)
+	}
+}
+
+// 商品被删除但兑换码仍在时，仍要给出可读选项，否则没法按该商品筛选。
+func TestListProductsByGoodsIDsDeletedFallback(t *testing.T) {
+	items := ListProductsByGoodsIDs([]int{99999999})
+	if len(items) != 1 {
+		t.Fatalf("应返回 1 个占位选项，实际 %d", len(items))
+	}
+	if items[0].GoodsID != 99999999 || items[0].Name == "" {
+		t.Fatalf("占位选项不正确: %+v", items[0])
+	}
+}

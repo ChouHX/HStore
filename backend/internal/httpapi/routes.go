@@ -91,6 +91,7 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/admin/announcements", a.handleAdminAnnouncementsPost)
 	a.mux.HandleFunc("GET /api/admin/redeem", a.handleAdminRedeem)
 	a.mux.HandleFunc("GET /api/admin/redeem/batches", a.handleAdminRedeemBatches)
+	a.mux.HandleFunc("GET /api/admin/redeem/products", a.handleAdminRedeemProducts)
 	a.mux.HandleFunc("POST /api/admin/redeem", a.handleAdminRedeemPost)
 	// 自营商品与自营卡密独立管理
 	a.mux.HandleFunc("GET /api/admin/self/products", a.handleAdminSelfProducts)

@@ -83,13 +83,36 @@ function validity(c: RedeemCode): string {
 function ProductPicker({
   value,
   onChange,
+  scope = "all",
 }: {
   value: ProductOption | null;
   onChange: (v: ProductOption | null) => void;
+  /** all = 全部后台商品；codeGoods = 仅兑换码实际关联到的商品（筛选用） */
+  scope?: "all" | "codeGoods";
 }) {
   const [options, setOptions] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [allOptions, setAllOptions] = useState<ProductOption[]>([]);
+
+  // 兑换码筛选场景：只拉一次「有兑换码的商品」，本地搜索即可。
+  const loadCodeGoods = useCallback(async () => {
+    setLoading(true);
+    try {
+      const j = await fetch("/api/admin/redeem/products").then((r) => r.json());
+      if (j.ok) {
+        const list = (j.items as ProductOption[]).map((p) => ({
+          goodsId: p.goodsId,
+          name: p.name,
+          finalPrice: p.finalPrice,
+        }));
+        setAllOptions(list);
+        setOptions(list);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const search = useCallback(async (kw: string) => {
     setLoading(true);
@@ -112,8 +135,9 @@ function ProductPicker({
   }, []);
 
   useEffect(() => {
-    search("");
-  }, [search]);
+    if (scope === "codeGoods") loadCodeGoods();
+    else search("");
+  }, [scope, loadCodeGoods, search]);
 
   return (
     <Select
@@ -121,13 +145,26 @@ function ProductPicker({
       allowClear
       filterOption={false}
       loading={loading}
-      placeholder="搜索商品名称 / 编号"
+      placeholder={scope === "codeGoods" ? "选择有兑换码的商品" : "搜索商品名称 / 编号"}
       value={value?.goodsId}
       onChange={(v) => {
         const id = Number(v);
-        onChange(options.find((o) => o.goodsId === id) ?? null);
+        const pool = scope === "codeGoods" ? allOptions : options;
+        onChange(pool.find((o) => o.goodsId === id) ?? null);
       }}
       onSearch={(kw) => {
+        if (scope === "codeGoods") {
+          // 本地过滤，不发请求
+          const k = kw.trim().toLowerCase();
+          setOptions(
+            k
+              ? allOptions.filter(
+                  (o) => o.name.toLowerCase().includes(k) || String(o.goodsId).includes(k),
+                )
+              : allOptions,
+          );
+          return;
+        }
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(() => search(kw), 300);
       }}
@@ -452,6 +489,9 @@ export function RedeemSection() {
           value={keyword}
           placeholder="搜索兑换码"
           style={{ width: 220 }}
+          // 兑换码搜索不需要浏览器历史/密码管理器介入，关闭自动填充
+          autoComplete="off"
+          name="redeem-code-search"
           onChange={(v) => {
             setKeyword(v);
             if (!v) setPage(1);
@@ -476,6 +516,7 @@ export function RedeemSection() {
         </Select>
         <div style={{ width: 260 }}>
           <ProductPicker
+            scope="codeGoods"
             value={filterProduct}
             onChange={(v) => {
               setFilterProduct(v);
