@@ -13,6 +13,7 @@ const NAV: NavItem[] = [
   { id: "announcements", href: "/admin/announcements", label: "公告管理" },
   { id: "logs", href: "/admin/logs", label: "操作日志" },
   { id: "orders", href: "/admin/orders", label: "订单管理" },
+  { id: "payments", href: "/admin/payments", label: "支付订单" },
   { id: "payment", href: "/admin/payment", label: "支付设置" },
   { id: "settings", href: "/admin/settings", label: "系统设置" },
 ];

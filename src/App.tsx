@@ -42,6 +42,9 @@ const PaymentSettingsSection = lazy(() =>
 const PaymentOrdersSection = lazy(() =>
   import("@/components/admin/PaymentOrdersSection").then((m) => ({ default: m.PaymentOrdersSection })),
 );
+const OrdersSection = lazy(() =>
+  import("@/components/admin/OrdersSection").then((m) => ({ default: m.OrdersSection })),
+);
 const SettingsSection = lazy(() =>
   import("@/components/admin/SettingsSection").then((m) => ({ default: m.SettingsSection })),
 );
@@ -114,7 +117,8 @@ export function App() {
           <Route path="announcements" element={<AnnouncementsSection />} />
           <Route path="logs" element={<LogsSection />} />
           <Route path="payment" element={<PaymentSettingsSection />} />
-          <Route path="orders" element={<PaymentOrdersSection />} />
+          <Route path="orders" element={<OrdersSection />} />
+          <Route path="payments" element={<PaymentOrdersSection />} />
           <Route path="settings" element={<SettingsSection />} />
           {/* 旧路径兼容 */}
           <Route path="alipay" element={<Navigate to="/admin/payment?tab=alipay" replace />} />

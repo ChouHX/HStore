@@ -86,12 +86,16 @@ func (a *API) routes() {
 	a.mux.HandleFunc("GET /api/admin/users", a.handleAdminUsers)
 	a.mux.HandleFunc("POST /api/admin/users", a.handleAdminUsersPost)
 	a.mux.HandleFunc("GET /api/admin/ledger", a.handleAdminLedger)
+	// 业务订单（含兑换码核销单）
+	a.mux.HandleFunc("GET /api/admin/orders", a.handleAdminOrders)
+	a.mux.HandleFunc("GET /api/admin/orders/detail", a.handleAdminOrderDetail)
 	a.mux.HandleFunc("GET /api/admin/audit", a.handleAdminAudit)
 	a.mux.HandleFunc("GET /api/admin/announcements", a.handleAdminAnnouncements)
 	a.mux.HandleFunc("POST /api/admin/announcements", a.handleAdminAnnouncementsPost)
 	a.mux.HandleFunc("GET /api/admin/redeem", a.handleAdminRedeem)
 	a.mux.HandleFunc("GET /api/admin/redeem/batches", a.handleAdminRedeemBatches)
 	a.mux.HandleFunc("GET /api/admin/redeem/products", a.handleAdminRedeemProducts)
+	a.mux.HandleFunc("GET /api/admin/redeem/count", a.handleAdminRedeemCount)
 	a.mux.HandleFunc("POST /api/admin/redeem", a.handleAdminRedeemPost)
 	// 自营商品与自营卡密独立管理
 	a.mux.HandleFunc("GET /api/admin/self/products", a.handleAdminSelfProducts)
