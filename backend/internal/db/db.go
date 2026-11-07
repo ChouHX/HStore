@@ -758,6 +758,124 @@ func backfillRedeemOrderSaleMoney(db *sql.DB) error {
 	return e
 }
 
+// redeemOrderNoFormat 判断字符串是不是兑换码格式（14 位旧码或 19 位新码），
+// 用来确认「可以拿它当业务订单号」。与 store.NormalizeCode 的输出格式一致，
+// 这里不能 import store（会循环依赖），所以就地实现一份。
+func redeemOrderNoFormat(no string) bool {
+	n := strings.ToUpper(strings.TrimSpace(no))
+	// 14 = 旧版 12 位码 + 2 个分隔符；19 = 新版 16 位码 + 3 个分隔符
+	if len(n) != 14 && len(n) != 19 {
+		return false
+	}
+	for i, r := range n {
+		if (i+1)%5 == 0 {
+			if r != '-' {
+				return false
+			}
+			continue
+		}
+		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeRedeemCode 把兑换码规整成标准格式（去掉分隔符后按 4 位重排）。
+func normalizeRedeemCode(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(strings.TrimSpace(raw)) {
+		if r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' {
+			b.WriteRune(r)
+		}
+	}
+	digits := b.String()
+	width := 0
+	switch len(digits) {
+	case 16:
+		width = 16
+	case 12:
+		// 旧一代兑换码，保持 12 位
+		width = 12
+	default:
+		return strings.ToUpper(strings.TrimSpace(raw))
+	}
+	out := make([]byte, 0, width+width/4)
+	for i := 0; i < width; i++ {
+		if i > 0 && i%4 == 0 {
+			out = append(out, '-')
+		}
+		out = append(out, digits[i])
+	}
+	return string(out)
+}
+
+// migrateRedeemOrderNumbers 把历史兑换码订单的业务单号改成兑换码本身。
+//
+// 兑换码是用户手里的凭证，查询/取件都是输兑换码。以前下单还会另生成一个
+// HS 开头的内部单号，用户要对着两个号发愁（而且自营单根本不调上游，
+// upstream_order_no 里那串 HS… 也不是真的上游单号）。
+//
+// 只改「能确认是兑换码核销单」的行：redeem_codes.order_number 指向它，
+// 且该兑换码格式合法。ledger 是只增不改的账本（有 ABORT 触发器），
+// 兑换单本来就不写账本，这里也仍然不碰。
+//
+// 幂等：改完 order_number 就等于 code，下次不会再次命中。
+func migrateRedeemOrderNumbers(db *sql.DB) error {
+	type row struct{ order, code string }
+	rows, e := db.Query(`SELECT c.order_number, c.code FROM redeem_codes c
+		JOIN orders o ON o.order_number = c.order_number
+		WHERE COALESCE(c.order_number,'') <> '' AND c.order_number <> c.code`)
+	if e != nil {
+		return e
+	}
+	var todo []row
+	for rows.Next() {
+		var it row
+		if rows.Scan(&it.order, &it.code) == nil && redeemOrderNoFormat(it.code) {
+			todo = append(todo, it)
+		}
+	}
+	rows.Close()
+	if len(todo) == 0 {
+		return nil
+	}
+
+	tx, e := db.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	for _, it := range todo {
+		newNo := normalizeRedeemCode(it.code)
+		if !redeemOrderNoFormat(newNo) {
+			continue
+		}
+		var exists int
+		if e := tx.QueryRow("SELECT COUNT(*) FROM orders WHERE order_number = ?", newNo).Scan(&exists); e != nil {
+			return e
+		}
+		if exists > 0 {
+			// 极罕見：已有同名单，跳过避免写坏引用
+			log.Printf("[hstore] 兑换码订单改号跳过 %s -> %s（目标单号已存在）", it.order, newNo)
+			continue
+		}
+		if _, e := tx.Exec("UPDATE orders SET order_number = ? WHERE order_number = ?", newNo, it.order); e != nil {
+			return e
+		}
+		for _, r := range []struct{ table, column string }{
+			{"cards", "order_number"},
+			{"redeem_codes", "order_number"},
+		} {
+			if _, e := tx.Exec(fmt.Sprintf("UPDATE %s SET %s = ? WHERE %s = ?", r.table, r.column, r.column),
+				newNo, it.order); e != nil {
+				return e
+			}
+		}
+	}
+	return tx.Commit()
+}
+
 func migrate(db *sql.DB) error {
 	if e := addColumns(db, "products", [][2]string{{"cost_price", "REAL NOT NULL DEFAULT 0"},
 		{"final_price", "REAL NOT NULL DEFAULT 0"},
@@ -870,6 +988,12 @@ func migrate(db *sql.DB) error {
 	//   2) 重新生成本地单号 HS+时间+带密钥混淆串，并同步更新引用表
 	// 用 upstream_order_no 为空作为「未迁移」标记，保证幂等。
 	if e := migrateLegacyOrderNumbers(db); e != nil {
+		return e
+	}
+	// 兑换码核销单直接用兑换码当业务订单号（用户只认兑换码），
+	// 这里把历史兑换单的内部单号改成兑换码，并同步更新 cards / redeem_codes 引用。
+	if e := migrateRedeemOrderNumbers(db); e != nil {
+		log.Printf("[hstore] 兑换码订单改号失败: %v", e)
 		return e
 	}
 	if _, e := db.Exec("CREATE INDEX IF NOT EXISTS idx_orders_upstream ON orders(upstream_order_no)"); e != nil {

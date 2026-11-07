@@ -112,6 +112,9 @@ func redeemProduct(uid int, row *model.RedeemCode) RedeemResult {
 		Source:  "user",
 		Payment: "code",
 		Remark:  "兑换码取件",
+		// 直接把兑换码当作业务订单号：用户手里的凭证就是兑换码，
+		// 查询/取件也是输兑换码，不必再记一个内部单号。
+		OrderNumber: redeemOrderNo(row.Code),
 	})
 	if !r.OK {
 		store.ReleaseCode(row.ID)
@@ -158,4 +161,19 @@ func Pickup(uid int, code, orderNumber string, isAdmin bool) PickupResult {
 		return PickupResult{Message: msg, Order: order}
 	}
 	return PickupResult{OK: true, Message: "取件成功", Order: order}
+}
+
+// redeemOrderNo 返回兑换码核销单要用的业务订单号。
+//
+// 兑换码本身就是凭证，直接拿它当订单号最省事；但如果码值不符合标准格式
+// （人为导入的脏数据、旧库遗留的短码等），仍然回退到系统单号，
+// 避免把不合规的字符串写成主键、破坏「单号格式统一」的约定。
+func redeemOrderNo(code string) string {
+	// 先归一化：用户/导入可能带不带分隔符、大小写混写。
+	// NormalizeCode 只在原始字符数为 16 时才补分隔符，其余原样返回，
+	// 所以归一化后再判格式才能真正拦住脏数据。
+	if normalized := store.NormalizeCode(code); store.IsRedeemOrderNo(normalized) {
+		return normalized
+	}
+	return store.NewSystemOrderNo()
 }

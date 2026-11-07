@@ -19,6 +19,16 @@ import type { LocalOrder } from "@/lib/types";
 
 const PAGE_SIZE = 15;
 
+/**
+ * 兑换码格式（XXXX-XXXX-XXXX-XXXX）。
+ * 兑换码核销单直接用兑换码当业务单号，界面上不能把它当成「上游单号」显示。
+ */
+const REDEEM_ORDER_NO_RE = /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/;
+
+function isRedeemOrderNo(no: string | undefined | null): boolean {
+  return !!no && REDEEM_ORDER_NO_RE.test(no.trim().toUpperCase());
+}
+
 /** 订单来源的展示名。兑换码核销单在库里 source=user，靠是否关联兑换码来区分。 */
 const SOURCE_TAG: Record<string, { color: string; text: string }> = {
   admin: { color: "gray", text: "后台" },
@@ -126,16 +136,24 @@ export function OrdersSection() {
       title: "订单号",
       dataIndex: "orderNumber",
       width: 200,
-      render: (_: unknown, o: LocalOrder) => (
-        <div>
-          <div className="font-mono text-[12px]">{o.orderNumber}</div>
-          {o.upstreamOrderNo && (
-            <div className="mt-0.5 truncate text-[11px] text-[#86909c]" title={o.upstreamOrderNo}>
-              上游 {o.upstreamOrderNo}
-            </div>
-          )}
-        </div>
-      ),
+      render: (_: unknown, o: LocalOrder) => {
+        // 兑换码单号本身已经是兑换码，上游单号对用户/管理员都没有意义
+        // （历史上自营单还会被写成同格式的脏值），这里直接不显示。
+        const showUpstream = o.upstreamOrderNo && !isRedeemOrderNo(o.orderNumber);
+        return (
+          <div>
+            <div className="font-mono text-[12px]">{o.orderNumber}</div>
+            {showUpstream && (
+              <div
+                className="mt-0.5 truncate text-[11px] text-[#86909c]"
+                title={`天启单号 ${o.upstreamOrderNo}`}
+              >
+                天启 {o.upstreamOrderNo}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: "商品",
@@ -352,10 +370,21 @@ export function OrdersSection() {
                 { label: "外部单号", value: <span className="font-mono">{detail.order.outerNumber || "-"}</span> },
                 {
                   label: "上游单号",
-                  value: <span className="break-all font-mono">{detail.order.upstreamOrderNo || "-"}</span>,
+                  value: isRedeemOrderNo(detail.order.orderNumber) ? (
+                    <span className="text-[#86909c]">兑换码订单不涉及上游单号</span>
+                  ) : (
+                    <span className="break-all font-mono">{detail.order.upstreamOrderNo || "-"}</span>
+                  ),
                 },
                 { label: "备注", value: detail.order.result || "-" },
-                { label: "兑换码", value: <span className="font-mono">{detail.redeemCode || "-"}</span> },
+                {
+                  label: "兑换码",
+                  value: (
+                    <span className="font-mono">
+                      {detail.redeemCode || (isRedeemOrderNo(detail.order.orderNumber) ? detail.order.orderNumber : "-")}
+                    </span>
+                  ),
+                },
                 { label: "下单时间", value: time(detail.order.createdAt) },
                 { label: "更新时间", value: time(detail.order.updatedAt) },
               ]}

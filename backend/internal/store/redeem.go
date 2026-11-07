@@ -13,7 +13,10 @@ import (
 
 // NormalizeCode 把用户输入的兑换码规整成 XXXX-XXXX-XXXX-XXXX。
 // 允许大小写混写、带或不带分隔符、前后有空格；其他字符一律丢弃。
-// 长度不是 16 位时原样返回，交给调用方按其他含义处理（比如订单号）。
+//
+// 也兼容早期的 12 位（XXXX-XXXX-XXXX）兑换码：线上仍有 1200+ 张旧码在流通，
+// 它们同样是合法凭证，不能被规整坏。长度既不是 12 也不是 16 时原样返回，
+// 交给调用方按其他含义处理（比如订单号）。
 func NormalizeCode(raw string) string {
 	var b strings.Builder
 	for _, r := range strings.ToUpper(strings.TrimSpace(raw)) {
@@ -22,11 +25,18 @@ func NormalizeCode(raw string) string {
 		}
 	}
 	digits := b.String()
-	if len(digits) != 16 {
+	width := 0
+	switch len(digits) {
+	case 16:
+		width = 16
+	case 12:
+		// 旧一代兑换码，保持 12 位，不硬凑成 16 位
+		width = 12
+	default:
 		return strings.ToUpper(strings.TrimSpace(raw))
 	}
-	out := make([]byte, 0, 19)
-	for i := 0; i < 16; i++ {
+	out := make([]byte, 0, width+width/4)
+	for i := 0; i < width; i++ {
 		if i > 0 && i%4 == 0 {
 			out = append(out, '-')
 		}
@@ -668,6 +678,7 @@ func ReleaseCode(id int) {
 }
 
 // FinishCode 核销完成，记录订单号。
+// orderNumber 应与 PlaceOrder 落库的业务单号一致；兑换码核销单两者都是兑换码本身。
 func FinishCode(id int, orderNumber string) {
 	_, _ = db.Must().Exec("UPDATE redeem_codes SET status = 'used', used_at = ?, order_number = ?, redeeming_at = NULL WHERE id = ?",
 		now(), orderNumber, id)

@@ -23,7 +23,10 @@ type PlaceOrderOptions struct {
 	Attach    []map[string]string
 	Remark    string
 	OuterNum  string
-	SaleMoney *float64 // 游客直购等场景固定成交金额，避免支付后改价
+	// OrderNumber 非空时用它作为业务订单号（兑换码核销单直接用兑换码），
+	// 为空时按原逻辑生成 HS 开头的系统单号。
+	OrderNumber string
+	SaleMoney   *float64 // 游客直购等场景固定成交金额，避免支付后改价
 }
 
 // PlaceOrderResult 是下单结果。
@@ -152,7 +155,11 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 
 	// 订单号由系统自己生成，与上游（天启）单号完全独立：
 	// 用户只看到 HS 开头的本地单号，上游单号存库仅供管理员排查。
-	orderNumber := store.NewSystemOrderNo()
+	// 兑换码核销单例外：opts.OrderNumber 直接传兑换码，用户用兑换码就能查到。
+	orderNumber := strings.TrimSpace(opts.OrderNumber)
+	if orderNumber == "" {
+		orderNumber = store.NewSystemOrderNo()
+	}
 	status := 1
 	if len(result.Cards) > 0 {
 		status = 3
@@ -240,7 +247,11 @@ func placeSelfOrder(opts PlaceOrderOptions, product *model.Product, count int, s
 	localCount := count - upstreamNeed
 	costMoney := round4(product.CostPrice * float64(localCount))
 
-	orderNumber := store.NewSystemOrderNo()
+	// 兑换码核销单的订单号由调用方指定为兑换码本身（见 PlaceOrderOptions.OrderNumber）。
+	orderNumber := strings.TrimSpace(opts.OrderNumber)
+	if orderNumber == "" {
+		orderNumber = store.NewSystemOrderNo()
+	}
 	outerNumber := opts.OuterNum
 	if outerNumber == "" {
 		outerNumber = genOuterNumber()
