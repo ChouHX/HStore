@@ -20,6 +20,8 @@ interface RedeemCard {
 /** 兑换成功后返回的订单（与订单详情页同源：model.LocalOrder）。 */
 interface RedeemOrder {
   orderNumber: string;
+  goodsId?: number;
+  goodsImg?: string;
   goodsName?: string;
   count?: number;
   money?: number;
@@ -62,6 +64,8 @@ function InfoRow({ label, value, wrap }: { label: string; value: string; wrap?: 
 /** 「随便看看」不按板块拆分：直接从有货板块里随机抽一批商品，两行展示。 */
 const PICK_BOARDS = 4;
 const PICK_TOTAL = 12;
+/** 自营板块 ID（store.SelfCategoryID），其商品永远展示在推荐位 */
+const SELF_BOARD_ID = 900001;
 
 /** 从数组里无放回地随机取 n 个元素（不修改原数组）。 */
 function sample<T>(arr: T[], n: number): T[] {
@@ -81,6 +85,8 @@ export function RedeemCenterPage() {
   const [order, setOrder] = useState<RedeemOrder | null>(null);
   const [message, setMessage] = useState("");
   const [balanceAmount, setBalanceAmount] = useState(0);
+  /** 兑换商品的图片：订单接口只回 goods_id，图片由后端随兑换结果一起下发。 */
+  const [goodsImg, setGoodsImg] = useState("");
   /** 兑换是否已成功：余额码不会返回订单，用独立标记区分「还没兑换」和「兑换成功」。 */
   const [done, setDone] = useState(false);
   const [picks, setPicks] = useState<StoreProduct[]>([]);
@@ -98,6 +104,7 @@ export function RedeemCenterPage() {
     setOrder(null);
     setMessage("");
     setBalanceAmount(0);
+    setGoodsImg("");
     try {
       const j = await fetch("/api/redeem", {
         method: "POST",
@@ -111,6 +118,7 @@ export function RedeemCenterPage() {
       setMessage(j.message ?? "兑换成功");
       setOrder((j.order as RedeemOrder) ?? null);
       setBalanceAmount(Number(j.amount) || 0);
+      setGoodsImg(String(j.goodsImg ?? ""));
       setDone(true);
       Message.success(j.message ?? "兑换成功");
     } finally {
@@ -146,7 +154,7 @@ export function RedeemCenterPage() {
     Message.success("已导出 TXT");
   }
 
-  // 每次进入页面都重新随机：从若干有货板块各取一些商品，混在一起随机抽 12 件，不再按板块分组。
+  // 推荐位：自营商品永远排在前面（有货优先），其余位置从其他有货板块随机补足。
   const loadPicks = useCallback(async () => {
     setPicksLoading(true);
     try {
@@ -154,6 +162,29 @@ export function RedeemCenterPage() {
       if (!home.ok) return;
       const boards = ((home as StoreHome).boards ?? []).filter((b) => b.total > 0);
       if (boards.length === 0) return;
+
+      // 1) 自营板块单独取全量，全部纳入推荐（这是本站主推，不能被随机挤掉）
+      const selfBoard = boards.find((b) => b.id === SELF_BOARD_ID);
+      let selfPicks: StoreProduct[] = [];
+      if (selfBoard) {
+        try {
+          const sp = new URLSearchParams({
+            rootId: String(selfBoard.id),
+            page: "1",
+            pageSize: "60",
+            sort: "stock-desc",
+          });
+          const j = await fetch(`/api/store/products?${sp}`).then((r) => r.json());
+          if (j.ok) {
+            const list = (j.items as StoreProduct[]).filter((p) => p.status === 1);
+            // 自营内部：有货的排前面
+            selfPicks = list.slice().sort((a, b) => Number(isSoldOut(a)) - Number(isSoldOut(b)));
+          }
+        } catch {
+          selfPicks = [];
+        }
+      }
+
       const chosen = sample(boards, PICK_BOARDS);
       const lists = await Promise.all(
         chosen.map(async (b) => {
@@ -173,9 +204,12 @@ export function RedeemCenterPage() {
         }),
       );
       const pool = lists.flat();
-      // 同一商品只出现一次
+      // 同一商品只出现一次，且自营的已优先占位
       const unique = Array.from(new Map(pool.map((p) => [p.goodsId, p])).values());
-      setPicks(sample(unique, PICK_TOTAL));
+      const selfIds = new Set(selfPicks.map((p) => p.goodsId));
+      const others = unique.filter((p) => !selfIds.has(p.goodsId));
+      const rest = sample(others, Math.max(0, PICK_TOTAL - selfPicks.length));
+      setPicks([...selfPicks, ...rest]);
     } catch {
       // 推荐位失败不影响兑换主流程
     } finally {
@@ -191,7 +225,7 @@ export function RedeemCenterPage() {
 
   return (
     <div className="min-h-screen bg-[#f7f8fa]">
-      <StoreHeader user={user ?? null} announcements={[]} />
+      <StoreHeader user={user ?? null} announcements={[]} active="redeem" />
       <main className="mx-auto flex w-full max-w-[1000px] flex-col gap-4 px-4 py-5">
         <div className="rounded-lg bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-3">
@@ -229,15 +263,47 @@ export function RedeemCenterPage() {
                     </div>
                     <div className="rounded-lg bg-[#f7f8fa] px-3">
                       <InfoRow label="订单号" value={order.orderNumber} />
-                      <InfoRow
-                        label="商品"
-                        value={`${order.goodsName || "—"} × ${order.count ?? 0}`}
-                        wrap
-                      />
-                      <InfoRow
-                        label="金额"
-                        value={`¥${formatPrice(Number(order.saleMoney || order.money || 0))}`}
-                      />
+                      {/* 商品这一行直接渲染成缩略卡片：图 + 名称 + 数量，点击可跳到该商品 */}
+                      <div className="flex items-start gap-3 border-b border-[#f2f3f5] py-2 text-[12px]">
+                        <span className="w-[76px] shrink-0 leading-5 text-[#86909c]">商品</span>
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            to={order.goodsId ? `/?goods=${order.goodsId}` : "/"}
+                            className="group flex items-center gap-2.5 rounded-md border border-[#e5e6eb] bg-white p-2 transition hover:border-[#165dff] hover:shadow-sm"
+                          >
+                            <div className="h-[44px] w-[44px] shrink-0 overflow-hidden rounded bg-[#f7f8fa]">
+                              {goodsImg ? (
+                                <img
+                                  src={goodsImg}
+                                  alt={order.goodsName ?? ""}
+                                  className="h-full w-full object-cover"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-[10px] text-[#c9cdd4]">
+                                  无图
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className="clamp-2 text-[12px] leading-snug text-[#1d2129] group-hover:text-[#165dff]"
+                                title={order.goodsName ?? ""}
+                              >
+                                {order.goodsName || "—"}
+                              </div>
+                              <div className="mt-0.5 text-[11px] text-[#86909c]">
+                                数量 × {order.count ?? 0}
+                              </div>
+                            </div>
+                            <span className="shrink-0 text-[11px] text-[#86909c] group-hover:text-[#165dff]">
+                              查看 →
+                            </span>
+                          </Link>
+                        </div>
+                      </div>
                       <InfoRow
                         label="状态"
                         value={ORDER_STATUS[Number(order.status ?? 0)] ?? "—"}
@@ -320,7 +386,8 @@ export function RedeemCenterPage() {
                   return (
                     <Link
                       key={p.goodsId}
-                      to="/"
+                      // 带上 goods 参数，首页据此自动打开该商品的购买弹窗
+                      to={`/?goods=${p.goodsId}`}
                       className="group flex flex-col gap-2 rounded-lg border border-[#e5e6eb] bg-white p-2 shadow-sm transition hover:shadow-md"
                     >
                       <div className="h-[72px] w-full shrink-0 overflow-hidden rounded bg-[#f7f8fa]">

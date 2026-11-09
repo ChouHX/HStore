@@ -17,16 +17,20 @@ func NormalizeContact(v string) string {
 	return v
 }
 
-const publicOrderCols = `o.order_number, o.goods_name, o.count,
+const publicOrderCols = `o.order_number, COALESCE(o.goods_id,0), o.goods_name, o.count,
 	CASE WHEN COALESCE(o.sale_money,0) > 0 THEN o.sale_money ELSE o.money END,
 	o.status, COALESCE(o.contact,''), o.created_at,
-	(SELECT COUNT(*) FROM cards c WHERE c.order_number = o.order_number)`
+	(SELECT COUNT(*) FROM cards c WHERE c.order_number = o.order_number),
+	COALESCE((SELECT COALESCE(p.custom_img, p.img_url, '') FROM products p WHERE p.goods_id = o.goods_id), '')`
 
 func scanPublicOrder(sc interface{ Scan(...any) error }) (model.PublicOrderItem, error) {
 	var it model.PublicOrderItem
 	it.Kind = "order"
-	err := sc.Scan(&it.OrderNumber, &it.GoodsName, &it.Count, &it.Money,
-		&it.Status, &it.Contact, &it.CreatedAt, &it.CardCount)
+	var img string
+	err := sc.Scan(&it.OrderNumber, &it.GoodsID, &it.GoodsName, &it.Count, &it.Money,
+		&it.Status, &it.Contact, &it.CreatedAt, &it.CardCount, &img)
+	// 这里只回原始图片地址，换成站内代理地址由 httpapi 层负责（store 不能依赖 imagecache）。
+	it.GoodsImg = img
 	it.StatusText = OrderStatusText(it.Status)
 	return it, err
 }

@@ -452,7 +452,10 @@ type MailboxItem struct {
 type PublicOrderItem struct {
 	Kind        string  `json:"kind"` // order | guest
 	OrderNumber string  `json:"orderNumber"`
+	GoodsID     int     `json:"goodsId"`
 	GoodsName   string  `json:"goodsName"`
+	// GoodsImg 是商品缩略图（已换成站内代理地址），列表用它渲染缩略卡片。
+	GoodsImg string `json:"goodsImg,omitempty"`
 	Count       int     `json:"count"`
 	Money       float64 `json:"money"`
 	Status      int     `json:"status"`

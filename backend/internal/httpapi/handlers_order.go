@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"hstore/backend/internal/imagecache"
 	"hstore/backend/internal/model"
 	"hstore/backend/internal/service"
 	"hstore/backend/internal/store"
@@ -199,6 +200,17 @@ func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		"amount": res.Amount, "order": hideUpstreamForUser(res.Order, user.Role), "orderNumber": res.OrderNumber,
 		"user": fresh,
 	}
+	// 兑换结果页要把商品展示成带缩略图、可点击的卡片，
+	// 订单本身只存 goods_id，这里补上下单商品的图片（自营优先用 custom_img）。
+	if res.Order != nil {
+		if p := store.GetProduct(res.Order.GoodsID); p != nil {
+			img := p.ImgURL
+			if p.CustomImg != nil && *p.CustomImg != "" {
+				img = *p.CustomImg
+			}
+			payload["goodsImg"] = imagecache.LocalURL(img)
+		}
+	}
 	if fresh != nil {
 		payload["balance"] = fresh.Balance
 	} else {
@@ -338,12 +350,16 @@ func (a *API) handleOrderQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	// orderNumbers：前端把本地保存的订单号一次性带上来，直接回填列表
 	if raw := strings.TrimSpace(r.URL.Query().Get("orderNumbers")); raw != "" {
-		ok(w, map[string]any{"items": store.QueryOrdersByNumbers(strings.Split(raw, ",")), "total": 0})
+		items := store.QueryOrdersByNumbers(strings.Split(raw, ","))
+		localizeOrderImgs(items)
+		ok(w, map[string]any{"items": items, "total": 0})
 		return
 	}
 	// tokens：本机保存的游客单凭证，批量回填（游客单在发货前没有订单号）
 	if raw := strings.TrimSpace(r.URL.Query().Get("tokens")); raw != "" {
-		ok(w, map[string]any{"items": store.QueryGuestByTokens(strings.Split(raw, ",")), "total": 0})
+		items := store.QueryGuestByTokens(strings.Split(raw, ","))
+		localizeOrderImgs(items)
+		ok(w, map[string]any{"items": items, "total": 0})
 		return
 	}
 	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
@@ -356,7 +372,18 @@ func (a *API) handleOrderQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := store.QueryPublicOrders(keyword, 100)
+	localizeOrderImgs(items)
 	ok(w, map[string]any{"items": items, "total": len(items), "keyword": keyword})
+}
+
+// localizeOrderImgs 把 PublicOrderItem 里的原始图片地址换成站内代理地址，
+// 让公开列表能直接显示缩略图（外链图片在 http 页面里会被浏览器拦掉）。
+func localizeOrderImgs(items []model.PublicOrderItem) {
+	for i := range items {
+		if items[i].GoodsImg != "" {
+			items[i].GoodsImg = imagecache.LocalURL(items[i].GoodsImg)
+		}
+	}
 }
 
 // handleOrderQueryDetail 是公开订单详情：必须给出第二重校验凭证，避免订单号被枚举后

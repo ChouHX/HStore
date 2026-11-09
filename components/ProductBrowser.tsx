@@ -18,7 +18,8 @@ import {
   IconSort,
   IconUnorderedList,
 } from "@arco-design/web-react/icon";
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { StoreProduct, User } from "@/lib/types";
 import type { StoreBoard, StoreSubCategory } from "@/lib/api-types";
 import type { Announcement } from "@/lib/api-types";
@@ -332,6 +333,57 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     load();
   }, [load]);
 
+  // 支持 /?goods=<id> 直达商品：从兑换中心等外部页面点商品卡片进来时，
+  // 列表可能还没加载到该商品，这里用详情接口取到后直接打开购买弹窗。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const goodsParam = searchParams.get("goods");
+  const openedGoodsRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const id = Number(goodsParam);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (openedGoodsRef.current === id) return;
+    openedGoodsRef.current = id;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const j = await fetch(`/api/goods/detail?id=${id}`).then((r) => r.json());
+        if (cancelled || !j.ok) return;
+        const d = j.detail as Record<string, unknown> | undefined;
+        if (!d) return;
+        // 详情接口的字段与列表项不同，这里拼一个足够打开购买弹窗的商品对象。
+        setPurchaseProduct({
+          goodsId: Number(d.goodsId ?? id),
+          name: String(d.name ?? ""),
+          finalPrice: Number(d.salesPrice ?? 0),
+          stockCount: Number(d.stockCount ?? 0),
+          status: Number(d.status ?? 1),
+          imgUrl: String(d.imgUrl ?? ""),
+          customImg: undefined,
+          customName: undefined,
+          fulfillment: undefined,
+        } as StoreProduct);
+      } catch {
+        // 打开失败不影响正常浏览
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [goodsParam]);
+
+  // 关闭弹窗时把 goods 参数清掉，避免刷新后又被自动打开。
+  function closePurchase() {
+    setPurchaseProduct(null);
+    if (searchParams.get("goods")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("goods");
+      setSearchParams(next, { replace: true });
+    }
+    openedGoodsRef.current = null;
+  }
+
   function pickBoard(id: number) {
     setBoardId(id);
     setDirFilter(0);
@@ -609,7 +661,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
             discount={discount}
             user={user}
             onOpenChange={(o) => {
-              if (!o) setPurchaseProduct(null);
+              if (!o) closePurchase();
             }}
             onDone={() => load()}
           />

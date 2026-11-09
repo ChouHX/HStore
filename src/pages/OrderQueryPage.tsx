@@ -3,12 +3,16 @@ import { IconArrowLeft, IconSearch } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { formatPrice } from "@/lib/format";
+import { StoreHeader } from "@/components/store/StoreHeader";
+import { useSession } from "@/src/hooks/useSession";
 import { loadSavedGuestOrders, loadSavedOrders } from "@/lib/orderStorage";
 
 interface OrderItem {
   kind: "order" | "guest";
   orderNumber: string;
+  goodsId?: number;
   goodsName: string;
+  goodsImg?: string;
   count: number;
   money: number;
   status: number;
@@ -63,6 +67,7 @@ function looksLikeRedeemCode(v: string): boolean {
  */
 export function OrderQueryPage() {
   const navigate = useNavigate();
+  const user = useSession();
   const [keyword, setKeyword] = useState("");
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -158,18 +163,7 @@ export function OrderQueryPage() {
 
   return (
     <div className="min-h-screen bg-[#f7f8fa]">
-      <header className="sticky top-0 z-20 border-b border-[#e5e6eb] bg-white">
-        <div className="mx-auto flex h-14 max-w-[1000px] items-center justify-between gap-3 px-4">
-          <Link to="/" className="flex shrink-0 items-center gap-2 text-[16px] font-semibold">
-            <img src="/favicon.svg" alt="HShop" className="h-7 w-7 rounded-md" />
-            HShop
-            <span className="text-[13px] font-normal text-[#86909c]">订单查询</span>
-          </Link>
-          <Button size="small" icon={<IconArrowLeft />} onClick={() => navigate("/")}>
-            返回商城
-          </Button>
-        </div>
-      </header>
+      <StoreHeader user={user ?? null} active="orders" announcements={[]} />
 
       <main className="mx-auto flex w-full max-w-[1000px] flex-col gap-4 px-4 py-5">
         <Card bordered={false}>
@@ -215,26 +209,53 @@ export function OrderQueryPage() {
                     key={`${it.kind}-${it.orderNumber}-${it.token ?? ""}-${it.createdAt}`}
                     className="flex flex-col gap-2 rounded-lg border border-[#e5e6eb] bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="break-words text-[13px] font-medium text-[#1d2129]">{it.goodsName}</span>
-                        <Tag size="small" color={STATUS_COLOR[it.status] ?? "gray"}>
-                          {it.statusText}
-                        </Tag>
-                        {it.kind === "guest" ? (
-                          <Tag size="small" color="arcoblue">
-                            游客单
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      {/* 商品缩略卡片：图 + 名称，点击可查看该商品 */}
+                      <Link
+                        to={it.goodsId ? `/?goods=${it.goodsId}` : "/"}
+                        className="group flex h-[52px] w-[52px] shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#f7f8fa]"
+                        title={it.goodsName}
+                      >
+                        {it.goodsImg ? (
+                          <img
+                            src={it.goodsImg}
+                            alt={it.goodsName}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <span className="text-[10px] text-[#c9cdd4]">无图</span>
+                        )}
+                      </Link>
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            to={it.goodsId ? `/?goods=${it.goodsId}` : "/"}
+                            className="break-words text-[13px] font-medium text-[#1d2129] hover:text-[#165dff]"
+                          >
+                            {it.goodsName}
+                          </Link>
+                          <Tag size="small" color={STATUS_COLOR[it.status] ?? "gray"}>
+                            {it.statusText}
                           </Tag>
-                        ) : null}
+                          {it.kind === "guest" ? (
+                            <Tag size="small" color="arcoblue">
+                              游客单
+                            </Tag>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
+                          <span className="font-mono">{it.orderNumber || it.token}</span>
+                          <span>× {it.count}</span>
+                          <span>¥{formatPrice(it.money)}</span>
+                          <span>{fmtTime(it.createdAt)}</span>
+                          {it.contact ? <span>联系方式 {it.contact}</span> : null}
+                        </div>
+                        {it.error ? <div className="text-[11px] text-[#f53f3f]">{it.error}</div> : null}
                       </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
-                        <span className="font-mono">{it.orderNumber || it.token}</span>
-                        <span>× {it.count}</span>
-                        <span>¥{formatPrice(it.money)}</span>
-                        <span>{fmtTime(it.createdAt)}</span>
-                        {it.contact ? <span>联系方式 {it.contact}</span> : null}
-                      </div>
-                      {it.error ? <div className="text-[11px] text-[#f53f3f]">{it.error}</div> : null}
                     </div>
                     <Space>
                       {it.kind === "guest" && it.token && it.status !== 3 ? (

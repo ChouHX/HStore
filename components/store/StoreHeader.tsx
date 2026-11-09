@@ -7,6 +7,7 @@ import {
   IconEmail,
   IconFile,
   IconGift,
+  IconHome,
   IconNotification,
   IconSearch,
   IconList,
@@ -24,6 +25,8 @@ import { invalidateSession } from "@/src/hooks/useSession";
 
 interface Props {
   user: User | null;
+  /** 当前页面标识：隐藏指向自身的入口按钮，改显示「返回商城」 */
+  active?: "store" | "pickup" | "redeem" | "orders";
   searchQuery?: string;
   onSearch?: (q: string) => void;
   announcements?: Announcement[];
@@ -34,6 +37,7 @@ interface Props {
 
 export function StoreHeader({
   user,
+  active = "store",
   searchQuery = "",
   onSearch,
   announcements = [],
@@ -69,11 +73,13 @@ export function StoreHeader({
   // 公告入口只保留 header 顶部的公告按钮，菜单里不再重复放一项
   function onMenu(key: string) {
     if (key === "search") setSearchOpen(true);
+    else if (key === "home") navigate("/");
     else if (key === "pickup") navigate("/pickup");
     else if (key === "redeem") navigate("/redeem");
     else if (key === "login") navigate("/login");
     else if (key === "account") navigate("/account/overview");
     else if (key === "orders") navigate("/account/orders");
+    else if (key === "orderQuery") navigate("/orders");
     else if (key === "admin") navigate("/admin/overview");
     else if (key === "logout") logout();
   }
@@ -102,22 +108,36 @@ export function StoreHeader({
               onClick={openNotice}
             />
           </span>
-          {/* 微软取件 / 兑换中心 / 订单查询都是公开页面，未登录也保留入口 */}
-          <Link to="/pickup" className="inline-flex">
-            <Button size="small" icon={<IconEmail />} aria-label="微软取件">
-              <span className="hidden sm:inline">微软取件</span>
-            </Button>
-          </Link>
-          <Link to="/redeem" className="inline-flex">
-            <Button size="small" icon={<IconGift />} aria-label="兑换中心">
-              <span className="hidden sm:inline">兑换中心</span>
-            </Button>
-          </Link>
-          <Link to="/orders" className="inline-flex">
-            <Button size="small" icon={<IconFile />} aria-label="订单查询">
-              <span className="hidden sm:inline">订单查询</span>
-            </Button>
-          </Link>
+          {/* 微软取件 / 兑换中心 / 订单查询都是公开页面，未登录也保留入口。
+              当前所在页面不再重复显示自己的入口，改为显示「返回商城」。 */}
+          {active !== "store" && (
+            <Link to="/" className="inline-flex">
+              <Button size="small" icon={<IconHome />} aria-label="返回商城">
+                <span className="hidden sm:inline">返回商城</span>
+              </Button>
+            </Link>
+          )}
+          {active !== "pickup" && (
+            <Link to="/pickup" className="inline-flex">
+              <Button size="small" icon={<IconEmail />} aria-label="微软取件">
+                <span className="hidden sm:inline">微软取件</span>
+              </Button>
+            </Link>
+          )}
+          {active !== "redeem" && (
+            <Link to="/redeem" className="inline-flex">
+              <Button size="small" icon={<IconGift />} aria-label="兑换中心">
+                <span className="hidden sm:inline">兑换中心</span>
+              </Button>
+            </Link>
+          )}
+          {active !== "orders" && (
+            <Link to="/orders" className="inline-flex">
+              <Button size="small" icon={<IconFile />} aria-label="订单查询">
+                <span className="hidden sm:inline">订单查询</span>
+              </Button>
+            </Link>
+          )}
           {user ? (
             <>
               <span className="hidden text-[13px] text-[#4e5969] sm:inline">
@@ -132,6 +152,11 @@ export function StoreHeader({
                       余额 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(user.balance)}</span>
                     </div>
                     <Menu onClickMenuItem={onMenu} style={{ border: "none" }}>
+                      <Menu.Item key="home">
+                        <span className="inline-flex items-center gap-2">
+                          <IconHome /> 返回商城
+                        </span>
+                      </Menu.Item>
                       <Menu.Item key="account">
                         <span className="inline-flex items-center gap-2">
                           <IconUser /> 个人中心
@@ -197,16 +222,35 @@ export function StoreHeader({
                   </div>
                 )}
                 <Menu onClickMenuItem={onMenu} style={{ border: "none" }}>
-                  <Menu.Item key="pickup">
-                    <span className="inline-flex items-center gap-2">
-                      <IconEmail /> 微软取件
-                    </span>
-                  </Menu.Item>
-                  <Menu.Item key="redeem">
-                    <span className="inline-flex items-center gap-2">
-                      <IconGift /> 兑换中心
-                    </span>
-                  </Menu.Item>
+                  {/* 与桌面端一致：只显示「不在当前页面」的入口 */}
+                  {active !== "store" && (
+                    <Menu.Item key="home">
+                      <span className="inline-flex items-center gap-2">
+                        <IconHome /> 返回商城
+                      </span>
+                    </Menu.Item>
+                  )}
+                  {active !== "pickup" && (
+                    <Menu.Item key="pickup">
+                      <span className="inline-flex items-center gap-2">
+                        <IconEmail /> 微软取件
+                      </span>
+                    </Menu.Item>
+                  )}
+                  {active !== "redeem" && (
+                    <Menu.Item key="redeem">
+                      <span className="inline-flex items-center gap-2">
+                        <IconGift /> 兑换中心
+                      </span>
+                    </Menu.Item>
+                  )}
+                  {active !== "orders" && (
+                    <Menu.Item key="orderQuery">
+                      <span className="inline-flex items-center gap-2">
+                        <IconFile /> 订单查询
+                      </span>
+                    </Menu.Item>
+                  )}
                   {user ? (
                     <>
                       <Menu.Item key="account">
