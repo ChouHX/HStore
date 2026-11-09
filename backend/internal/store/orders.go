@@ -114,40 +114,73 @@ func listCards(orderNumber string) []model.Card {
 }
 
 // OrderFilter 是订单筛选条件。
+// 后台订单管理会同时传 Kind / Source / GoodsID，个人订单接口只传 UID。
 type OrderFilter struct {
 	UID      int
 	Statuses []int
 	Keyword  string
-	Limit    int
-	Offset   int
+	// Source 按订单来源筛选：admin / user / guest，空表示不限。
+	Source string
+	// Kind 按是否兑换码订单筛选：redeem = 有兑换码关联，normal = 没有，空表示不限。
+	// 兑换码核销生成的订单不会写 contact，靠这一列才能在后台单独挑出来。
+	Kind    string
+	GoodsID int
+	Limit   int
+	Offset  int
+}
+
+// buildOrderWhere 生成订单查询的 WHERE 片段。
+// ListOrders / CountOrders 共用，避免两处条件写偏导致「总数和列表对不上」。
+// 注意：关键词要同时匹配用户名，因此调用方必须带 users 的 LEFT JOIN。
+func buildOrderWhere(f OrderFilter) (string, []any) {
+	var where []string
+	var args []any
+	if f.UID > 0 {
+		where = append(where, "o.user_uid = ?")
+		args = append(args, f.UID)
+	}
+	if len(f.Statuses) > 0 {
+		where = append(where, "o.status IN ("+joinInts(f.Statuses)+")")
+	}
+	if f.Source != "" {
+		where = append(where, "o.source = ?")
+		args = append(args, f.Source)
+	}
+	switch f.Kind {
+	case "redeem":
+		where = append(where, "EXISTS (SELECT 1 FROM redeem_codes rc WHERE rc.order_number = o.order_number)")
+	case "normal":
+		where = append(where, "NOT EXISTS (SELECT 1 FROM redeem_codes rc WHERE rc.order_number = o.order_number)")
+	}
+	if f.GoodsID > 0 {
+		where = append(where, "o.goods_id = ?")
+		args = append(args, f.GoodsID)
+	}
+	if f.Keyword != "" {
+		where = append(where,
+			"(o.order_number LIKE ? OR o.goods_name LIKE ? OR o.outer_number LIKE ?"+
+				" OR COALESCE(u.username,'') LIKE ? OR COALESCE(o.contact,'') LIKE ?)")
+		kw := "%" + f.Keyword + "%"
+		args = append(args, kw, kw, kw, kw, kw)
+	}
+	if len(where) == 0 {
+		return "", args
+	}
+	return "WHERE " + strings.Join(where, " AND "), args
 }
 
 // ListOrders 订单分页列表。
 func ListOrders(f OrderFilter) []model.LocalOrder {
 	d := db.Must()
-	where := ""
-	var args []any
-	if f.UID > 0 {
-		where += " AND o.user_uid = ?"
-		args = append(args, f.UID)
-	}
-	if len(f.Statuses) > 0 {
-		where += " AND o.status IN (" + joinInts(f.Statuses) + ")"
-	}
-	if f.Keyword != "" {
-		where += " AND (o.order_number LIKE ? OR o.goods_name LIKE ?)"
-		args = append(args, "%"+f.Keyword+"%", "%"+f.Keyword+"%")
-	}
-	if where != "" {
-		where = "WHERE 1=1" + where
-	}
+	where, args := buildOrderWhere(f)
 	limit := f.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 	rows, e := d.Query(`SELECT o.order_number, o.outer_number, o.upstream_order_no, o.goods_id, o.goods_name, o.count, o.money,
 		o.status, o.result, o.platform, o.created_at, o.updated_at, o.user_uid,
-		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), o.sale_money, o.cost_money, o.source, o.settled
+		COALESCE(CASE WHEN u.role='guest' THEN '游客' ELSE u.username END,''), o.sale_money, o.cost_money, o.source, o.settled,
+		COALESCE(o.contact,'')
 		FROM orders o LEFT JOIN users u ON u.uid = o.user_uid `+where+`
 		ORDER BY o.created_at DESC LIMIT ? OFFSET ?`, append(args, limit, f.Offset)...)
 	if e != nil {
@@ -160,7 +193,7 @@ func ListOrders(f OrderFilter) []model.LocalOrder {
 		var uid sql.NullInt64
 		if rows.Scan(&o.OrderNumber, &o.OuterNumber, &o.UpstreamOrderNo, &o.GoodsID, &o.GoodsName, &o.Count, &o.Money,
 			&o.Status, &o.Result, &o.Platform, &o.CreatedAt, &o.UpdatedAt, &uid,
-			&o.Username, &o.SaleMoney, &o.CostMoney, &o.Source, &o.Settled) == nil {
+			&o.Username, &o.SaleMoney, &o.CostMoney, &o.Source, &o.Settled, &o.Contact) == nil {
 			if uid.Valid {
 				v := int(uid.Int64)
 				o.UserUID = &v
@@ -174,24 +207,10 @@ func ListOrders(f OrderFilter) []model.LocalOrder {
 
 // CountOrders 订单总数。
 func CountOrders(f OrderFilter) int {
-	where := ""
-	var args []any
-	if f.UID > 0 {
-		where += " AND o.user_uid = ?"
-		args = append(args, f.UID)
-	}
-	if len(f.Statuses) > 0 {
-		where += " AND o.status IN (" + joinInts(f.Statuses) + ")"
-	}
-	if f.Keyword != "" {
-		where += " AND (o.order_number LIKE ? OR o.goods_name LIKE ?)"
-		args = append(args, "%"+f.Keyword+"%", "%"+f.Keyword+"%")
-	}
-	if where != "" {
-		where = "WHERE 1=1" + where
-	}
+	where, args := buildOrderWhere(f)
 	var c int
-	_ = db.Must().QueryRow("SELECT COUNT(*) FROM orders o "+where, args...).Scan(&c)
+	_ = db.Must().QueryRow(
+		"SELECT COUNT(*) FROM orders o LEFT JOIN users u ON u.uid = o.user_uid "+where, args...).Scan(&c)
 	return c
 }
 

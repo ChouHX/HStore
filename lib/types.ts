@@ -198,6 +198,8 @@ export interface LocalOrder {
   costMoney: number;
   source: "admin" | "user" | "redeem";
   settled: number;
+  /** 下单时填写的联系方式；兑换码核销单为空（兑换码本身是凭证） */
+  contact?: string;
   cards: Card[];
 }
 

@@ -35,3 +35,31 @@ func NewOrderNo(prefix string) string {
 func NewSystemOrderNo() string {
 	return NewOrderNo(PrefixOrder)
 }
+
+// IsRedeemOrderNo 判断单号是不是「用兑换码当订单号」的格式。
+//
+// 兑换码核销单直接用兑换码做业务订单号：用户拿到的是兑换码，查询时也是输
+// 兑换码，再给一个 HS 开头的内部单号只会让人对着两个单号发懵。
+//
+// 历史上发过两代兑换码，两代都要认，否则旧码核销时会退化成系统单号：
+//   - 旧版 XXXX-XXXX-XXXX（14 位，线上还有 1200+ 张）
+//   - 新版 XXXX-XXXX-XXXX-XXXX（19 位）
+func IsRedeemOrderNo(no string) bool {
+	n := strings.ToUpper(strings.TrimSpace(no))
+	// 14 = 12 位码 + 2 个分隔符；19 = 16 位码 + 3 个分隔符
+	if len(n) != 14 && len(n) != 19 {
+		return false
+	}
+	for i, r := range n {
+		if (i+1)%5 == 0 {
+			if r != '-' {
+				return false
+			}
+			continue
+		}
+		if !(r >= '0' && r <= '9' || r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return true
+}

@@ -856,6 +856,83 @@ func (a *API) handleAdminLedger(w http.ResponseWriter, r *http.Request) {
 	ok(w, paged(items, total, page, pageSize))
 }
 
+// ===== 业务订单（含兑换码核销单）=====
+
+// adminOrderFilter 解析后台订单列表的查询参数。
+//
+// 以前后台「订单管理」只看支付宝 / USDT 支付单，兑换码核销产生的业务订单
+// （在 orders 表里）完全看不到。现在这一组接口把 orders 表也管上。
+func adminOrderFilter(r *http.Request) store.OrderFilter {
+	q := r.URL.Query()
+	source := strings.TrimSpace(q.Get("source"))
+	switch source {
+	case "admin", "user", "guest":
+	default:
+		source = ""
+	}
+	kind := strings.TrimSpace(q.Get("kind"))
+	if kind != "redeem" && kind != "normal" {
+		kind = ""
+	}
+	f := store.OrderFilter{
+		Keyword: strings.TrimSpace(q.Get("keyword")),
+		Source:  source,
+		Kind:    kind,
+		GoodsID: queryInt(r, "goodsId"),
+	}
+	if uid := queryInt(r, "uid"); uid > 0 {
+		f.UID = uid
+	}
+	// 状态分组与用户端保持一致：done=已完成，processing=处理中
+	switch strings.TrimSpace(q.Get("status")) {
+	case "done":
+		f.Statuses = []int{3}
+	case "processing":
+		f.Statuses = []int{1, 2, 7, 8}
+	case "closed":
+		f.Statuses = []int{4}
+	case "all", "":
+		f.Statuses = queryIntList(r, "statuses")
+	}
+	return f
+}
+
+// handleAdminOrders 业务订单列表（含兑换码核销单、自营单、游客直购单）。
+func (a *API) handleAdminOrders(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	page, pageSize, offset := parsePage(r, 15)
+	f := adminOrderFilter(r)
+	f.Limit, f.Offset = pageSize, offset
+	items := store.ListOrders(f)
+	total := store.CountOrders(f)
+	ok(w, paged(items, total, page, pageSize))
+}
+
+// handleAdminOrderDetail 业务订单详情（含卡密，仅管理员）。
+func (a *API) handleAdminOrderDetail(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	number := strings.TrimSpace(r.URL.Query().Get("orderNumber"))
+	if number == "" {
+		fail(w, http.StatusBadRequest, "缺少订单号")
+		return
+	}
+	order := store.GetOrder(number)
+	if order == nil {
+		fail(w, http.StatusNotFound, "订单不存在")
+		return
+	}
+	// 兑换码是这单的凭证，管理员需要看到码值才能追溯来源。
+	code := ""
+	if row := store.CodeByOrder(number); row != nil {
+		code = row.Code
+	}
+	ok(w, map[string]any{"order": order, "redeemCode": code})
+}
+
 func (a *API) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
@@ -935,25 +1012,41 @@ func (a *API) handleAdminAnnouncementsPost(w http.ResponseWriter, r *http.Reques
 
 // ===== 兑换码 =====
 
+// codeFilterFromQuery 把列表查询参数解析为兑换码筛选条件。
+// 列表、导出、批量修改预览都复用这一份，避免几处筛选语义跑偏。
+func codeFilterFromQuery(q url.Values) store.CodeFilter {
+	kind := q.Get("kind")
+	if kind != "product" && kind != "balance" {
+		kind = ""
+	}
+	return store.CodeFilter{
+		Status:    q.Get("status"),
+		Keyword:   q.Get("keyword"),
+		UsedBy:    atoiOr0(q.Get("usedBy")),
+		Kind:      kind,
+		GoodsID:   atoiOr0(q.Get("goodsId")),
+		BatchID:   atoi64Or0(q.Get("batchId")),
+		StartFrom: atoi64Or0(q.Get("startFrom")),
+		StartTo:   atoi64Or0(q.Get("startTo")),
+	}
+}
+
+func atoiOr0(raw string) int {
+	v, _ := strconv.Atoi(strings.TrimSpace(raw))
+	return v
+}
+
+func atoi64Or0(raw string) int64 {
+	v, _ := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	return v
+}
+
 func (a *API) handleAdminRedeem(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
 	q := r.URL.Query()
-	kind := q.Get("kind")
-	if kind != "product" && kind != "balance" {
-		kind = ""
-	}
-	f := store.CodeFilter{
-		Status:    q.Get("status"),
-		Keyword:   q.Get("keyword"),
-		UsedBy:    queryInt(r, "usedBy"),
-		Kind:      kind,
-		GoodsID:   queryInt(r, "goodsId"),
-		BatchID:   queryInt64(r, "batchId"),
-		StartFrom: queryInt64(r, "startFrom"),
-		StartTo:   queryInt64(r, "startTo"),
-	}
+	f := codeFilterFromQuery(q)
 	if q.Get("export") == "1" {
 		csv := store.ExportCodesCSV(f)
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
@@ -965,6 +1058,49 @@ func (a *API) handleAdminRedeem(w http.ResponseWriter, r *http.Request) {
 	items := store.ListCodes(f, pageSize, offset)
 	total := store.CountCodes(f)
 	ok(w, paged(items, total, page, pageSize))
+}
+
+// redeemFilterBody 是批量修改时随请求提交的筛选条件，
+// 字段与 GET /api/admin/redeem 的查询参数一致，前端把当前筛选原样回传即可。
+type redeemFilterBody struct {
+	Status    string `json:"status"`
+	Keyword   string `json:"keyword"`
+	UsedBy    int    `json:"usedBy"`
+	Kind      string `json:"kind"`
+	GoodsID   int    `json:"goodsId"`
+	BatchID   int64  `json:"batchId"`
+	StartFrom int64  `json:"startFrom"`
+	StartTo   int64  `json:"startTo"`
+}
+
+func (b *redeemFilterBody) toFilter() store.CodeFilter {
+	kind := b.Kind
+	if kind != "product" && kind != "balance" {
+		kind = ""
+	}
+	return store.CodeFilter{
+		Status:    b.Status,
+		Keyword:   b.Keyword,
+		UsedBy:    b.UsedBy,
+		Kind:      kind,
+		GoodsID:   b.GoodsID,
+		BatchID:   b.BatchID,
+		StartFrom: b.StartFrom,
+		StartTo:   b.StartTo,
+	}
+}
+
+// handleAdminRedeemCount 返回当前筛选条件下的兑换码总数与可批量修改数量，
+// 供「批量修改」弹窗在提交前预览影响范围（已使用/核销中的码不会被改）。
+func (a *API) handleAdminRedeemCount(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	f := codeFilterFromQuery(r.URL.Query())
+	ok(w, map[string]any{
+		"total":     store.CountCodes(f),
+		"updatable": store.CountUpdatableCodes(f),
+	})
 }
 
 // handleAdminRedeemBatches 返回生成批次汇总列表。
@@ -1007,6 +1143,16 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 		CodeIDs    []int   `json:"codeIds"`
 		BatchID    int64   `json:"batchId"`
 		NewGoodsID *int    `json:"newGoodsId"`
+		// 批量修改（按筛选条件 / 选中项）
+		Filter *redeemFilterBody `json:"filter"`
+		Update *struct {
+			GoodsID    *int     `json:"goodsId"`
+			GoodsCount *int     `json:"goodsCount"`
+			FaceValue  *float64 `json:"faceValue"`
+			StartAt    *int64   `json:"startAt"`
+			EndAt      *int64   `json:"endAt"`
+			ClearDates bool     `json:"clearDates"`
+		} `json:"update"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -1102,6 +1248,48 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"goodsId": body.NewGoodsID, "goodsCount": goodsCount, "faceValue": body.FaceValue},
 			"修改兑换码关联商品")
 		ok(w, nil)
+	case "updateCodes":
+		if body.Update == nil {
+			fail(w, http.StatusBadRequest, "请选择要修改的内容")
+			return
+		}
+		// 只改选中项时不强制带筛选条件，否则「勾选后改筛选」会静默漏改。
+		if body.Filter == nil && len(body.CodeIDs) == 0 {
+			fail(w, http.StatusBadRequest, "缺少筛选条件")
+			return
+		}
+		var f store.CodeFilter
+		if body.Filter != nil {
+			f = body.Filter.toFilter()
+		}
+		u := store.UpdateCodesInput{
+			IDs:        body.CodeIDs,
+			GoodsID:    body.Update.GoodsID,
+			GoodsCount: body.Update.GoodsCount,
+			FaceValue:  body.Update.FaceValue,
+			StartAt:    body.Update.StartAt,
+			EndAt:      body.Update.EndAt,
+			ClearDates: body.Update.ClearDates,
+		}
+		if !u.HasChanges() {
+			fail(w, http.StatusBadRequest, "请选择要修改的内容")
+			return
+		}
+		if u.GoodsID != nil {
+			if *u.GoodsID <= 0 || store.GetProduct(*u.GoodsID) == nil {
+				fail(w, http.StatusBadRequest, "关联商品不存在")
+				return
+			}
+		}
+		n, e := store.UpdateCodesByFilter(f, u)
+		if e != nil {
+			fail(w, http.StatusBadRequest, e.Error())
+			return
+		}
+		store.WriteAudit(&admin.UID, "redeem_code_batch_update", "redeem_code", "", nil,
+			map[string]any{"filter": body.Filter, "update": body.Update, "codeIds": body.CodeIDs, "count": n},
+			"批量修改 "+itoa(n)+" 张兑换码")
+		ok(w, map[string]any{"count": n})
 	case "voidCodes":
 		if len(body.CodeIDs) == 0 {
 			fail(w, http.StatusBadRequest, "请选择要作废的兑换码")

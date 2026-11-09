@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -12,7 +13,10 @@ import (
 
 // NormalizeCode 把用户输入的兑换码规整成 XXXX-XXXX-XXXX-XXXX。
 // 允许大小写混写、带或不带分隔符、前后有空格；其他字符一律丢弃。
-// 长度不是 16 位时原样返回，交给调用方按其他含义处理（比如订单号）。
+//
+// 也兼容早期的 12 位（XXXX-XXXX-XXXX）兑换码：线上仍有 1200+ 张旧码在流通，
+// 它们同样是合法凭证，不能被规整坏。长度既不是 12 也不是 16 时原样返回，
+// 交给调用方按其他含义处理（比如订单号）。
 func NormalizeCode(raw string) string {
 	var b strings.Builder
 	for _, r := range strings.ToUpper(strings.TrimSpace(raw)) {
@@ -21,11 +25,18 @@ func NormalizeCode(raw string) string {
 		}
 	}
 	digits := b.String()
-	if len(digits) != 16 {
+	width := 0
+	switch len(digits) {
+	case 16:
+		width = 16
+	case 12:
+		// 旧一代兑换码，保持 12 位，不硬凑成 16 位
+		width = 12
+	default:
 		return strings.ToUpper(strings.TrimSpace(raw))
 	}
-	out := make([]byte, 0, 19)
-	for i := 0; i < 16; i++ {
+	out := make([]byte, 0, width+width/4)
+	for i := 0; i < width; i++ {
 		if i > 0 && i%4 == 0 {
 			out = append(out, '-')
 		}
@@ -498,6 +509,123 @@ func UpdateCodeGoods(id int, goodsID *int, faceValue float64, goodsCount int) bo
 	return n > 0
 }
 
+// UpdateCodesInput 是批量修改兑换码时可改的字段。
+// 指针为 nil 表示「这一项不改」，因此「清空有效期」单独用 ClearDates 表达。
+type UpdateCodesInput struct {
+	IDs        []int    `json:"ids,omitempty"`        // 非空时只改这些 id（仍受状态限制）
+	GoodsID    *int     `json:"goodsId,omitempty"`    // 改为该商品码（面值归零）
+	GoodsCount *int     `json:"goodsCount,omitempty"` // 每码兑换件数
+	FaceValue  *float64 `json:"faceValue,omitempty"`  // 改为面值码（与 GoodsID 互斥）
+	StartAt    *int64   `json:"startAt,omitempty"`    // 生效时间（毫秒）
+	EndAt      *int64   `json:"endAt,omitempty"`      // 截止时间（毫秒）
+	ClearDates bool     `json:"clearDates,omitempty"` // true = 清空生效/截止时间（永久有效）
+}
+
+// HasChanges 判断这次提交是否真的要改点什么。
+func (in UpdateCodesInput) HasChanges() bool {
+	return in.GoodsID != nil || in.FaceValue != nil || in.GoodsCount != nil ||
+		in.StartAt != nil || in.EndAt != nil || in.ClearDates
+}
+
+// updatableClause 是「允许被批量修改」的状态范围：
+// 已使用 / 核销中的码必须保留原关联，否则会破坏订单追溯链。
+const updatableClause = "status IN ('unused','voided')"
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return "NULL"
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+// codeFilterSubQuery 把筛选条件编译成「选出目标 id」的子查询。
+// 用子查询而不是 UPDATE ... JOIN，是因为 SQLite 不支持 UPDATE 带 JOIN，
+// 而关键词筛选需要联 products 表按商品名匹配。
+func codeFilterSubQuery(f CodeFilter) (string, []any) {
+	where, args := buildCodeWhere(f)
+	return "SELECT rc.id FROM redeem_codes rc LEFT JOIN products p ON p.goods_id = rc.goods_id " + where, args
+}
+
+// CountUpdatableCodes 统计筛选条件下「可修改」的兑换码数量（未使用 / 已作废）。
+// 界面上要在批量修改前告诉管理员到底会改到多少张。
+func CountUpdatableCodes(f CodeFilter) int {
+	sub, args := codeFilterSubQuery(f)
+	var c int
+	_ = db.Must().QueryRow("SELECT COUNT(*) FROM redeem_codes WHERE "+updatableClause+" AND id IN ("+sub+")", args...).Scan(&c)
+	return c
+}
+
+// UpdateCodesByFilter 按筛选条件批量修改兑换码，返回实际修改数量。
+// 只改「未使用 / 已作废」的码：已使用与核销中的码保留原关联以便追溯。
+func UpdateCodesByFilter(f CodeFilter, in UpdateCodesInput) (int, error) {
+	if !in.HasChanges() {
+		return 0, errors.New("请选择要修改的内容")
+	}
+	if in.GoodsID != nil && in.FaceValue != nil {
+		return 0, errors.New("不能同时改为商品码和面值码")
+	}
+	if in.GoodsID != nil && *in.GoodsID <= 0 {
+		return 0, errors.New("关联商品不存在")
+	}
+	if in.FaceValue != nil && *in.FaceValue <= 0 {
+		return 0, errors.New("面值必须大于 0")
+	}
+	if in.GoodsCount != nil && *in.GoodsCount < 1 {
+		return 0, errors.New("每码兑换件数必须大于 0")
+	}
+	if in.ClearDates && (in.StartAt != nil || in.EndAt != nil) {
+		return 0, errors.New("不能同时清空和设置有效期")
+	}
+	if in.StartAt != nil && in.EndAt != nil && *in.StartAt > *in.EndAt {
+		return 0, errors.New("开始时间不能晚于结束时间")
+	}
+
+	sets := make([]string, 0, 6)
+	args := make([]any, 0, 8)
+	if in.GoodsID != nil {
+		count := 1
+		if in.GoodsCount != nil {
+			count = *in.GoodsCount
+		}
+		sets = append(sets, "goods_id = ?", "goods_count = ?", "face_value = 0")
+		args = append(args, *in.GoodsID, count)
+	} else if in.FaceValue != nil {
+		sets = append(sets, "goods_id = NULL", "goods_count = 0", "face_value = ?")
+		args = append(args, *in.FaceValue)
+	} else if in.GoodsCount != nil {
+		sets = append(sets, "goods_count = ?")
+		args = append(args, *in.GoodsCount)
+	}
+	if in.StartAt != nil {
+		sets = append(sets, "start_at = ?")
+		args = append(args, *in.StartAt)
+	}
+	if in.EndAt != nil {
+		sets = append(sets, "end_at = ?")
+		args = append(args, *in.EndAt)
+	}
+	if in.ClearDates {
+		sets = append(sets, "start_at = NULL", "end_at = NULL")
+	}
+
+	sub, wargs := codeFilterSubQuery(f)
+	args = append(args, wargs...)
+	clauses := []string{updatableClause, "id IN (" + sub + ")"}
+	if len(in.IDs) > 0 {
+		clauses = append(clauses, "id IN ("+placeholders(len(in.IDs))+")")
+		for _, id := range in.IDs {
+			args = append(args, id)
+		}
+	}
+	res, e := db.Must().Exec(
+		"UPDATE redeem_codes SET "+strings.Join(sets, ", ")+" WHERE "+strings.Join(clauses, " AND "), args...)
+	if e != nil {
+		return 0, errors.New("批量修改失败，请稍后重试")
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // GetCodeByID 按 id 取兑换码。
 func GetCodeByID(id int) *model.RedeemCode {
 	row := db.Must().QueryRow(codeSelect+" WHERE rc.id = ?", id)
@@ -550,6 +678,7 @@ func ReleaseCode(id int) {
 }
 
 // FinishCode 核销完成，记录订单号。
+// orderNumber 应与 PlaceOrder 落库的业务单号一致；兑换码核销单两者都是兑换码本身。
 func FinishCode(id int, orderNumber string) {
 	_, _ = db.Must().Exec("UPDATE redeem_codes SET status = 'used', used_at = ?, order_number = ?, redeeming_at = NULL WHERE id = ?",
 		now(), orderNumber, id)

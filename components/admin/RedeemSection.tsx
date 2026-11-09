@@ -231,6 +231,19 @@ export function RedeemSection() {
   // 已使用 / 核销中的兑换码只能查看明细，不允许改关联。
   const readOnly = editing !== null && editing.status !== "unused" && editing.status !== "voided";
 
+  // 「批量修改」弹窗：把当前筛选条件（或选中项）作为范围，统一改关联/面值/有效期
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkScope, setBulkScope] = useState<"filter" | "selected">("filter");
+  const [bulkType, setBulkType] = useState<"keep" | "goods" | "face">("keep");
+  const [bulkDates, setBulkDates] = useState<"keep" | "set" | "clear">("keep");
+  const [bulkProduct, setBulkProduct] = useState<ProductOption | null>(null);
+  const [bulkCount, setBulkCount] = useState(1);
+  const [bulkFace, setBulkFace] = useState(10);
+  const [bulkStart, setBulkStart] = useState("");
+  const [bulkEnd, setBulkEnd] = useState("");
+  const [preview, setPreview] = useState<{ total: number; updatable: number } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   const query = useCallback(() => {
     const sp = new URLSearchParams();
     if (status !== "all") sp.set("status", status);
@@ -239,6 +252,25 @@ export function RedeemSection() {
     if (batchFilter > 0) sp.set("batchId", String(batchFilter));
     return sp;
   }, [status, keyword, filterGoodsId, batchFilter]);
+
+  // 批量修改接口要的是筛选条件对象（字段与列表查询参数一致）。
+  const filterBody = useCallback(() => {
+    const f: Record<string, unknown> = {};
+    if (status !== "all") f.status = status;
+    if (keyword) f.keyword = keyword;
+    if (filterGoodsId > 0) f.goodsId = filterGoodsId;
+    if (batchFilter > 0) f.batchId = batchFilter;
+    return f;
+  }, [status, keyword, filterGoodsId, batchFilter]);
+
+  const filterText = useCallback(() => {
+    const parts: string[] = [];
+    if (keyword) parts.push(`关键词“${keyword}”`);
+    if (status !== "all") parts.push(`状态 ${STATUS_TAG[status]?.label ?? status}`);
+    if (filterProduct) parts.push(`商品 ${filterProduct.name || filterProduct.goodsId}`);
+    if (batchFilter > 0) parts.push(`批次 ${batchFilter}`);
+    return parts.length > 0 ? parts.join("、") : "全部兑换码";
+  }, [keyword, status, filterProduct, batchFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -344,6 +376,109 @@ export function RedeemSection() {
         load();
         if (batchMode) loadBatches();
       } else Message.error(j.message ?? "操作失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 打开批量修改弹窗时重置表单，并按默认范围拉一次预览。
+  const openBulk = useCallback((scope: "filter" | "selected") => {
+    setBulkScope(scope);
+    setBulkType("keep");
+    setBulkDates("keep");
+    setBulkProduct(null);
+    setBulkCount(1);
+    setBulkFace(10);
+    setBulkStart("");
+    setBulkEnd("");
+    setPreview(null);
+    setBulkOpen(true);
+  }, []);
+
+  const loadPreview = useCallback(async () => {
+    setPreviewLoading(true);
+    try {
+      const sp = query();
+      const j = await fetch(`/api/admin/redeem/count?${sp}`).then((r) => r.json());
+      if (j.ok) {
+        setPreview({ total: Number(j.total) || 0, updatable: Number(j.updatable) || 0 });
+      } else Message.error(j.message ?? "统计失败");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [query]);
+
+  useEffect(() => {
+    if (!bulkOpen || bulkScope !== "filter") return;
+    void loadPreview();
+  }, [bulkOpen, bulkScope, loadPreview]);
+
+  // 批量修改：只改未使用 / 已作废的码，已使用与核销中的码后端会自动跳过。
+  async function saveBulk() {
+    const update: Record<string, unknown> = {};
+    if (bulkType === "goods") {
+      if (!bulkProduct) {
+        Message.warning("请选择要关联的商品");
+        return;
+      }
+      update.goodsId = bulkProduct.goodsId;
+      update.goodsCount = bulkCount > 0 ? bulkCount : 1;
+    } else if (bulkType === "face") {
+      if (bulkFace <= 0) {
+        Message.warning("面值必须大于 0");
+        return;
+      }
+      update.faceValue = bulkFace;
+    }
+    if (bulkDates === "set") {
+      if (!bulkStart && !bulkEnd) {
+        Message.warning("请选择生效或截止时间");
+        return;
+      }
+      const startMS = bulkStart ? new Date(bulkStart).getTime() : 0;
+      const endMS = bulkEnd ? new Date(bulkEnd).getTime() : 0;
+      if (startMS && endMS && startMS > endMS) {
+        Message.warning("开始时间不能晚于结束时间");
+        return;
+      }
+      if (startMS) update.startAt = startMS;
+      if (endMS) update.endAt = endMS;
+    } else if (bulkDates === "clear") {
+      update.clearDates = true;
+    }
+    if (Object.keys(update).length === 0) {
+      Message.warning("请选择要修改的内容");
+      return;
+    }
+    if (bulkScope === "selected" && selected.length === 0) {
+      Message.warning("请先勾选要修改的兑换码");
+      return;
+    }
+    setSaving(true);
+    try {
+      const j = await fetch("/api/admin/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateCodes",
+          // 按选中项修改时不叠加筛选条件，否则勾选了又改筛选会静默漏改。
+          filter: bulkScope === "selected" ? {} : filterBody(),
+          codeIds: bulkScope === "selected" ? selected : undefined,
+          update,
+        }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        const n = Number(j.count) || 0;
+        Message.success(
+          n > 0
+            ? `已修改 ${n} 张兑换码`
+            : "没有可修改的兑换码（已使用 / 核销中的不会被修改）",
+        );
+        setBulkOpen(false);
+        setSelected([]);
+        load();
+        if (batchMode) loadBatches();
+      } else Message.error(j.message ?? "批量修改失败");
     } finally {
       setSaving(false);
     }
@@ -546,6 +681,11 @@ export function RedeemSection() {
         >
           导出 CSV
         </Button>
+        {!batchMode && (
+          <Button size="small" onClick={() => openBulk("filter")}>
+            批量修改
+          </Button>
+        )}
         <Button size="small" type="primary" onClick={() => setOpen(true)}>
           生成兑换码
         </Button>
@@ -697,6 +837,9 @@ export function RedeemSection() {
               批量删除
             </Button>
           </Popconfirm>
+          <Button size="small" onClick={() => openBulk("selected")}>
+            批量修改
+          </Button>
           <Button
             size="small"
             onClick={() => {
@@ -740,6 +883,140 @@ export function RedeemSection() {
       />
       </>
       )}
+
+      {/* 批量修改：按当前筛选条件（或选中项）统一改关联商品 / 面值 / 有效期 */}
+      <Modal
+        title="批量修改兑换码"
+        visible={bulkOpen}
+        onCancel={() => setBulkOpen(false)}
+        onOk={saveBulk}
+        confirmLoading={saving}
+        okText="确认修改"
+        style={{ width: 560 }}
+        unmountOnExit
+      >
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">修改范围</div>
+            <Radio.Group
+              type="button"
+              value={bulkScope}
+              onChange={(v) => setBulkScope(v as "filter" | "selected")}
+            >
+              <Radio value="filter">当前筛选结果</Radio>
+              <Radio value="selected" disabled={selected.length === 0}>
+                已选 {selected.length} 张
+              </Radio>
+            </Radio.Group>
+            <div className="mt-1 text-[12px] text-[#86909c]">
+              {bulkScope === "filter" ? (
+                <>
+                  筛选条件：{filterText()}
+                  {previewLoading
+                    ? "，统计中…"
+                    : preview
+                      ? `，共 ${preview.total} 张，其中可修改 ${preview.updatable} 张`
+                      : ""}
+                </>
+              ) : (
+                <>将对勾选的 {selected.length} 张兑换码生效</>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded bg-[#fff7e8] px-3 py-2 text-[11px] leading-relaxed text-[#86909c]">
+            已使用与核销中的兑换码不会被修改（保留原关联以便追溯订单）；
+            已作废的兑换码会一并修改，若需要重新可用请另外处理状态。
+          </div>
+
+          {bulkScope === "filter" && !hasFilter && (
+            <div className="rounded bg-[#ffece8] px-3 py-2 text-[11px] leading-relaxed text-[#f53f3f]">
+              当前没有任何筛选条件，确认后会作用于全部兑换码。建议先按状态 / 商品 /
+              批次缩小范围。
+            </div>
+          )}
+
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">兑换码类型</div>
+            <Radio.Group
+              type="button"
+              value={bulkType}
+              onChange={(v) => setBulkType(v as "keep" | "goods" | "face")}
+            >
+              <Radio value="keep">不修改</Radio>
+              <Radio value="goods">改为商品码</Radio>
+              <Radio value="face">改为面值码</Radio>
+            </Radio.Group>
+          </div>
+
+          {bulkType === "goods" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <div className="mb-1 text-[12px] text-[#4e5969]">关联商品</div>
+                <ProductPicker value={bulkProduct} onChange={setBulkProduct} />
+              </div>
+              <div>
+                <div className="mb-1 text-[12px] text-[#4e5969]">每码兑换件数</div>
+                <InputNumber
+                  value={bulkCount}
+                  min={1}
+                  style={{ width: "100%" }}
+                  onChange={(v) => setBulkCount(Number(v) || 1)}
+                />
+              </div>
+            </div>
+          )}
+
+          {bulkType === "face" && (
+            <div>
+              <div className="mb-1 text-[12px] text-[#4e5969]">面值（元）</div>
+              <InputNumber
+                value={bulkFace}
+                min={0.01}
+                step={1}
+                style={{ width: "100%" }}
+                onChange={(v) => setBulkFace(Number(v) || 0)}
+              />
+            </div>
+          )}
+
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">有效期</div>
+            <Radio.Group
+              type="button"
+              value={bulkDates}
+              onChange={(v) => setBulkDates(v as "keep" | "set" | "clear")}
+            >
+              <Radio value="keep">不修改</Radio>
+              <Radio value="set">重新设置</Radio>
+              <Radio value="clear">清空（永久有效）</Radio>
+            </Radio.Group>
+          </div>
+
+          {bulkDates === "set" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <div className="mb-1 text-[12px] text-[#4e5969]">生效时间（空=立即）</div>
+                <DatePicker
+                  showTime
+                  style={{ width: "100%" }}
+                  value={bulkStart}
+                  onChange={(s) => setBulkStart(s)}
+                />
+              </div>
+              <div>
+                <div className="mb-1 text-[12px] text-[#4e5969]">截止时间（空=永久）</div>
+                <DatePicker
+                  showTime
+                  style={{ width: "100%" }}
+                  value={bulkEnd}
+                  onChange={(s) => setBulkEnd(s)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         title="生成兑换码"
