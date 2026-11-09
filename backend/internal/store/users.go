@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 
 	"hstore/backend/internal/db"
 	"hstore/backend/internal/model"
@@ -741,6 +742,25 @@ func GetRedeemPurchaseURL() string { return db.GetMeta(SKRedeemPurchase) }
 
 // SaveRedeemPurchaseURL 保存兑换码购买链接。
 func SaveRedeemPurchaseURL(url string) { _ = db.SetMeta(SKRedeemPurchase, url) }
+
+// SKAdminNotifyEmail 是运营告警收件人（库存不足等）。
+// 与「管理员账号的 email」解耦：账号邮箱用于登录/找回，这个是纯粹的告警接收地址。
+const SKAdminNotifyEmail = "admin_notify_email"
+
+// GetAdminNotifyEmail 返回库存告警接收邮箱。
+func GetAdminNotifyEmail() string { return strings.TrimSpace(db.GetMeta(SKAdminNotifyEmail)) }
+
+// SaveAdminNotifyEmail 保存库存告警接收邮箱（空字符串表示关闭告警）。
+func SaveAdminNotifyEmail(email string) { _ = db.SetMeta(SKAdminNotifyEmail, strings.TrimSpace(email)) }
+
+// NotifyEmails 返回库存告警的所有收件人：
+// 优先用系统设置里的管理员邮箱，没配则回退到各管理员账号的邮箱。
+func NotifyEmails() []string {
+	if v := GetAdminNotifyEmail(); v != "" {
+		return []string{v}
+	}
+	return AdminEmails()
+}
 
 // MaskSecret 脱敏展示密钥。
 func MaskSecret(s string) string {

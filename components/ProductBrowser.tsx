@@ -54,7 +54,7 @@ const SORTS: { value: SortKey; label: string }[] = [
 ];
 
 function stockTag(p: StoreProduct) {
-  // 自营与上游统一展示真实库存条数；自营本地无货但有关联兜底商品时仍可下单
+  // 自营与上游统一展示真实库存条数；库存为 0 即缺货
   if (p.stockCount < 0) return <Tag size="small">库存 -</Tag>;
   if (p.stockCount === 0) {
     if (isSoldOut(p)) return <Tag size="small" color="red">缺货</Tag>;

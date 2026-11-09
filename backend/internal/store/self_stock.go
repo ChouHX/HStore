@@ -22,14 +22,19 @@ func SelfStockCount(goodsID int) int {
 }
 
 // SetProductSelf 切换商品的发货方式；切到自营时同步刷新库存数。
+// SetProductSelf 切换商品的发货方式；切到自营时同步刷新库存数。
+//
+// 兜底已下线：不再写 fallback_goods_id，保留列中已有的历史值不动
+// （历史订单追溯需要）。fallbackGoodsID 参数仅为兼容旧调用方保留。
 func SetProductSelf(goodsID int, self bool, fallbackGoodsID int) bool {
+	_ = fallbackGoodsID
 	fulfillment := "upstream"
 	if self {
 		fulfillment = "self"
 	}
 	res, e := db.Must().Exec(
-		"UPDATE products SET fulfillment=?, fallback_goods_id=?, stock_count=? WHERE goods_id=?",
-		fulfillment, fallbackGoodsID, SelfStockCount(goodsID), goodsID,
+		"UPDATE products SET fulfillment=?, stock_count=? WHERE goods_id=?",
+		fulfillment, SelfStockCount(goodsID), goodsID,
 	)
 	if e != nil {
 		return false

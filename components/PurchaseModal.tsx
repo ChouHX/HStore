@@ -472,7 +472,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
       : `${guestOrder.usdtAmount} USDT`
     : "";
 
-  // 自营商品缺货（本地无货且无上游兜底）时后端会直接拒单，这里同步置灰按钮
+  // 自营商品本地无货时后端会直接拒单，这里同步置灰按钮
   const soldOut = Boolean(detail) && !detailPurchasable(detail, product);
   const payDisabled =
     !detail ||
@@ -712,7 +712,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                   </div>
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
-                  <span>{detailStockLabel(detail, product)}</span>
+                  <span>{detailStockLabel(detail)}</span>
                   <span>限购 {detail.minQuantity} ~ {detail.maxQuantity}</span>
                   {(detail.warrantyDays ?? 0) > 0 && <span>质保 {detail.warrantyDays} 天</span>}
                 </div>

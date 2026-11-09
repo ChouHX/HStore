@@ -34,8 +34,6 @@ type storeProductView struct {
 	Status      int     `json:"status"`
 	StockCount  int     `json:"stockCount"`
 	Fulfillment string  `json:"fulfillment,omitempty"`
-	// HasFallback 表示自营商品本地缺货时还能由上游兜底商品发货（前端据此放开下单）。
-	HasFallback bool `json:"hasFallback,omitempty"`
 }
 
 // storeDetailView 是商品详情下发的字段。
@@ -104,9 +102,6 @@ func storeProductViewOf(p model.Product) storeProductView {
 	if p.CustomImg != nil {
 		img := imagecache.LocalURL(*p.CustomImg)
 		v.CustomImg = &img
-	}
-	if p.Fulfillment == "self" {
-		v.HasFallback = p.FallbackGoodsID > 0
 	}
 	return v
 }

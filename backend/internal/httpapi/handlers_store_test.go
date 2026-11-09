@@ -103,15 +103,18 @@ func TestStoreProductsWhitelist(t *testing.T) {
 		}
 	}
 
-	// 自营商品下发的就是真实库存条数，并带上 hasFallback 供前端判断能否下单。
+	// 自营商品下发的就是真实库存条数（兜底已下线，不再下发 hasFallback）。
 	for _, it := range resp.Items {
 		switch int(it["goodsId"].(float64)) {
 		case 950002:
 			if got := it["stockCount"].(float64); got != 7 {
 				t.Errorf("自营商品库存应为真实值 7，实际 %v", got)
 			}
-			if it["fulfillment"] != "self" || it["hasFallback"] != true {
-				t.Errorf("自营商品应带 fulfillment=self / hasFallback=true，实际 %v", it)
+			if it["fulfillment"] != "self" {
+				t.Errorf("自营商品应带 fulfillment=self，实际 %v", it)
+			}
+			if _, has := it["hasFallback"]; has {
+				t.Errorf("兜底已下线，不应再下发 hasFallback: %v", it)
 			}
 		case 950001:
 			if got := it["stockCount"].(float64); got != 42 {

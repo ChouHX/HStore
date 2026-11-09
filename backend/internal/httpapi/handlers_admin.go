@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"sort"
 	"strconv"
@@ -269,16 +270,15 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Action          string   `json:"action"`
-		IDs             []int    `json:"ids"`
-		GoodsID         int      `json:"goodsId"`
-		Enabled         *bool    `json:"enabled"`
-		Price           *float64 `json:"price"`
-		Locked          bool     `json:"locked"`
-		Self            *bool    `json:"self"`
-		FallbackGoodsID *int     `json:"fallbackGoodsId"`
-		Content         string   `json:"content"`
-		StockID         int      `json:"stockId"`
+		Action  string   `json:"action"`
+		IDs     []int    `json:"ids"`
+		GoodsID int      `json:"goodsId"`
+		Enabled *bool    `json:"enabled"`
+		Price   *float64 `json:"price"`
+		Locked  bool     `json:"locked"`
+		Self    *bool    `json:"self"`
+		Content string   `json:"content"`
+		StockID int      `json:"stockId"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -327,16 +327,12 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		self := body.Self != nil && *body.Self
-		fallback := 0
-		if body.FallbackGoodsID != nil {
-			fallback = *body.FallbackGoodsID
-		}
-		if !store.SetProductSelf(body.GoodsID, self, fallback) {
+		if !store.SetProductSelf(body.GoodsID, self, 0) {
 			fail(w, http.StatusNotFound, "商品不存在")
 			return
 		}
 		store.WriteAudit(&admin.UID, "product_self", "product", itoa(body.GoodsID),
-			nil, map[string]any{"self": self, "fallbackGoodsId": fallback}, "设置自营发货")
+			nil, map[string]any{"self": self}, "设置自营发货")
 		ok(w, map[string]any{"stockCount": store.SelfStockCount(body.GoodsID)})
 	case "self-import":
 		if body.GoodsID == 0 || strings.TrimSpace(body.Content) == "" {
@@ -344,12 +340,9 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		lines := strings.Split(strings.ReplaceAll(body.Content, "\r\n", "\n"), "\n")
-		fallback := 0
-		if p := store.GetProduct(body.GoodsID); p != nil {
-			fallback = p.FallbackGoodsID
-		}
 		added, skipped := store.ImportSelfStock(body.GoodsID, lines, "admin", "")
-		_ = store.SetProductSelf(body.GoodsID, true, fallback)
+		_ = store.SetProductSelf(body.GoodsID, true, 0)
+		service.CheckSelfStockLow(body.GoodsID)
 		store.WriteAudit(&admin.UID, "product_self_import", "product", itoa(body.GoodsID),
 			nil, map[string]any{"added": added, "skipped": skipped}, "导入自营库存")
 		ok(w, map[string]any{"added": added, "skipped": skipped, "stockCount": store.SelfStockCount(body.GoodsID)})
@@ -361,11 +354,8 @@ func (a *API) handleAdminProductsPost(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "库存不存在或已售出")
 			return
 		}
-		fallback := 0
-		if p := store.GetProduct(body.GoodsID); p != nil {
-			fallback = p.FallbackGoodsID
-		}
-		_ = store.SetProductSelf(body.GoodsID, true, fallback)
+		_ = store.SetProductSelf(body.GoodsID, true, 0)
+		service.CheckSelfStockLow(body.GoodsID)
 		ok(w, map[string]any{"stockCount": store.SelfStockCount(body.GoodsID)})
 	case "recompute":
 		n := store.RecomputeAllPrices()
@@ -1170,6 +1160,7 @@ func (a *API) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 		"appSecretMasked": store.MaskSecret(s.AppSecret), "hasSecret": s.AppSecret != "",
 		"hasCookie": cookie != "", "cookieAt": store.GetCookieAt(), "cookiePreview": preview,
 		"redeemPurchaseUrl": store.GetRedeemPurchaseURL(),
+		"adminNotifyEmail":  store.GetAdminNotifyEmail(),
 	})
 }
 
@@ -1196,6 +1187,7 @@ func (a *API) handleAdminSettingsPost(w http.ResponseWriter, r *http.Request) {
 		AppID             string `json:"appId"`
 		AppSecret         string `json:"appSecret"`
 		RedeemPurchaseURL string `json:"redeemPurchaseUrl"`
+		AdminNotifyEmail  string `json:"adminNotifyEmail"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -1219,6 +1211,21 @@ func (a *API) handleAdminSettingsPost(w http.ResponseWriter, r *http.Request) {
 		store.SaveRedeemPurchaseURL(u)
 		store.WriteAudit(&admin.UID, "settings_site_save", "", "", nil, map[string]any{"redeemPurchaseUrl": u}, "保存商城设置")
 		ok(w, map[string]any{"redeemPurchaseUrl": u})
+		return
+	case "saveNotifyEmail":
+		// 库存预警收件邮箱；留空表示关闭邮件预警（仍会写日志）。
+		addr := strings.TrimSpace(body.AdminNotifyEmail)
+		if addr != "" {
+			mailAddr, e := mail.ParseAddress(addr)
+			if e != nil || mailAddr.Address != addr {
+				fail(w, http.StatusBadRequest, "请输入有效的邮箱地址")
+				return
+			}
+		}
+		store.SaveAdminNotifyEmail(addr)
+		store.WriteAudit(&admin.UID, "settings_notify_email", "", "", nil,
+			map[string]any{"adminNotifyEmail": addr}, "保存库存告警邮箱")
+		ok(w, map[string]any{"adminNotifyEmail": addr})
 		return
 	}
 

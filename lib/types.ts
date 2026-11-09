@@ -75,7 +75,6 @@ export interface Product {
   /** 发货方式：upstream（上游）/ self（自营库存） */
   fulfillment?: "upstream" | "self";
   /** 自营库存不足时采购的上游商品 ID，0 表示不采购 */
-  fallbackGoodsId?: number;
 }
 
 export interface SyncResult {
@@ -123,8 +122,6 @@ export interface StoreProduct {
   stockCount: number;
   /** 发货方式：upstream（上游）/ self（自营库存） */
   fulfillment?: "upstream" | "self";
-  /** 自营商品本地缺货时是否有上游兜底商品可发货 */
-  hasFallback?: boolean;
 }
 
 /**

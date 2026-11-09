@@ -127,7 +127,6 @@ export function ProductsSection() {
     goodsId: number;
     name: string;
     self: boolean;
-    fallback: number;
     stock: number;
     content: string;
     items: { id: number; content: string; status: string }[];
@@ -393,7 +392,6 @@ export function ProductsSection() {
       action: "self-save",
       goodsId: selfModal.goodsId,
       self: selfModal.self,
-      fallbackGoodsId: selfModal.fallback,
     });
     if (!j) return;
     Message.success("已保存自营设置");
@@ -552,7 +550,6 @@ export function ProductsSection() {
                     goodsId: r.goodsId,
                     name: r.name,
                     self: r.fulfillment === "self",
-                    fallback: r.fallbackGoodsId ?? 0,
                     stock: r.stockCount,
                     content: "",
                     items: [],
@@ -799,18 +796,6 @@ export function ProductsSection() {
               <span className="text-[12px] text-[#86909c]">
                 当前可用库存 <b className={selfModal.stock > 0 ? "text-[#00b42a]" : "text-[#f53f3f]"}>{selfModal.stock}</b> 条
               </span>
-            </div>
-            <div>
-              <div className="mb-1 text-[12px] text-[#4e5969]">兜底上游商品 ID（可空）</div>
-              <InputNumber
-                value={selfModal.fallback}
-                min={0}
-                style={{ width: 180 }}
-                onChange={(v) => setSelfModal({ ...selfModal, fallback: Number(v) || 0 })}
-              />
-              <div className="mt-1 text-[11px] text-[#86909c]">
-                自营库存不足时，用该上游商品补齐差额；留 0 则库存不足直接提示。
-              </div>
             </div>
             <div>
               <div className="mb-1 text-[12px] text-[#4e5969]">导入卡密（一行一条）</div>

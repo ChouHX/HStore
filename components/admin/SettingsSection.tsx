@@ -13,6 +13,7 @@ interface SettingsData {
   cookieAt: number;
   cookiePreview: string;
   redeemPurchaseUrl?: string;
+  adminNotifyEmail?: string;
 }
 
 export function SettingsSection() {
@@ -21,8 +22,10 @@ export function SettingsSection() {
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [redeemUrl, setRedeemUrl] = useState("");
+  const [notifyEmail, setNotifyEmail] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingSite, setSavingSite] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
   const [testing, setTesting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -33,6 +36,7 @@ export function SettingsSection() {
       setBaseUrl(j.baseUrl);
       setAppId(j.appId);
       setRedeemUrl(j.redeemPurchaseUrl ?? "");
+      setNotifyEmail(j.adminNotifyEmail ?? "");
     } else {
       Message.error(j.message ?? "加载失败");
     }
@@ -108,6 +112,23 @@ export function SettingsSection() {
       else Message.error(j.message ?? "保存失败");
     } finally {
       setSavingSite(false);
+    }
+  }
+
+  async function saveNotifyEmail() {
+    setSavingEmail(true);
+    try {
+      const j = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "saveNotifyEmail", adminNotifyEmail: notifyEmail }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success(notifyEmail.trim() ? "告警邮箱已保存" : "已关闭邮件预警");
+        await load();
+      } else Message.error(j.message ?? "保存失败");
+    } finally {
+      setSavingEmail(false);
     }
   }
 
@@ -198,6 +219,29 @@ export function SettingsSection() {
           </Space>
           <p className="text-[11px] text-[#86909c]">
             配置后会显示在「充值 / 兑换」页面，引导用户跳转购买兑换码。
+          </p>
+        </div>
+      </Card>
+
+      <Card title="库存告警邮箱" bordered={false}>
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">管理员邮箱</div>
+            <Input
+              value={notifyEmail}
+              onChange={setNotifyEmail}
+              placeholder="admin@example.com（留空则不发送邮件预警）"
+            />
+          </div>
+          <Space>
+            <Button type="primary" loading={savingEmail} onClick={saveNotifyEmail}>
+              保存邮箱
+            </Button>
+          </Space>
+          <p className="text-[11px] text-[#86909c]">
+            自营商品可用库存低于 100 件时，系统会向该邮箱发送补货提醒；
+            有用户兑换失败也会立即告警。同一商品的提醒最多每 30 分钟发一次。
+            未填写时回退为各管理员账号的邮箱。
           </p>
         </div>
       </Card>

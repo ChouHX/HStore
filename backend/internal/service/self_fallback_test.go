@@ -40,34 +40,38 @@ func itoa(i int) string {
 	return string(b)
 }
 
-// TestSelfStockSplitDecision 覆盖「本地 50 + 上游 150」的差额采购决策。
+// TestSelfStockSeparatedFromUpstream 验证自营商品完全依赖本地库存。
 //
-// 这是产品的核心需求：兑换码要 200 件，本地只有 50 件，剩下 150 件必须走上游采购。
-// 上游 API 在单测里不可用，因此这里只验证到「决定去采购多少」这一步，
-// 以及没有兜底商品时确实被拒绝（不能收款后发不出货）。
-func TestSelfStockSplitDecision(t *testing.T) {
+// 兜底已下线：即使数据库里还残留旧的 fallback_goods_id（历史数据），
+// 需求超过本地库存时也必须直接拒绝，不会再向上游采购补齐。
+func TestSelfStockSeparatedFromUpstream(t *testing.T) {
 	const goodsID = 900101
 	seedSelfProduct(t, goodsID, 50, 7001)
 
 	if got := store.SelfStockCount(goodsID); got != 50 {
 		t.Fatalf("本地库存应为 50，实际 %d", got)
 	}
-	p := store.GetProduct(goodsID)
-	if p == nil || p.FallbackGoodsID != 7001 {
-		t.Fatalf("fallback 应绑定到 7001，实际 %+v", p)
+
+	// 需求 200 > 本地 50：必须拒绝，不能靠残留的兜底配置去采购。
+	res := placeSelfOrder(PlaceOrderOptions{GoodsID: goodsID},
+		store.GetProduct(goodsID), 200, "guest", "usdt")
+	if res.Status == 200 {
+		t.Fatalf("超出本地库存时应拒绝下单，实际成功: %+v", res)
+	}
+	if res.Message != "库存不足" {
+		t.Fatalf("应提示库存不足，实际: %q", res.Message)
 	}
 
-	// 兑换码 200 件：本地 50，上游要补 150
-	const want, avail = 200, 50
-	upstreamNeed := 0
-	if want > avail {
-		upstreamNeed = want - avail
+	// 本地库存够时正常出货（用兑换码付款，不需要真实余额）。
+	user, e := store.CreateGuestUser()
+	if e != nil {
+		t.Fatalf("创建用户失败: %v", e)
 	}
-	if upstreamNeed != 150 {
-		t.Fatalf("上游采购量应为 150，实际 %d", upstreamNeed)
-	}
-	if local := want - upstreamNeed; local != 50 {
-		t.Fatalf("本地发货量应为 50，实际 %d", local)
+	res = placeSelfOrder(PlaceOrderOptions{
+		User: user, GoodsID: goodsID, Count: 2, Source: "user", Payment: "code",
+	}, store.GetProduct(goodsID), 2, "user", "code")
+	if !res.OK {
+		t.Fatalf("库存充足时下单应成功，实际: %+v", res)
 	}
 }
 

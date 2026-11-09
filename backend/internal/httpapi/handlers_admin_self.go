@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"hstore/backend/internal/imagecache"
+	"hstore/backend/internal/service"
 	"hstore/backend/internal/store"
 )
 
@@ -27,14 +28,13 @@ func (a *API) handleAdminSelfProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 type selfProductBody struct {
-	GoodsID         int     `json:"goodsId"`
-	Name            string  `json:"name"`
-	Price           float64 `json:"price"`
-	CostPrice       float64 `json:"costPrice"`
-	Description     string  `json:"description"`
-	ImageURL        string  `json:"imgUrl"`
-	Enabled         *bool   `json:"enabled"`
-	FallbackGoodsID int     `json:"fallbackGoodsId"`
+	GoodsID     int     `json:"goodsId"`
+	Name        string  `json:"name"`
+	Price       float64 `json:"price"`
+	CostPrice   float64 `json:"costPrice"`
+	Description string  `json:"description"`
+	ImageURL    string  `json:"imgUrl"`
+	Enabled     *bool   `json:"enabled"`
 }
 
 // handleAdminSelfProductsPost 新建 / 编辑 / 删除自营商品。
@@ -57,14 +57,13 @@ func (a *API) handleAdminSelfProductsPost(w http.ResponseWriter, r *http.Request
 	switch raw.Action {
 	case "create":
 		goodsID, e := store.CreateSelfProduct(store.SelfProductInput{
-			GoodsID:         raw.GoodsID,
-			Name:            raw.Name,
-			Price:           raw.Price,
-			CostPrice:       raw.CostPrice,
-			Description:     raw.Description,
-			ImageURL:        raw.ImageURL,
-			Enabled:         enabled,
-			FallbackGoodsID: raw.FallbackGoodsID,
+			GoodsID:     raw.GoodsID,
+			Name:        raw.Name,
+			Price:       raw.Price,
+			CostPrice:   raw.CostPrice,
+			Description: raw.Description,
+			ImageURL:    raw.ImageURL,
+			Enabled:     enabled,
 		})
 		if e != nil {
 			fail(w, http.StatusBadRequest, e.Error())
@@ -80,14 +79,13 @@ func (a *API) handleAdminSelfProductsPost(w http.ResponseWriter, r *http.Request
 			return
 		}
 		e := store.UpdateSelfProduct(store.SelfProductInput{
-			GoodsID:         raw.GoodsID,
-			Name:            raw.Name,
-			Price:           raw.Price,
-			CostPrice:       raw.CostPrice,
-			Description:     raw.Description,
-			ImageURL:        raw.ImageURL,
-			Enabled:         enabled,
-			FallbackGoodsID: raw.FallbackGoodsID,
+			GoodsID:     raw.GoodsID,
+			Name:        raw.Name,
+			Price:       raw.Price,
+			CostPrice:   raw.CostPrice,
+			Description: raw.Description,
+			ImageURL:    raw.ImageURL,
+			Enabled:     enabled,
 		})
 		if e != nil {
 			fail(w, http.StatusBadRequest, e.Error())
@@ -188,6 +186,7 @@ func (a *API) handleAdminSelfStocksPost(w http.ResponseWriter, r *http.Request) 
 		}
 		lines := strings.Split(strings.ReplaceAll(body.Content, "\r\n", "\n"), "\n")
 		added, skipped := store.ImportSelfStock(body.GoodsID, lines, "admin", "")
+		service.CheckSelfStockLow(body.GoodsID)
 		store.WriteAudit(&admin.UID, "self_stock_import", "product", itoa(body.GoodsID),
 			nil, map[string]any{"added": added, "skipped": skipped}, "导入自营卡密")
 		ok(w, map[string]any{
@@ -205,6 +204,7 @@ func (a *API) handleAdminSelfStocksPost(w http.ResponseWriter, r *http.Request) 
 			fail(w, http.StatusBadRequest, "卡密不存在或已售出，无法删除")
 			return
 		}
+		service.CheckSelfStockLow(body.GoodsID)
 		store.WriteAudit(&admin.UID, "self_stock_delete", "self_stock", itoa(body.StockID),
 			nil, nil, "删除自营卡密")
 		ok(w, map[string]any{"stockCount": store.SelfStockCount(body.GoodsID)})
@@ -224,6 +224,7 @@ func (a *API) handleAdminSelfStocksPost(w http.ResponseWriter, r *http.Request) 
 				n++
 			}
 		}
+		service.CheckSelfStockLow(body.GoodsID)
 		store.WriteAudit(&admin.UID, "self_stock_delete", "self_stock", joinIDs(body.IDs),
 			nil, map[string]any{"deleted": n}, "批量删除自营卡密")
 		ok(w, map[string]any{"deleted": n, "stockCount": store.SelfStockCount(body.GoodsID)})
