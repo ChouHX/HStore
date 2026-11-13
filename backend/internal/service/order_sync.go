@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"hstore/backend/internal/mail"
 	"hstore/backend/internal/model"
 	"hstore/backend/internal/store"
 	"hstore/backend/internal/upstream"
@@ -21,6 +22,7 @@ func RunOrderSync(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		processShortageNotifications(ctx)
 		if upstream.IsConfigured() {
 			syncPendingOrders(ctx)
 		}
@@ -30,6 +32,39 @@ func RunOrderSync(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func processShortageNotifications(ctx context.Context) {
+	store.EnsureShortageNotifications()
+	item, err := store.ClaimShortageNotification()
+	if err != nil || item == nil {
+		if err != nil {
+			log.Printf("[hstore] 缺货通知队列读取失败: %v", err)
+		}
+		return
+	}
+	to := store.NotifyEmails()
+	cfg := store.GetSMTPConfig()
+	if len(to) == 0 {
+		store.CompleteShortageNotification(item.OrderNumber, fmt.Errorf("未配置管理员通知邮箱"))
+		return
+	}
+	if !cfg.Ready() {
+		store.CompleteShortageNotification(item.OrderNumber, fmt.Errorf("未配置可用发信服务"))
+		return
+	}
+	subject := fmt.Sprintf("[HShop] 商品缺货待处理：%s（订单 %s）", item.GoodsName, item.OrderNumber)
+	body := fmt.Sprintf("订单号：%s\n商品：%s\n数量：%d\n用户实付金额：¥%.4f\n供货方退回金额：¥%.4f\n用户联系方式：%s\n缺货原因：%s\n下单时间：%s\n\n请登录后台订单管理，联系用户处理退款。",
+		item.OrderNumber, item.GoodsName, item.Count, item.SaleMoney, item.RetMoney, item.Contact,
+		item.Result, time.UnixMilli(item.CreatedAt).Format("2006-01-02 15:04:05"))
+	var sendErr error
+	for _, addr := range to {
+		if err := mail.Send(ctx, cfg, mail.SendOptions{To: addr, Subject: subject, Text: body}); err != nil {
+			sendErr = err
+			log.Printf("[hstore] 缺货通知发送到 %s 失败: %v", addr, err)
+		}
+	}
+	store.CompleteShortageNotification(item.OrderNumber, sendErr)
 }
 
 func syncPendingOrders(ctx context.Context) {

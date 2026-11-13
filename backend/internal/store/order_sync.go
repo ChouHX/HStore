@@ -155,6 +155,12 @@ func ApplyOrderSync(number string, detail model.OrderDetail) error {
 		status, detail.Result, detail.RetMoney, now(), number); err != nil {
 		return err
 	}
+	if status == 4 && IsShortageResult(detail.Result) {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO order_notifications(order_number,kind,status,created_at,updated_at)
+			VALUES(?, 'shortage', 'pending', ?, ?)`, number, now(), now()); err != nil {
+			return err
+		}
+	}
 	guestStatus := guestFulfillmentStatus(status)
 	lastError := ""
 	if status == 4 || status == 5 || status == 8 {
@@ -233,8 +239,8 @@ func CustomerOrderResult(status int, result string) string {
 	case 3:
 		return "发货成功"
 	case 4:
-		if strings.Contains(result, "缺货") || strings.Contains(result, "库存不足") {
-			return "商品缺货，发货未完成，请联系客服处理退款或换货，请勿重复支付"
+		if IsShortageResult(result) {
+			return "商品缺货，发货未完成，请联系客服处理退款，请勿重复支付"
 		}
 		return "发货未完成，请联系客服处理退款或换货，请勿重复支付"
 	case 5:
@@ -246,9 +252,83 @@ func CustomerOrderResult(status int, result string) string {
 	}
 }
 
+func IsShortageResult(result string) bool {
+	return strings.Contains(result, "缺货") || strings.Contains(result, "库存不足")
+}
+
 func OrderBalanceRefunded(orderNumber string) bool {
 	var exists int
 	err := db.Must().QueryRow(`SELECT 1 FROM ledger WHERE order_number=? AND type='recharge'
 		AND remark='商品缺货自动退回余额' LIMIT 1`, orderNumber).Scan(&exists)
 	return err == nil
+}
+
+// ShortageNotification is the durable work item sent to administrators.
+type ShortageNotification struct {
+	OrderNumber string
+	GoodsName   string
+	Count       int
+	SaleMoney   float64
+	RetMoney    float64
+	Result      string
+	Contact     string
+	CreatedAt   int64
+	Attempts    int
+}
+
+// EnsureShortageNotifications backfills orders confirmed before this feature was deployed.
+func EnsureShortageNotifications() {
+	_, _ = db.Must().Exec(`INSERT OR IGNORE INTO order_notifications(order_number,kind,status,created_at,updated_at)
+		SELECT order_number,'shortage','pending',created_at,updated_at FROM orders
+		WHERE status=4 AND (result LIKE '%缺货%' OR result LIKE '%库存不足%')`)
+}
+
+func ClaimShortageNotification() (*ShortageNotification, error) {
+	d := db.Must()
+	tx, err := d.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	cutoff := now() - 5*60*1000
+	if _, err := tx.Exec(`UPDATE order_notifications SET status='pending',updated_at=?
+		WHERE kind='shortage' AND status='sending' AND updated_at<?`, now(), cutoff); err != nil {
+		return nil, err
+	}
+	var n ShortageNotification
+	err = tx.QueryRow(`SELECT o.order_number,o.goods_name,o.count,COALESCE(o.sale_money,0),
+		COALESCE(o.ret_money,0),o.result,COALESCE(o.contact,''),o.created_at,notif.attempts
+		FROM order_notifications notif JOIN orders o ON o.order_number=notif.order_number
+		WHERE notif.kind='shortage' AND notif.status='pending' AND o.status=4
+		ORDER BY notif.created_at,notif.order_number LIMIT 1`).Scan(&n.OrderNumber, &n.GoodsName, &n.Count,
+		&n.SaleMoney, &n.RetMoney, &n.Result, &n.Contact, &n.CreatedAt, &n.Attempts)
+	if err == sql.ErrNoRows {
+		return nil, tx.Commit()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(`UPDATE order_notifications SET status='sending',attempts=attempts+1,updated_at=?
+		WHERE order_number=? AND kind='shortage' AND status='pending'`, now(), n.OrderNumber); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	n.Attempts++
+	return &n, nil
+}
+
+func CompleteShortageNotification(orderNumber string, sendErr error) {
+	if sendErr == nil {
+		_, _ = db.Must().Exec(`UPDATE order_notifications SET status='sent',last_error='',sent_at=?,updated_at=?
+			WHERE order_number=? AND kind='shortage'`, now(), now(), orderNumber)
+		return
+	}
+	message := sendErr.Error()
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	_, _ = db.Must().Exec(`UPDATE order_notifications SET status='pending',last_error=?,updated_at=?
+		WHERE order_number=? AND kind='shortage'`, message, now(), orderNumber)
 }

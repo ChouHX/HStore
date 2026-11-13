@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -216,6 +217,30 @@ func TestShortageRefundsWalletBuyerExactlyOnce(t *testing.T) {
 	_ = ApplyOrderSync(o.OrderNumber, detail)
 	if u := GetUser(*o.UserUID); u.Balance != 49 {
 		t.Fatalf("wallet refund repeated: %+v", u)
+	}
+}
+
+func TestShortageNotificationQueueIsDurableAndIdempotent(t *testing.T) {
+	o, _ := seedSyncOrder(t, "guest")
+	detail := model.OrderDetail{OrderNumber: o.UpstreamOrderNo, OuterNumber: o.OuterNumber,
+		Status: 4, Result: "商品库存不足", RetMoney: 19.5}
+	if err := ApplyOrderSync(o.OrderNumber, detail); err != nil {
+		t.Fatal(err)
+	}
+	EnsureShortageNotifications()
+	item, err := ClaimShortageNotification()
+	if err != nil || item == nil || item.OrderNumber != o.OrderNumber || item.Attempts != 1 {
+		t.Fatalf("notification was not claimed: %+v %v", item, err)
+	}
+	CompleteShortageNotification(o.OrderNumber, errors.New("temporary mail failure"))
+	item, err = ClaimShortageNotification()
+	if err != nil || item == nil || item.Attempts != 2 {
+		t.Fatalf("failed notification was not retryable: %+v %v", item, err)
+	}
+	CompleteShortageNotification(o.OrderNumber, nil)
+	item, err = ClaimShortageNotification()
+	if err != nil || item != nil {
+		t.Fatalf("sent notification was claimed again: %+v %v", item, err)
 	}
 }
 

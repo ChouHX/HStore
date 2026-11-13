@@ -546,7 +546,7 @@ func customerGuestError(gp *model.GuestPurchase) string {
 		return ""
 	}
 	if strings.Contains(gp.LastError, "缺货") || strings.Contains(gp.LastError, "库存不足") {
-		return "商品缺货，请联系客服处理，请勿重复支付"
+		return "商品缺货，请联系客服处理退款，请勿重复支付"
 	}
 	return "发货暂未完成，请稍候或联系客服处理，请勿重复支付"
 }
