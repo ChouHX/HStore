@@ -136,7 +136,7 @@ func ListPendingGuestPurchases(limit int) []model.GuestPurchase {
 		limit = 20
 	}
 	rows, err := db.Must().Query("SELECT "+guestPurchaseCols+` FROM guest_purchases
-		WHERE status IN ('waiting','failed') OR (status='fulfilling' AND updated_at < ?)
+		WHERE upstream_order_no='' AND (status IN ('waiting','failed') OR (status='fulfilling' AND updated_at < ?))
 		ORDER BY id ASC LIMIT ?`, now()-2*60*1000, limit)
 	if err != nil {
 		return []model.GuestPurchase{}
@@ -158,7 +158,7 @@ func ListPendingGuestPurchases(limit int) []model.GuestPurchase {
 func ClaimGuestPurchase(id int) bool {
 	nowMs := now()
 	res, err := db.Must().Exec(`UPDATE guest_purchases SET status='fulfilling', updated_at=?
-		WHERE id=? AND (status IN ('waiting','failed','expired') OR (status='fulfilling' AND updated_at < ?))`,
+		WHERE id=? AND upstream_order_no='' AND (status IN ('waiting','failed','expired') OR (status='fulfilling' AND updated_at < ?))`,
 		nowMs, id, nowMs-2*60*1000)
 	if err != nil {
 		return false

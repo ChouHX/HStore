@@ -42,7 +42,11 @@ func (a *API) handleOrderCreate(w http.ResponseWriter, r *http.Request) {
 		Source: source, Payment: "balance", Attach: body.Attach, Contact: contact,
 	})
 	if !res.OK {
-		fail(w, res.Status, res.Message)
+		message := res.Message
+		if user.Role != "admin" {
+			message = customerOrderError(message)
+		}
+		fail(w, res.Status, message)
 		return
 	}
 	ok(w, map[string]any{"order": hideUpstreamForUser(res.Order, user.Role)})
@@ -69,27 +73,8 @@ func (a *API) handleOrderDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, "无权操作")
 		return
 	}
-	// 用户传入的是本地单号，查上游必须用上游单号。
-	upstreamNo := owned.UpstreamOrderNo
-	if upstreamNo == "" {
-		// 没有上游单号（历史单或管理员手工建的单）就不查上游，直接返回本地记录。
-		ok(w, map[string]any{"order": hideUpstreamForUser(owned, user.Role)})
-		return
-	}
-	detail, e := upstream.GetOrderDetail(upstreamNo)
-	if e != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok": false, "message": e.Error(), "order": hideUpstreamForUser(owned, user.Role),
-		})
-		return
-	}
-	order := store.ApplyRemoteOrder(*detail)
-	if order != nil && order.Status == 3 && order.Settled == 0 && order.Source == "user" && order.UserUID != nil {
-		store.SettleConsumption(*order.UserUID, order.SaleMoney, order.OrderNumber)
-		store.MarkSettled(order.OrderNumber)
-		order = store.GetOrder(order.OrderNumber)
-	}
-	ok(w, map[string]any{"order": hideUpstreamForUser(order, user.Role)})
+	// Background delivery sync owns remote calls; page polling stays fast and read-only.
+	ok(w, map[string]any{"order": hideUpstreamForUser(owned, user.Role)})
 }
 
 func (a *API) handleOrderList(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +100,9 @@ func (a *API) handleOrderList(w http.ResponseWriter, r *http.Request) {
 		UID: user.UID,
 	}
 	items := store.ListOrders(f)
+	for i := range items {
+		items[i] = *hideUpstreamForUser(&items[i], user.Role)
+	}
 	total := store.CountOrders(f)
 	ok(w, paged(items, total, page, pageSize))
 }
@@ -194,6 +182,9 @@ func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		user = guest
 	}
 	res := service.Redeem(user.UID, body.Code)
+	if user.Role != "admin" {
+		res.Message = customerOrderError(res.Message)
+	}
 	fresh := store.GetUser(user.UID)
 	payload := map[string]any{
 		"ok": res.OK, "message": res.Message, "kind": res.Kind,

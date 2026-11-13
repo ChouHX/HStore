@@ -38,6 +38,7 @@ type storeProductView struct {
 
 // storeDetailView 是商品详情下发的字段。
 type storeDetailView struct {
+	Fulfillment       string          `json:"fulfillment,omitempty"`
 	GoodsID           int             `json:"goodsId"`
 	Name              string          `json:"name"`
 	ImgURL            string          `json:"imgUrl"`
@@ -199,7 +200,7 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !upstream.IsConfigured() {
-		fail(w, http.StatusBadRequest, "未配置 App-Id")
+		fail(w, http.StatusBadRequest, "商品服务暂不可用，请联系客服")
 		return
 	}
 	var raw json.RawMessage
@@ -210,7 +211,7 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		raw, e = upstream.DetailCached(id)
 	}
 	if e != nil {
-		fail(w, http.StatusInternalServerError, e.Error())
+		fail(w, http.StatusInternalServerError, customerOrderError(e.Error()))
 		return
 	}
 	detail, e := buildStoreDetail(id, raw)
@@ -279,6 +280,7 @@ func selfProductDetail(p *model.Product) storeDetailView {
 	}
 	return storeDetailView{
 		GoodsID:       p.GoodsID,
+		Fulfillment:   "self",
 		Name:          name,
 		ImgURL:        imagecache.LocalURL(img),
 		SalesPrice:    p.FinalPrice,

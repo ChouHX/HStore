@@ -343,7 +343,6 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     const id = Number(goodsParam);
     if (!Number.isFinite(id) || id <= 0) return;
     if (openedGoodsRef.current === id) return;
-    openedGoodsRef.current = id;
 
     let cancelled = false;
     void (async () => {
@@ -352,6 +351,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         if (cancelled || !j.ok) return;
         const d = j.detail as Record<string, unknown> | undefined;
         if (!d) return;
+        openedGoodsRef.current = id;
         // 详情接口的字段与列表项不同，这里拼一个足够打开购买弹窗的商品对象。
         setPurchaseProduct({
           goodsId: Number(d.goodsId ?? id),
@@ -362,7 +362,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
           imgUrl: String(d.imgUrl ?? ""),
           customImg: undefined,
           customName: undefined,
-          fulfillment: undefined,
+          fulfillment: d.fulfillment === "self" ? "self" : undefined,
         } as StoreProduct);
       } catch {
         // 打开失败不影响正常浏览
@@ -416,7 +416,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
       <main className="mx-auto max-w-[1200px] px-4 py-4">
         {!configured && (
           <div className="mb-3 rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-2 text-[12px] text-[#d25f00]">
-            上游接口未配置，请让管理员在「管理后台 → 系统设置」填写 AppID 与密钥。
+            商品服务暂不可用，请联系客服处理。
           </div>
         )}
 

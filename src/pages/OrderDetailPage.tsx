@@ -1,11 +1,12 @@
 import { Button, Card, Input, Message, Space, Spin, Tag } from "@arco-design/web-react";
 import { IconArrowLeft, IconCopy, IconDownload, IconRefresh } from "@arco-design/web-react/icon";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { formatPrice } from "@/lib/format";
 import { clearGuestToken, loadLastContact, saveOrder } from "@/lib/orderStorage";
-import { ORDER_STATUS, arcoColor, orderStatusColor } from "@/lib/status";
+import { ORDER_STATUS, arcoColor, isOrderPending, orderStatusColor } from "@/lib/status";
+import { DeliveryWaiting } from "@/components/DeliveryWaiting";
 import { useSession } from "@/src/hooks/useSession";
 
 interface CardItem {
@@ -31,10 +32,14 @@ interface GuestOrderView {
   usdtAmount: string;
   chainLabel: string;
   createdAt: number;
+  paidAt?: number;
   order: {
     orderNumber: string;
     goodsName: string;
     count: number;
+    status: number;
+    result: string;
+    createdAt: number;
     cards: CardItem[];
   } | null;
   error?: string;
@@ -47,6 +52,7 @@ interface OrderView {
   goodsName: string;
   count: number;
   money: number;
+  status: number | null;
   statusText: string;
   statusColor: string;
   createdAt: number;
@@ -62,6 +68,8 @@ const GUEST_STATUS: Record<string, { color: string; text: string }> = {
   fulfilling: { color: "blue", text: "正在发货" },
   fulfilled: { color: "green", text: "已发货" },
   failed: { color: "red", text: "发货失败" },
+  delivery_failed: { color: "red", text: "发货失败" },
+  delivery_cancelled: { color: "red", text: "发货已取消" },
   expired: { color: "gray", text: "订单已过期" },
   closed: { color: "gray", text: "订单已关闭" },
   cancelled: { color: "red", text: "订单已取消" },
@@ -97,11 +105,12 @@ function toGuestView(g: GuestOrderView): OrderView {
     goodsName: g.productName,
     count: g.goodsCount,
     money: g.amountCny,
+    status: g.order?.status ?? null,
     statusText: st.text,
     statusColor: st.color,
     createdAt: g.createdAt,
     contact: loadLastContact(),
-    remark: g.error || "",
+    remark: g.error || g.order?.result || "",
     cards: g.order?.cards ?? [],
     guest: g,
   };
@@ -139,18 +148,26 @@ export function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [qr, setQr] = useState("");
-
+  const [syncWarning, setSyncWarning] = useState("");
+  const requestRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
     async (mode: "initial" | "silent" | "manual" = "silent") => {
+      if (requestRef.current) return;
+      const controller = new AbortController();
+      requestRef.current = controller;
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const signal = controller.signal;
       if (mode === "initial") setLoading(true);
       if (mode === "manual") setRefreshing(true);
       try {
         if (token) {
-          const j = await fetch(`/api/guest/order?token=${encodeURIComponent(token)}`).then((r) => r.json());
+          const j = await fetch(`/api/guest/order?token=${encodeURIComponent(token)}`, { signal }).then((r) => r.json());
+          if (signal.aborted) return;
           if (j.ok && j.guest) {
             setView(toGuestView(j.guest as GuestOrderView));
             setError("");
+            setSyncWarning("");
           } else if (mode !== "silent") {
             setError(j.message ?? "订单不存在或凭证已失效");
           }
@@ -162,12 +179,15 @@ export function OrderDetailPage() {
                   ...(contact ? { contact } : {}),
                   ...(code ? { code } : {}),
                 }).toString()}`,
+                { signal },
               ).then((r) => r.json())
             : await fetch("/api/order/detail", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ orderNumber }),
+                signal,
               }).then((r) => r.json());
+          if (signal.aborted) return;
           if (j.ok && j.order) {
             const o = j.order;
             const status = Number(o.status ?? 0);
@@ -177,6 +197,7 @@ export function OrderDetailPage() {
               goodsName: o.goodsName,
               count: o.count,
               money: Number(o.saleMoney || o.money || 0),
+              status,
               statusText: ORDER_STATUS[status] ?? String(o.statusText ?? status),
               statusColor: arcoColor(orderStatusColor(status)),
               createdAt: o.createdAt,
@@ -186,6 +207,7 @@ export function OrderDetailPage() {
               guest: null,
             });
             setError("");
+            setSyncWarning("");
           } else if (mode !== "silent") {
             setError(j.message ?? "订单详情加载失败");
           }
@@ -193,24 +215,40 @@ export function OrderDetailPage() {
           setError("缺少订单号");
         }
       } catch {
+        if (requestRef.current !== controller) return;
+        if (mode === "silent") setSyncWarning("连接暂时不稳定，正在重试，订单仍会继续处理。");
         if (mode === "manual") Message.error("刷新失败，请稍后重试");
         else if (mode === "initial") setError("网络错误，请稍后重试");
       } finally {
-        if (mode === "initial") setLoading(false);
-        if (mode === "manual") setRefreshing(false);
+        clearTimeout(timeout);
+        if (requestRef.current === controller) {
+          requestRef.current = null;
+          if (mode === "initial") setLoading(false);
+          if (mode === "manual") setRefreshing(false);
+        }
       }
     },
     [token, orderNumber, contact, code],
   );
 
   useEffect(() => {
+    setView(null);
+    setSyncWarning("");
     load("initial");
+    return () => {
+      requestRef.current?.abort();
+      requestRef.current = null;
+    };
   }, [load]);
 
-  // 游客待支付 / 发货中：链式轮询，避免请求叠加
+  const deliveryPending = view?.guest
+    ? ["paid", "fulfilling"].includes(view.guest.status)
+    : isOrderPending(view?.status);
+  const shouldPoll = deliveryPending || ["waiting", "failed"].includes(view?.guest?.status ?? "");
+
+  // 所有未完成订单持续读取本地状态；网络抖动后继续，不设发货超时上限。
   useEffect(() => {
-    if (!token || !view?.guest) return;
-    if (!["waiting", "paid", "fulfilling"].includes(view.guest.status)) return;
+    if (!shouldPoll) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
@@ -222,7 +260,7 @@ export function OrderDetailPage() {
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [token, view?.guest?.status, load]);
+  }, [shouldPoll, load]);
 
   // 游客单发货后记入本机订单，订单查询页可直接看到
   useEffect(() => {
@@ -252,7 +290,9 @@ export function OrderDetailPage() {
   }, [qrPayload]);
 
   const guest = view?.guest ?? null;
-  const pending = guest ? ["waiting", "paid", "fulfilling"].includes(guest.status) : false;
+  const pending = guest?.status === "waiting";
+  const deliveryFailed = view?.status === 4 || view?.status === 5
+    || ["delivery_failed", "delivery_cancelled"].includes(guest?.status ?? "");
   const amount = guest
     ? guest.channel === "alipay"
       ? `¥${formatPrice(guest.payableCents / 100)}`
@@ -397,6 +437,15 @@ export function OrderDetailPage() {
                 </div>
               ) : null}
 
+              {deliveryPending ? (
+                <DeliveryWaiting since={guest?.paidAt || guest?.order?.createdAt || view.createdAt} partial={view.status === 2} />
+              ) : null}
+              {shouldPoll && syncWarning ? <div className="text-[12px] text-[#d25f00]">{syncWarning}</div> : null}
+              {deliveryFailed ? (
+                <div role="alert" className="rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-3 text-[12px] text-[#d25f00]">
+                  {view.remark || "发货未完成，请联系客服处理退款或换货，请勿重复支付。"}
+                </div>
+              ) : null}
               {guest?.status === "fulfilled" ? (
                 <div className="rounded border border-[#aff0b5] bg-[#e8ffea] px-3 py-2 text-[12px] text-[#00b42a]">
                   支付成功，已自动发货。
@@ -427,7 +476,7 @@ export function OrderDetailPage() {
                   <InfoRow label="状态" value={view.statusText} />
                   <InfoRow label="下单时间" value={fmtTime(view.createdAt)} />
                   {view.contact ? <InfoRow label="联系方式" value={view.contact} /> : null}
-                  {view.remark ? <InfoRow label="备注" value={view.remark} /> : null}
+                  {view.remark ? <InfoRow label="备注" value={view.remark} wrap /> : null}
                 </div>
               </div>
 
@@ -451,7 +500,7 @@ export function OrderDetailPage() {
                 </div>
                 {view.cards.length === 0 ? (
                   <div className="rounded border border-[#e5e6eb] px-3 py-4 text-center text-[12px] text-[#86909c]">
-                    暂无卡券，未支付或上游还在发货，请稍后刷新。
+                    {deliveryFailed ? "暂无可交付的卡券，请联系客服处理。" : deliveryPending ? "正在准备卡券，发货后会自动显示。" : guest?.status === "waiting" ? "支付完成后将自动发货。" : "该订单暂无卡券。"}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
@@ -498,7 +547,7 @@ export function OrderDetailPage() {
               </div>
 
               <div className="flex justify-center gap-2">
-                <Button onClick={rebuy}>{guest ? "重新购买" : "再买一次"}</Button>
+                {!shouldPoll && !deliveryFailed ? <Button onClick={rebuy}>{guest ? "重新购买" : "再买一次"}</Button> : null}
                 <Button type="primary" onClick={() => navigate("/orders")}>
                   订单查询
                 </Button>

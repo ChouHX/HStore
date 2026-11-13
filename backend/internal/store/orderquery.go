@@ -41,17 +41,17 @@ func OrderStatusText(status int) string {
 	case 0:
 		return "待处理"
 	case 1:
-		return "处理中"
+		return "正在发货"
 	case 2:
 		return "部分完成"
 	case 3:
 		return "已完成"
 	case 4:
-		return "已退款"
+		return "发货失败"
 	case 5:
 		return "已取消"
 	case 7:
-		return "待补单"
+		return "正在发货"
 	case 8:
 		return "异常"
 	default:
@@ -134,7 +134,9 @@ func scanGuestOrder(sc interface{ Scan(...any) error }) (model.PublicOrderItem, 
 	it.OrderNumber = orderNo
 	it.StatusText = guestStatusText(status)
 	it.Status = guestStatusToOrderStatus(status)
-	it.Error = lastErr
+	if lastErr != "" {
+		it.Error = CustomerOrderResult(it.Status, lastErr)
+	}
 	return it, nil
 }
 
@@ -199,6 +201,10 @@ func guestStatusText(status string) string {
 		return "已完成"
 	case "failed":
 		return "发货失败"
+	case "delivery_failed":
+		return "发货失败"
+	case "delivery_cancelled":
+		return "发货已取消"
 	case "expired":
 		return "已过期"
 	case "closed":
@@ -218,6 +224,10 @@ func guestStatusToOrderStatus(status string) int {
 		return 3
 	case "failed", "disputed":
 		return 8
+	case "delivery_failed":
+		return 4
+	case "delivery_cancelled":
+		return 5
 	case "expired", "closed", "cancelled":
 		return 5
 	default:

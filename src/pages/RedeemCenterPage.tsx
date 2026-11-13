@@ -5,7 +5,8 @@ import { Link } from "react-router-dom";
 
 import { StoreHeader } from "@/components/store/StoreHeader";
 import { formatPrice } from "@/lib/format";
-import { ORDER_STATUS } from "@/lib/status";
+import { ORDER_STATUS, arcoColor, isOrderPending, orderStatusColor } from "@/lib/status";
+import { DeliveryWaiting } from "@/components/DeliveryWaiting";
 import type { StoreHome } from "@/lib/api-types";
 import type { StoreProduct } from "@/lib/types";
 import { useSession } from "@/src/hooks/useSession";
@@ -28,6 +29,7 @@ interface RedeemOrder {
   saleMoney?: number;
   status?: number;
   createdAt?: number;
+  result?: string;
   cards?: RedeemCard[];
 }
 
@@ -83,6 +85,7 @@ export function RedeemCenterPage() {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<RedeemOrder | null>(null);
+  const [redeemedCode, setRedeemedCode] = useState("");
   const [message, setMessage] = useState("");
   const [balanceAmount, setBalanceAmount] = useState(0);
   /** 兑换商品的图片：订单接口只回 goods_id，图片由后端随兑换结果一起下发。 */
@@ -117,6 +120,7 @@ export function RedeemCenterPage() {
       }
       setMessage(j.message ?? "兑换成功");
       setOrder((j.order as RedeemOrder) ?? null);
+      setRedeemedCode(v);
       setBalanceAmount(Number(j.amount) || 0);
       setGoodsImg(String(j.goodsImg ?? ""));
       setDone(true);
@@ -125,6 +129,33 @@ export function RedeemCenterPage() {
       setLoading(false);
     }
   }
+
+  const deliveryPending = isOrderPending(order?.status);
+  useEffect(() => {
+    if (!order?.orderNumber || !redeemedCode || !deliveryPending) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const controller = new AbortController();
+    const tick = async () => {
+      try {
+        const params = new URLSearchParams({ orderNumber: order.orderNumber, code: redeemedCode });
+        const j = await fetch(`/api/orders/query/detail?${params}`, { signal: controller.signal }).then((r) => r.json());
+        if (!stopped && j.ok && j.order) {
+          setOrder(j.order as RedeemOrder);
+          setMessage(ORDER_STATUS[Number(j.order.status)] ?? "订单处理中");
+        }
+      } catch {
+        // Delivery continues on the server; reconnect on the next poll.
+      }
+      if (!stopped) timer = setTimeout(tick, 4000);
+    };
+    timer = setTimeout(tick, 4000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [order?.orderNumber, redeemedCode, deliveryPending]);
 
   function copyCards() {
     const cards = order?.cards ?? [];
@@ -257,7 +288,7 @@ export function RedeemCenterPage() {
                   <div>
                     <div className="mb-1 flex items-center gap-2">
                       <span className="text-[13px] font-medium">订单信息</span>
-                      <Tag size="small" color="green">
+                      <Tag size="small" color={arcoColor(orderStatusColor(order.status ?? 1))}>
                         {message}
                       </Tag>
                     </div>
@@ -312,6 +343,12 @@ export function RedeemCenterPage() {
                     </div>
                   </div>
 
+                  {deliveryPending ? <DeliveryWaiting since={order.createdAt || 0} partial={order.status === 2} /> : null}
+                  {order.status === 4 || order.status === 5 ? (
+                    <div role="alert" className="rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-3 text-[12px] text-[#d25f00]">
+                      {order.result || "发货未完成，请联系客服处理。"}
+                    </div>
+                  ) : null}
                   <div>
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-[13px] font-medium">卡券（{cards.length}）</span>
@@ -328,7 +365,7 @@ export function RedeemCenterPage() {
                     </div>
                     {cards.length === 0 ? (
                       <div className="rounded border border-[#e5e6eb] px-3 py-4 text-center text-[12px] text-[#86909c]">
-                        暂无卡券，上游还在发货，请稍后重新兑换或联系客服。
+                        {deliveryPending ? "正在准备卡券，发货后会自动显示，请勿重复兑换。" : "暂无可交付的卡券，请联系客服处理。"}
                       </div>
                     ) : (
                       <div className="flex flex-col gap-2">

@@ -14,15 +14,15 @@ import (
 
 // PlaceOrderOptions 是统一下单入参。
 type PlaceOrderOptions struct {
-	User      *model.User
-	GoodsID   int
-	Count     int
-	Source    string // admin | user | guest
-	Payment   string // balance | code | external（已通过支付宝/USDT 收款，不再扣余额）
-	Contact   string // 联系方式，游客必填，用于订单查询
-	Attach    []map[string]string
-	Remark    string
-	OuterNum  string
+	User     *model.User
+	GoodsID  int
+	Count    int
+	Source   string // admin | user | guest
+	Payment  string // balance | code | external（已通过支付宝/USDT 收款，不再扣余额）
+	Contact  string // 联系方式，游客必填，用于订单查询
+	Attach   []map[string]string
+	Remark   string
+	OuterNum string
 	// OrderNumber 非空时用它作为业务订单号（兑换码核销单直接用兑换码），
 	// 为空时按原逻辑生成 HS 开头的系统单号。
 	OrderNumber string
@@ -162,7 +162,10 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	}
 	status := 1
 	if len(result.Cards) > 0 {
-		status = 3
+		status = 2
+		if len(result.Cards) >= count {
+			status = 3
+		}
 	}
 	remark := opts.Remark
 	if remark == "" {
@@ -190,7 +193,7 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	}
 
 	// 结算：只有真实扣款的自助订单才累计消费并触发自动升级
-	if payment == "balance" && (source == "user" || source == "guest") && len(result.Cards) > 0 {
+	if payment == "balance" && (source == "user" || source == "guest") && status == 3 {
 		store.SettleConsumption(user.UID, saleMoney, orderNumber)
 		store.MarkSettled(orderNumber)
 	}

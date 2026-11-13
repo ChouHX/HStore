@@ -145,9 +145,30 @@ func queryInt64(r *http.Request, key string) int64 {
 // 的接口都应该过一遍这里，避免逐个接口漏判。
 func hideUpstreamForUser(order *model.LocalOrder, role string) *model.LocalOrder {
 	if order != nil && role != "admin" {
-		order.UpstreamOrderNo = ""
+		public := *order
+		public.UpstreamOrderNo = ""
+		public.OuterNumber = ""
+		public.CostMoney = 0
+		public.Result = store.CustomerOrderResult(order.Status, order.Result)
+		if order.Status == 4 && store.OrderBalanceRefunded(order.OrderNumber) {
+			public.Result = "商品缺货，款项已退回账户余额。"
+		}
+		return &public
 	}
 	return order
+}
+
+func customerOrderError(message string) string {
+	if strings.Contains(message, "缺货") || strings.Contains(message, "库存不足") {
+		return "商品缺货，请稍后再试或联系客服"
+	}
+	lower := strings.ToLower(message)
+	for _, internal := range []string{"上游", "供应商", "天启", "app-id", "appid", "api 密钥", "waf", "http://", "https://"} {
+		if strings.Contains(lower, internal) {
+			return "商品服务暂不可用，请稍后重试或联系客服"
+		}
+	}
+	return message
 }
 
 func queryIntList(r *http.Request, key string) []int {

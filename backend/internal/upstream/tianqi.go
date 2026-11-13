@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -73,6 +74,10 @@ type envelope struct {
 }
 
 func request(path string, body any, out any) error {
+	return requestContext(context.Background(), path, body, out)
+}
+
+func requestContext(ctx context.Context, path string, body any, out any) error {
 	cfg := GetConfig()
 	if cfg.AppID == "" || cfg.AppSecret == "" {
 		return &APIError{Code: -1, Message: "未配置客户编号 / API 密钥，请在「系统设置」中填写"}
@@ -88,7 +93,7 @@ func request(path string, body any, out any) error {
 
 	do := func(cookie string) (*http.Response, string, error) {
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
-		req, e := http.NewRequest(http.MethodPost, cfg.BaseURL+path, bytes.NewReader([]byte(bodyJSON)))
+		req, e := http.NewRequestWithContext(ctx, http.MethodPost, cfg.BaseURL+path, bytes.NewReader([]byte(bodyJSON)))
 		if e != nil {
 			return nil, "", e
 		}
@@ -285,9 +290,13 @@ func CreateOrder(p CreateOrderParams) (*model.CreateOrderResult, error) {
 
 // GetOrderDetail 查询上游订单详情。
 func GetOrderDetail(orderNumber string) (*model.OrderDetail, error) {
+	return GetOrderDetailContext(context.Background(), orderNumber)
+}
+
+func GetOrderDetailContext(ctx context.Context, orderNumber string) (*model.OrderDetail, error) {
 	var out model.OrderDetail
 	body := map[string]any{"orderNumber": orderNumber, "outerNumber": ""}
-	if e := request("/api/v3/order/getDetail", body, &out); e != nil {
+	if e := requestContext(ctx, "/api/v3/order/getDetail", body, &out); e != nil {
 		return nil, e
 	}
 	return &out, nil

@@ -1,14 +1,18 @@
-// 订单流转：已按业务要求剔除「退款中 / 已退款」等分支。
-// 支付成功（下单完成）即视为履约/结算完成，不再提供退款状态。
+// 发货状态与买家退款分开：供货退款并不代表买家已收到退款。
 export const ORDER_STATUS: Record<number, string> = {
   0: "未付款",
-  1: "待处理",
-  2: "进行中",
+  1: "正在发货",
+  2: "部分完成",
   3: "已完成",
-  4: "已关闭",
-  7: "待同步",
-  8: "处理中",
+  4: "发货失败",
+  5: "发货已取消",
+  7: "正在发货",
+  8: "发货处理中",
 };
+
+export function isOrderPending(status: number | null | undefined): boolean {
+  return status === 1 || status === 2 || status === 7 || status === 8;
+}
 
 export const CARD_STATUS: Record<number, string> = {
   0: "未使用",
@@ -22,7 +26,7 @@ export function orderStatusColor(
   status: number,
 ): "default" | "success" | "warning" | "danger" | "accent" {
   if (status === 3) return "success";
-  if (status === 4) return "danger";
+  if (status === 4 || status === 5) return "danger";
   if (status === 1 || status === 2 || status === 7 || status === 8) return "accent";
   return "default";
 }

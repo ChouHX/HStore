@@ -27,7 +27,7 @@ func (a *API) handleGuestOrderCreate(w http.ResponseWriter, r *http.Request) {
 	// 已登录用户走同一套直购流程，但订单归到自己名下；游客则自动建 guest 账号。
 	gp, _, _, err := service.CreateGuestPurchase(sessionUser(r), body.GoodsID, body.Count, body.Attach, body.Channel, body.Chain, body.Contact)
 	if err != nil {
-		fail(w, http.StatusBadRequest, err.Error())
+		fail(w, http.StatusBadRequest, customerOrderError(err.Error()))
 		return
 	}
 	view, err := service.GetGuestOrder(r.Context(), gp.Token, false)

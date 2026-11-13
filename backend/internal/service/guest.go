@@ -39,6 +39,7 @@ type GuestOrderView struct {
 	GoodsCount     int     `json:"goodsCount"`
 	AmountCny      float64 `json:"amountCny"`
 	CreatedAt      int64   `json:"createdAt"`
+	PaidAt         *int64  `json:"paidAt,omitempty"`
 	PaymentStatus  string  `json:"paymentStatus"`
 	ExpiresAt      int64   `json:"expiresAt"`
 	PayableCents   int64   `json:"payableCents"`
@@ -316,7 +317,7 @@ var (
 // 这里必须异步：查支付宝账单、向上游下单都是秒级网络请求，放在 HTTP 请求里
 // 会让前端每 4 秒一次的轮询不断堆积，浏览器 6 个连接被占满后整页卡死。
 func syncGuestPurchaseAsync(gp *model.GuestPurchase) {
-	if gp == nil {
+	if gp == nil || gp.UpstreamOrderNo != "" {
 		return
 	}
 	guestSyncMu.Lock()
@@ -366,7 +367,7 @@ func guestOrderView(gp *model.GuestPurchase) (*GuestOrderView, error) {
 		Token: gp.Token, Status: gp.Status, Channel: gp.Channel,
 		GoodsID: gp.GoodsID, ProductName: gp.GoodsName, GoodsCount: gp.GoodsCount,
 		AmountCny: gp.AmountCny, CreatedAt: gp.CreatedAt,
-		Error: gp.LastError,
+		Error: customerGuestError(gp), PaidAt: gp.PaidAt,
 	}
 	if gp.Status == "fulfilled" {
 		view.Status = "fulfilled"
@@ -375,9 +376,24 @@ func guestOrderView(gp *model.GuestPurchase) (*GuestOrderView, error) {
 		// 注意：这个字段存的是**本地业务订单号**（历史命名遗留），
 		// 不是上游单号；上游单号在 orders.upstream_order_no，只给管理员看。
 		if order := store.GetOrder(gp.UpstreamOrderNo); order != nil {
+			switch order.Status {
+			case 3:
+				view.Status = "fulfilled"
+			case 4:
+				view.Status = "delivery_failed"
+			case 5:
+				view.Status = "delivery_cancelled"
+			default:
+				view.Status = "fulfilling"
+			}
+			result := store.CustomerOrderResult(order.Status, order.Result)
+			view.Error = ""
+			if order.Status == 4 || order.Status == 5 || order.Status == 8 {
+				view.Error = result
+			}
 			view.Order = &GuestOrderResult{
 				OrderNumber: order.OrderNumber, GoodsName: order.GoodsName, Count: order.Count,
-				Status: order.Status, Result: order.Result, CreatedAt: order.CreatedAt, Cards: order.Cards,
+				Status: order.Status, Result: result, CreatedAt: order.CreatedAt, Cards: order.Cards,
 			}
 		}
 	}
@@ -421,7 +437,7 @@ func guestOrderView(gp *model.GuestPurchase) (*GuestOrderView, error) {
 }
 
 func syncGuestPurchase(ctx context.Context, gp *model.GuestPurchase) {
-	if gp == nil || gp.Status == "fulfilled" || gp.Status == "fulfilling" {
+	if gp == nil || gp.UpstreamOrderNo != "" || gp.Status == "fulfilled" || gp.Status == "fulfilling" {
 		return
 	}
 	if status := terminalGuestPaymentStatus(gp); status != "" {
@@ -467,7 +483,18 @@ func guestPaymentPaid(gp *model.GuestPurchase) (*int64, bool) {
 // FulfillGuestPurchase 在游客支付到账后向上游下单并发货。使用 outer_number 保证重试幂等。
 func FulfillGuestPurchase(id int) error {
 	gp := store.GetGuestPurchase(id)
-	if gp == nil || gp.Status == "fulfilled" {
+	if gp == nil {
+		return nil
+	}
+	// Once accepted, only synchronize that order. Never re-purchase after delay/refund.
+	if gp.UpstreamOrderNo != "" {
+		return store.LinkGuestPurchaseOrder(id, gp.UpstreamOrderNo, gp.PaidAt)
+	}
+	if order := store.GetOrderByOuterNumber(gp.OuterNumber); order != nil {
+		paidAt, _ := guestPaymentPaid(gp)
+		return store.LinkGuestPurchaseOrder(id, order.OrderNumber, paidAt)
+	}
+	if gp.Status == "fulfilled" || gp.Status == "delivery_failed" || gp.Status == "delivery_cancelled" {
 		return nil
 	}
 	if gp.Status == "failed" && time.Since(time.UnixMilli(gp.UpdatedAt)) < 30*time.Second {
@@ -511,8 +538,17 @@ func FulfillGuestPurchase(id int) error {
 		store.MarkGuestPurchaseFailed(id, res.Message)
 		return errors.New(res.Message)
 	}
-	store.MarkGuestPurchaseFulfilled(id, res.Order.OrderNumber, paidAt)
-	return nil
+	return store.LinkGuestPurchaseOrder(id, res.Order.OrderNumber, paidAt)
+}
+
+func customerGuestError(gp *model.GuestPurchase) string {
+	if gp.LastError == "" {
+		return ""
+	}
+	if strings.Contains(gp.LastError, "缺货") || strings.Contains(gp.LastError, "库存不足") {
+		return "商品缺货，请联系客服处理，请勿重复支付"
+	}
+	return "发货暂未完成，请稍候或联系客服处理，请勿重复支付"
 }
 
 // FulfillGuestPurchaseByPayment 在支付结算后立即触发履约，降低游客等待时间。

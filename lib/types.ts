@@ -131,6 +131,7 @@ export interface StoreProduct {
  * 保留，成本价、目录、SKU 等字段不下发。
  */
 export interface GoodsDetail {
+  fulfillment?: "upstream" | "self";
   goodsId: number;
   name: string;
   imgUrl: string;

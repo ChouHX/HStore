@@ -60,6 +60,7 @@ type OrderDetail struct {
 	OuterNumber string  `json:"outerNumber"`
 	Count       int     `json:"count"`
 	Money       float64 `json:"money"`
+	RetMoney    float64 `json:"retMoney"`
 	Status      int     `json:"status"`
 	Result      string  `json:"result"`
 	Cards       []Card  `json:"cards"`
@@ -450,19 +451,19 @@ type MailboxItem struct {
 // PublicOrderItem 是「订单查询」页对外的订单摘要。
 // 游客也能用，所以只暴露查询必需的字段，不含成本、用户 UID 等内部信息。
 type PublicOrderItem struct {
-	Kind        string  `json:"kind"` // order | guest
-	OrderNumber string  `json:"orderNumber"`
-	GoodsID     int     `json:"goodsId"`
-	GoodsName   string  `json:"goodsName"`
+	Kind        string `json:"kind"` // order | guest
+	OrderNumber string `json:"orderNumber"`
+	GoodsID     int    `json:"goodsId"`
+	GoodsName   string `json:"goodsName"`
 	// GoodsImg 是商品缩略图（已换成站内代理地址），列表用它渲染缩略卡片。
-	GoodsImg string `json:"goodsImg,omitempty"`
-	Count       int     `json:"count"`
-	Money       float64 `json:"money"`
-	Status      int     `json:"status"`
-	StatusText  string  `json:"statusText"`
-	Contact     string  `json:"contact"`
-	Token       string  `json:"token,omitempty"` // 游客未发货时用于跳转支付页
-	CreatedAt   int64   `json:"createdAt"`
-	CardCount   int     `json:"cardCount"`
-	Error       string  `json:"error,omitempty"`
+	GoodsImg   string  `json:"goodsImg,omitempty"`
+	Count      int     `json:"count"`
+	Money      float64 `json:"money"`
+	Status     int     `json:"status"`
+	StatusText string  `json:"statusText"`
+	Contact    string  `json:"contact"`
+	Token      string  `json:"token,omitempty"` // 游客未发货时用于跳转支付页
+	CreatedAt  int64   `json:"createdAt"`
+	CardCount  int     `json:"cardCount"`
+	Error      string  `json:"error,omitempty"`
 }

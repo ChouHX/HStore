@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { GoodsDetail, RechargeTemplate, StoreProduct, User } from "@/lib/types";
 import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMethodTags";
+import { DeliveryWaiting } from "@/components/DeliveryWaiting";
+import { RichTextView } from "@/components/common/RichTextView";
 import { detailPurchasable, detailStockLabel } from "@/components/store/selfStock";
 import {
   clearGuestToken,
@@ -52,7 +54,9 @@ interface CryptoPaymentCfg {
 
 interface GuestOrderView {
   token: string;
-  status: "waiting" | "paid" | "fulfilling" | "fulfilled" | "failed" | "expired" | "closed" | "cancelled" | "disputed";
+  status: "waiting" | "paid" | "fulfilling" | "fulfilled" | "failed" | "delivery_failed" | "delivery_cancelled" | "expired" | "closed" | "cancelled" | "disputed";
+  createdAt: number;
+  paidAt?: number;
   channel: "alipay" | "usdt";
   productName: string;
   goodsCount: number;
@@ -127,6 +131,8 @@ const GUEST_STATUS: Record<string, { color: string; text: string }> = {
   fulfilling: { color: "blue", text: "正在发货" },
   fulfilled: { color: "green", text: "已发货" },
   failed: { color: "red", text: "发货失败" },
+  delivery_failed: { color: "red", text: "发货失败" },
+  delivery_cancelled: { color: "red", text: "发货已取消" },
   expired: { color: "gray", text: "订单已过期" },
   closed: { color: "gray", text: "订单已关闭" },
   cancelled: { color: "red", text: "订单已取消" },
@@ -246,7 +252,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
 
 
   useEffect(() => {
-    if (!guestOrder || !["waiting", "paid", "fulfilling"].includes(guestOrder.status)) return;
+    if (!guestOrder || !["waiting", "paid", "fulfilling", "failed"].includes(guestOrder.status)) return;
     const token = guestOrder.token;
     const interval = guestOrder.channel === "usdt" ? 5000 : 4000;
     let stopped = false;
@@ -455,7 +461,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           onOpenChange(false);
           navigate(`/g/${encodeURIComponent(next.token)}`);
         } else if (["waiting", "paid", "fulfilling"].includes(next.status)) {
-          Message.info(next.status === "waiting" ? "暂未查询到付款，请确认支付金额" : "已支付，正在等待上游发货");
+          Message.info(next.status === "waiting" ? "暂未查询到付款，请确认支付金额" : "已支付，正在发货");
         }
       }
     } catch {
@@ -573,6 +579,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   );
 
   const title = isGuest ? "游客购买" : "购买商品";
+  const isSelfProduct = product?.fulfillment === "self" || detail?.fulfillment === "self";
+  const selfDescription = isSelfProduct ? product?.customDesc || detail?.goodsDescribe || "" : "";
   const body = loading ? (
         <div className="py-10 text-center text-[13px] text-[#86909c]">加载中…</div>
       ) : guestOrder ? (
@@ -587,7 +595,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             </span>
           </div>
 
-          {["waiting", "paid", "fulfilling"].includes(guestOrder.status) && (
+          {guestOrder.status === "waiting" && (
             <>
               <div className="text-center">
                 <div className="text-[12px] text-[#86909c]">
@@ -613,12 +621,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                       支付剩余 <Countdown expiresAt={guestOrder.expiresAt} />
                     </div>
                   )}
-                </div>
-              )}
-
-              {guestOrder.status !== "waiting" && (
-                <div className="rounded border border-[#bedaff] bg-[#e8f3ff] px-3 py-3 text-center text-[12px] text-[#165dff]">
-                  支付已确认，正在自动发货，请稍候…
                 </div>
               )}
 
@@ -656,6 +658,14 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
             </>
           )}
 
+          {["paid", "fulfilling"].includes(guestOrder.status) && (
+            <DeliveryWaiting since={guestOrder.paidAt || guestOrder.createdAt} />
+          )}
+          {["delivery_failed", "delivery_cancelled"].includes(guestOrder.status) && (
+            <div role="alert" className="rounded border border-[#ffcf8b] bg-[#fff7e8] px-3 py-3 text-[12px] text-[#d25f00]">
+              {guestOrder.error || "发货未完成，请联系客服处理退款或换货，请勿重复支付。"}
+            </div>
+          )}
           {guestOrder.status === "fulfilled" && (
             <div className="flex flex-col gap-3">
               <div className="rounded border border-[#aff0b5] bg-[#e8ffea] px-3 py-2 text-[12px] text-[#00b42a]">
@@ -706,7 +716,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               )}
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium">{product?.customName || detail.name}</div>
-                {(product?.customDesc || detail.goodsDescribe) && (
+                {!isSelfProduct && (product?.customDesc || detail.goodsDescribe) && (
                   <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#86909c]">
                     {product?.customDesc || detail.goodsDescribe}
                   </div>
@@ -719,11 +729,12 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
               </div>
             </div>
 
-            {(detail.goodsDetail || detail.buyNotice) && (
+            {(selfDescription || detail.goodsDetail || detail.buyNotice) && (
               <div className="mt-3 border-t border-[#f2f3f5] pt-2">
                 <div className="text-[12px] font-medium text-[#1d2129]">商品详情 / 购买须知</div>
                 {/* 标题固定，详情在容器内滚动；移动端更矮一些 */}
-                <div className="mt-1.5 max-h-[132px] overflow-y-auto text-[12px] leading-relaxed text-[#4e5969] sm:max-h-[180px]">
+                <div role="region" aria-label="商品详情" tabIndex={0} className="mt-1.5 max-h-[132px] overflow-y-auto overscroll-contain break-words text-[12px] leading-relaxed text-[#4e5969] sm:max-h-[180px]">
+                  {selfDescription && <RichTextView content={selfDescription} />}
                   {detail.goodsDetail && (
                     <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
                   )}

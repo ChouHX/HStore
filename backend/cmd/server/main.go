@@ -62,6 +62,7 @@ func main() {
 	go cryptoLoop(ctx)
 	go alipayLoop(ctx)
 	go stockLoop(ctx)
+	go service.RunOrderSync(ctx)
 
 	go func() {
 		log.Printf("[hstore] 监听 http://%s", srv.Addr)

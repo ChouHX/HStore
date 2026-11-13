@@ -131,7 +131,7 @@ func redeemProduct(uid int, row *model.RedeemCode) RedeemResult {
 
 	msg := "兑换成功，已生成订单"
 	if len(r.Order.Cards) == 0 {
-		msg = "兑换成功，上游正在发货，请稍后取件"
+		msg = "兑换成功，正在发货，请稍后取件"
 	}
 	return RedeemResult{
 		OK: true, Kind: "product", Message: msg,
@@ -154,7 +154,7 @@ func Pickup(uid int, code, orderNumber string, isAdmin bool) PickupResult {
 		return PickupResult{Message: msg}
 	}
 	if len(order.Cards) == 0 {
-		msg = "上游正在发货，请稍后刷新取件"
+		msg = store.CustomerOrderResult(order.Status, order.Result)
 		if order.Status == 3 {
 			msg = "该订单没有可取的卡券"
 		}
