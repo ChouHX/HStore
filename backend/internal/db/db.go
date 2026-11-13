@@ -663,6 +663,11 @@ func migrateLegacyOrderNumbers(db *sql.DB) error {
 	for rows.Next() {
 		var it legacyOrder
 		if rows.Scan(&it.no, &it.upstream, &it.createdAt) == nil && it.no != "" {
+			// Empty supplier IDs are valid for self-fulfilled and rejected purchases.
+			// Never rename an existing local order or turn its pickup code into a supplier ID.
+			if redeemOrderNoFormat(it.no) || (strings.HasPrefix(it.no, "HS") && !isLegacyOrderNoFormat(it.no)) {
+				continue
+			}
 			legacy = append(legacy, it)
 		}
 	}

@@ -248,6 +248,38 @@ func TestNewLegacyOrderNoStable(t *testing.T) {
 	}
 }
 
+func TestLegacyMigrationPreservesLocalOrdersWithoutSupplier(t *testing.T) {
+	conn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	migrateTestSchema(t, conn)
+	numbers := []string{"HS202611131336097641E3FFEF", "HS261113133609ABCD", "ABCD-EFGH-IJKL", "ABCD-EFGH-IJKL-MNOP"}
+	for _, no := range numbers {
+		if _, err := conn.Exec(`INSERT INTO orders(order_number,created_at) VALUES(?,?)`, no, int64(1793361618562)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(`INSERT INTO cards(card_id,order_number) VALUES(?,?)`, "card-"+no, no); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := migrateLegacyOrderNumbers(conn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, no := range numbers {
+		var supplier, cardOrder string
+		if err := conn.QueryRow(`SELECT upstream_order_no FROM orders WHERE order_number=?`, no).Scan(&supplier); err != nil || supplier != "" {
+			t.Fatalf("local order renamed or supplier ID fabricated: %s %s %v", no, supplier, err)
+		}
+		if err := conn.QueryRow(`SELECT order_number FROM cards WHERE card_id=?`, "card-"+no).Scan(&cardOrder); err != nil || cardOrder != no {
+			t.Fatalf("card reference changed: %s %v", cardOrder, err)
+		}
+	}
+}
+
 // TestBackfillRedeemOrderSaleMoney 历史兑换码订单必须补记销售额，
 // 且只补「兑换码核销过 + 金额为 0 + 能查到售价」的那些行。
 func TestBackfillRedeemOrderSaleMoney(t *testing.T) {
