@@ -262,3 +262,54 @@ func TestGuestLinkDoesNotCompleteAcceptedOrder(t *testing.T) {
 		t.Fatal("must not link someone else's order")
 	}
 }
+
+func TestPaidGuestShortageBeforeAcceptanceNotifiesWithoutRetryOrRefund(t *testing.T) {
+	u, err := CreateGuestUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payment, err := CreateAlipayOrder(u.UID, NewAlipayOrderNo(), HashAlipayToken(NewSystemOrderNo()), "test-qr", 4500, 99, 60000, 60000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := InsertGuestPurchase(model.GuestPurchase{UID: u.UID, GuestUser: 1, Channel: "alipay", PaymentOrderID: payment.ID,
+		Token: NewSystemOrderNo(), OuterNumber: NewSystemOrderNo(), GoodsID: 1, GoodsName: "test shortage", GoodsCount: 5, AmountCny: 45, Status: "fulfilling"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkPaidGuestShortage(id, "商品库存不足", nil); err != nil {
+		t.Fatal(err)
+	}
+	if gp := GetGuestPurchase(id); gp.UpstreamOrderNo != "" || gp.Status != "fulfilling" {
+		t.Fatal("unpaid purchase was changed")
+	}
+	_, err = db.Must().Exec(`UPDATE alipay_orders SET payment_status='CONFIRMED' WHERE id=?`, payment.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := MarkPaidGuestShortage(id, "商品库存不足", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gp := GetGuestPurchase(id)
+	if gp.Status != "delivery_failed" || gp.UpstreamOrderNo == "" || ClaimGuestPurchase(id) {
+		t.Fatalf("shortage may be purchased again: %+v", gp)
+	}
+	o := GetOrder(gp.UpstreamOrderNo)
+	if o == nil || o.Status != 4 || o.Money != 45 || o.CostMoney != 0 || o.UpstreamOrderNo != "" {
+		t.Fatalf("invalid failed order: %+v", o)
+	}
+	var count int
+	if err := db.Must().QueryRow(`SELECT count(*) FROM order_notifications WHERE order_number=?`, o.OrderNumber).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("notification count %d: %v", count, err)
+	}
+	if GetUser(u.UID).Balance != 0 || GetAlipayOrder(payment.ID).PaymentStatus != "CONFIRMED" {
+		t.Fatal("customer payment was changed")
+	}
+	t.Cleanup(func() {
+		_, _ = db.Must().Exec(`DELETE FROM order_notifications WHERE order_number=?`, o.OrderNumber)
+		_, _ = db.Must().Exec(`DELETE FROM orders WHERE order_number=?`, o.OrderNumber)
+		_, _ = db.Must().Exec(`DELETE FROM guest_purchases WHERE id=?`, id)
+	})
+}

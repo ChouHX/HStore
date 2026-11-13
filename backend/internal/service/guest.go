@@ -535,6 +535,9 @@ func FulfillGuestPurchase(id int) error {
 		Contact:   gp.Contact,
 	})
 	if !res.OK {
+		if store.IsShortageResult(res.Message) {
+			return store.MarkPaidGuestShortage(id, res.Message, paidAt)
+		}
 		store.MarkGuestPurchaseFailed(id, res.Message)
 		return errors.New(res.Message)
 	}

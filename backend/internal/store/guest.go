@@ -191,7 +191,53 @@ func MarkGuestPurchaseExpired(id int, status string) {
 		WHERE id=? AND status IN ('waiting','failed')`, status, now(), id)
 }
 
-// MarkGuestPurchaseFailed 记录履约失败，允许后续重试。
+// MarkPaidGuestShortage records a confirmed shortage before a supplier order was accepted.
+// The buyer's payment stays intact for customer service to handle the refund.
+func MarkPaidGuestShortage(id int, message string, paidAt *int64) error {
+	if !IsShortageResult(message) {
+		return errors.New("缺少确认的缺货原因")
+	}
+	tx, err := db.Must().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	ts := now()
+	res, err := tx.Exec(`UPDATE guest_purchases SET status='delivery_failed',last_error=?,
+		paid_at=COALESCE(?,paid_at),updated_at=? WHERE id=? AND status='fulfilling' AND upstream_order_no=''
+		AND ((channel='alipay' AND EXISTS(SELECT 1 FROM alipay_orders a WHERE a.id=payment_order_id AND a.payment_status='CONFIRMED'))
+		OR (channel='usdt' AND EXISTS(SELECT 1 FROM crypto_orders c WHERE c.id=payment_order_id AND c.status='paid')))`,
+		message, nullableInt64(paidAt), ts, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return nil
+	}
+	number := NewSystemOrderNo()
+	_, err = tx.Exec(`INSERT INTO orders(order_number,outer_number,goods_id,goods_name,count,money,status,result,
+		user_uid,sale_money,cost_money,source,settled,contact,created_at,updated_at)
+		SELECT ?,outer_number,goods_id,goods_name,goods_count,amount_cny,4,?,uid,amount_cny,0,
+		CASE WHEN guest_user=1 THEN 'guest' ELSE 'user' END,0,contact,created_at,? FROM guest_purchases WHERE id=?`,
+		number, message, ts, id)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE guest_purchases SET upstream_order_no=? WHERE id=?`, number, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO order_notifications(order_number,kind,status,created_at,updated_at)
+		VALUES(?,'shortage','pending',?,?)`, number, ts, ts); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// MarkGuestPurchaseFailed records transient delivery errors for retry.
 func MarkGuestPurchaseFailed(id int, message string) {
 	if len(message) > 500 {
 		message = message[:500]
