@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS order_notifications (
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL,
   sent_at      INTEGER,
+  sent_recipients TEXT NOT NULL DEFAULT '[]',
   PRIMARY KEY (order_number, kind)
 );
 
@@ -889,17 +890,7 @@ func migrateRedeemOrderNumbers(db *sql.DB) error {
 }
 
 func migrate(db *sql.DB) error {
-	if _, e := db.Exec(`CREATE TABLE IF NOT EXISTS order_notifications (
-		order_number TEXT NOT NULL,
-		kind TEXT NOT NULL,
-		status TEXT NOT NULL DEFAULT 'pending',
-		attempts INTEGER NOT NULL DEFAULT 0,
-		last_error TEXT NOT NULL DEFAULT '',
-		created_at INTEGER NOT NULL,
-		updated_at INTEGER NOT NULL,
-		sent_at INTEGER,
-		PRIMARY KEY (order_number, kind)
-	)`); e != nil {
+	if e := addColumns(db, "order_notifications", [][2]string{{"sent_recipients", "TEXT NOT NULL DEFAULT '[]'"}}); e != nil {
 		return e
 	}
 	if e := addColumns(db, "products", [][2]string{{"cost_price", "REAL NOT NULL DEFAULT 0"},

@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"hstore/backend/internal/db"
+	"hstore/backend/internal/mail"
 	"hstore/backend/internal/model"
 	"hstore/backend/internal/store"
 )
@@ -111,5 +113,60 @@ func TestGuestAcceptedOrderViewAndRetryGuard(t *testing.T) {
 	}
 	if got := store.GetAlipayOrder(payment.ID); got.PaymentStatus != payment.PaymentStatus {
 		t.Fatal("supplier refund changed buyer payment state")
+	}
+}
+
+func TestShortageMailRetriesOnlyUnsentRecipients(t *testing.T) {
+	no := store.NewSystemOrderNo()
+	store.UpsertOrder(store.UpsertOrderInput{OrderNumber: no, UpstreamOrderNo: "remote-" + no,
+		GoodsID: 1, GoodsName: "mail-test-product", Status: 1, Count: 5, SaleMoney: 45, Money: 45, Source: "admin"})
+	if err := store.ApplyOrderSync(no, model.OrderDetail{OrderNumber: "remote-" + no, Status: 4, Result: "商品库存不足"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := db.Must().Exec(`UPDATE order_notifications SET status='sending' WHERE order_number=?`, no)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = db.Must().Exec(`DELETE FROM order_notifications WHERE order_number=?`, no) })
+	item := &store.ShortageNotification{OrderNumber: no, GoodsName: "mail-test-product", Count: 5, SaleMoney: 45, RetMoney: 22.5, Result: "商品库存不足"}
+	cfg := store.SMTPConfig{Enabled: true, Provider: store.MailProviderResend, ResendDomain: "example.com", ResendAPIKey: "test-only"}
+	counts := map[string]int{}
+	failSecond := true
+	send := func(ctx context.Context, _ store.SMTPConfig, opt mail.SendOptions) error {
+		counts[opt.To]++
+		if _, ok := ctx.Deadline(); !ok {
+			t.Error("mail send must have a deadline")
+		}
+		if !strings.Contains(opt.Subject, no) || !strings.Contains(opt.Text, "联系客服") && !strings.Contains(opt.Text, "联系用户处理退款") {
+			t.Error("missing refund handling details")
+		}
+		if opt.To == "second@example.com" && failSecond {
+			return errors.New("temporary provider failure")
+		}
+		return nil
+	}
+	to := []string{"FIRST@example.com", "first@example.com", "second@example.com"}
+	if err := sendShortageNotification(context.Background(), item, to, cfg, send); err == nil {
+		t.Fatal("expected second recipient failure")
+	}
+	var raw string
+	if err := db.Must().QueryRow(`SELECT sent_recipients FROM order_notifications WHERE order_number=?`, no).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(raw), &item.SentRecipients); err != nil {
+		t.Fatal(err)
+	}
+	if len(item.SentRecipients) != 1 || item.SentRecipients[0] != "first@example.com" {
+		t.Fatalf("receipt not persisted: %s", raw)
+	}
+	failSecond = false
+	if err := sendShortageNotification(context.Background(), item, to, cfg, send); err != nil {
+		t.Fatal(err)
+	}
+	if counts["first@example.com"] != 1 || counts["second@example.com"] != 2 {
+		t.Fatalf("duplicate mail sent: %+v", counts)
+	}
+	if err := store.CompleteShortageNotification(no, nil); err != nil {
+		t.Fatal(err)
 	}
 }

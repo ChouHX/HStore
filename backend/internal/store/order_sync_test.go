@@ -233,6 +233,10 @@ func TestShortageNotificationQueueIsDurableAndIdempotent(t *testing.T) {
 		t.Fatalf("notification was not claimed: %+v %v", item, err)
 	}
 	CompleteShortageNotification(o.OrderNumber, errors.New("temporary mail failure"))
+	if early, err := ClaimShortageNotification(); err != nil || early != nil {
+		t.Fatalf("mail retry must wait at least one minute: %+v %v", early, err)
+	}
+	_, _ = db.Must().Exec(`UPDATE order_notifications SET updated_at=? WHERE order_number=?`, now()-61000, o.OrderNumber)
 	item, err = ClaimShortageNotification()
 	if err != nil || item == nil || item.Attempts != 2 {
 		t.Fatalf("failed notification was not retryable: %+v %v", item, err)

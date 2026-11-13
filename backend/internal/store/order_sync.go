@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -265,22 +266,24 @@ func OrderBalanceRefunded(orderNumber string) bool {
 
 // ShortageNotification is the durable work item sent to administrators.
 type ShortageNotification struct {
-	OrderNumber string
-	GoodsName   string
-	Count       int
-	SaleMoney   float64
-	RetMoney    float64
-	Result      string
-	Contact     string
-	CreatedAt   int64
-	Attempts    int
+	OrderNumber    string
+	GoodsName      string
+	Count          int
+	SaleMoney      float64
+	RetMoney       float64
+	Result         string
+	Contact        string
+	CreatedAt      int64
+	Attempts       int
+	SentRecipients []string
 }
 
 // EnsureShortageNotifications backfills orders confirmed before this feature was deployed.
-func EnsureShortageNotifications() {
-	_, _ = db.Must().Exec(`INSERT OR IGNORE INTO order_notifications(order_number,kind,status,created_at,updated_at)
+func EnsureShortageNotifications() error {
+	_, err := db.Must().Exec(`INSERT OR IGNORE INTO order_notifications(order_number,kind,status,created_at,updated_at)
 		SELECT order_number,'shortage','pending',created_at,updated_at FROM orders
-		WHERE status=4 AND (result LIKE '%缺货%' OR result LIKE '%库存不足%')`)
+		WHERE upstream_order_no<>'' AND status=4 AND (result LIKE '%缺货%' OR result LIKE '%库存不足%')`)
+	return err
 }
 
 func ClaimShortageNotification() (*ShortageNotification, error) {
@@ -296,16 +299,21 @@ func ClaimShortageNotification() (*ShortageNotification, error) {
 		return nil, err
 	}
 	var n ShortageNotification
+	var sentRecipients string
 	err = tx.QueryRow(`SELECT o.order_number,o.goods_name,o.count,COALESCE(o.sale_money,0),
-		COALESCE(o.ret_money,0),o.result,COALESCE(o.contact,''),o.created_at,notif.attempts
+		COALESCE(o.ret_money,0),o.result,COALESCE(o.contact,''),o.created_at,notif.attempts,notif.sent_recipients
 		FROM order_notifications notif JOIN orders o ON o.order_number=notif.order_number
 		WHERE notif.kind='shortage' AND notif.status='pending' AND o.status=4
-		ORDER BY notif.created_at,notif.order_number LIMIT 1`).Scan(&n.OrderNumber, &n.GoodsName, &n.Count,
-		&n.SaleMoney, &n.RetMoney, &n.Result, &n.Contact, &n.CreatedAt, &n.Attempts)
+		AND (notif.attempts=0 OR notif.updated_at<=?)
+		ORDER BY notif.updated_at,notif.order_number LIMIT 1`, now()-60*1000).Scan(&n.OrderNumber, &n.GoodsName, &n.Count,
+		&n.SaleMoney, &n.RetMoney, &n.Result, &n.Contact, &n.CreatedAt, &n.Attempts, &sentRecipients)
 	if err == sql.ErrNoRows {
 		return nil, tx.Commit()
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(sentRecipients), &n.SentRecipients); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(`UPDATE order_notifications SET status='sending',attempts=attempts+1,updated_at=?
@@ -319,16 +327,26 @@ func ClaimShortageNotification() (*ShortageNotification, error) {
 	return &n, nil
 }
 
-func CompleteShortageNotification(orderNumber string, sendErr error) {
+func CompleteShortageNotification(orderNumber string, sendErr error) error {
 	if sendErr == nil {
-		_, _ = db.Must().Exec(`UPDATE order_notifications SET status='sent',last_error='',sent_at=?,updated_at=?
-			WHERE order_number=? AND kind='shortage'`, now(), now(), orderNumber)
-		return
+		_, err := db.Must().Exec(`UPDATE order_notifications SET status='sent',last_error='',sent_at=?,updated_at=?
+			WHERE order_number=? AND kind='shortage' AND status='sending'`, now(), now(), orderNumber)
+		return err
 	}
 	message := sendErr.Error()
 	if len(message) > 500 {
 		message = message[:500]
 	}
-	_, _ = db.Must().Exec(`UPDATE order_notifications SET status='pending',last_error=?,updated_at=?
-		WHERE order_number=? AND kind='shortage'`, message, now(), orderNumber)
+	_, err := db.Must().Exec(`UPDATE order_notifications SET status='pending',last_error=?,updated_at=?
+		WHERE order_number=? AND kind='shortage' AND status='sending'`, message, now(), orderNumber)
+	return err
+}
+
+func RecordShortageRecipient(orderNumber, recipient string) error {
+	_, err := db.Must().Exec(`UPDATE order_notifications
+		SET sent_recipients=json_insert(sent_recipients,'$[#]',?),updated_at=?
+		WHERE order_number=? AND kind='shortage' AND status='sending'
+		AND NOT EXISTS (SELECT 1 FROM json_each(sent_recipients) WHERE value=?)`,
+		recipient, now(), orderNumber, recipient)
+	return err
 }
