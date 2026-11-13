@@ -68,7 +68,7 @@ func TestMigrateRedeemOrderNumbers(t *testing.T) {
 	// 造一张兑换码单（orders.order_number 还是内部单号）
 	_, _ = d.Exec("DELETE FROM cards WHERE order_number IN (?,?)", localNo, otherNo)
 	_, _ = d.Exec("DELETE FROM redeem_codes WHERE code = ?", code)
-	_, _ = d.Exec("DELETE FROM orders WHERE order_number IN (?,?)", localNo, otherNo)
+	_, _ = d.Exec("DELETE FROM orders WHERE order_number IN (?,?,?)", localNo, otherNo, code)
 
 	if _, e := d.Exec(`INSERT INTO orders(order_number, goods_id, goods_name, count, money, status, result, platform, created_at, updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?)`, localNo, 990001, "迁移测试商品", 1, 1, 3, "兑换码取件", "self", 1, 1); e != nil {
@@ -89,7 +89,7 @@ func TestMigrateRedeemOrderNumbers(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = d.Exec("DELETE FROM cards WHERE card_id = ?", "MIGR-CARD-1")
 		_, _ = d.Exec("DELETE FROM redeem_codes WHERE code = ?", code)
-		_, _ = d.Exec("DELETE FROM orders WHERE order_number IN (?,?)", localNo, otherNo, code)
+		_, _ = d.Exec("DELETE FROM orders WHERE order_number IN (?,?,?)", localNo, otherNo, code)
 	})
 
 	if e := migrateRedeemOrderNumbers(d); e != nil {
