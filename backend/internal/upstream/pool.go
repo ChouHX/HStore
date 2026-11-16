@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -35,11 +36,32 @@ type PoolStatus struct {
 }
 
 // poolStatsAddr 返回聚合器状态接口地址。
+//
+// 聚合器（sockspool）跑在宿主机上，从容器里要用 docker 网桥网关访问，
+// 不能写 127.0.0.1。网关地址由 SOCKS_POOL_STATS 显式指定最稳妥；
+// 没配时用 /etc/hosts 里 docker 注入的 host-gateway，再退到常见网段。
 func poolStatsAddr() string {
 	if v := strings.TrimSpace(os.Getenv("SOCKS_POOL_STATS")); v != "" {
 		return v
 	}
+	// 优先用环境变量里代理地址的网关（HTTPS_PROXY=socks5://172.20.0.1:18080）
+	if gw := proxyHost(); gw != "" {
+		return "http://" + gw + ":18089"
+	}
 	return "http://172.20.0.1:18089"
+}
+
+// proxyHost 从当前生效的代理环境变量里取出主机部分。
+func proxyHost() string {
+	raw := proxyEnv()
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // CheckPool 读取 sockspool 的节点状态。
