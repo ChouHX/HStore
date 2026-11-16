@@ -1,8 +1,9 @@
 "use client";
 
-import { Button, Card, Input, Message, Space, Tag } from "@arco-design/web-react";
+import { Button, Card, Input, Message, Space, Tabs, Tag } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
 import { SmtpSection } from "@/components/admin/SmtpSection";
+import { PoolNodesPanel } from "@/components/admin/PoolNodesPanel";
 
 interface SettingsData {
   baseUrl: string;
@@ -133,6 +134,8 @@ export function SettingsSection() {
   }
 
   return (
+    <Tabs defaultActiveTab="upstream" type="rounded">
+      <Tabs.TabPane key="upstream" title="上游与通知">
     <div className="grid gap-4 lg:grid-cols-2">
       <Card title="开放平台配置" bordered={false}>
         <div className="flex flex-col gap-3">
@@ -250,5 +253,11 @@ export function SettingsSection() {
         <SmtpSection />
       </div>
     </div>
+      </Tabs.TabPane>
+
+      <Tabs.TabPane key="pool" title="家宽出口节点">
+        <PoolNodesPanel />
+      </Tabs.TabPane>
+    </Tabs>
   );
 }

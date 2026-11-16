@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatPrice } from "@/lib/format";
 import { ProductDistribution } from "./ProductDistribution";
-import { UpstreamStatusCard } from "./UpstreamStatusCard";
 import {
   CompactStatsRow,
   DAY_MS,
@@ -283,12 +282,6 @@ export function OverviewSection() {
 
       {/* 商品 / 用户 / 兑换码：保留，压缩成一行 */}
       <CompactStatsRow products={products} users={users} redeem={redeem} />
-
-      <Row gutter={[12, 12]}>
-        <Col span={24}>
-          <UpstreamStatusCard />
-        </Col>
-      </Row>
 
       <Row gutter={[12, 12]}>
         <Col span={24}>

@@ -35,12 +35,19 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/hstore-server \
     ./cmd/server
 
-# sockspool：多下游家宽的 SOCKS5 汇聚器（单端口收口 + 故障转移）
+# sockspool：SOCKS5 汇聚器 + 家宽隧道服务端（单端口收口 + 故障转移）
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \
     -o /out/sockspool \
     ./cmd/sockspool
+
+# hshop-agent：家宽设备上运行的出口代理，供一键命令下载
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/hshop-agent \
+    ./cmd/agent
 
 
 # ---------- 运行镜像 ----------
@@ -54,6 +61,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 COPY --from=build /out/hstore-server /usr/local/bin/hstore-server
 COPY --from=build /out/sockspool /usr/local/bin/sockspool
+COPY --from=build /out/hshop-agent /usr/local/bin/hshop-agent
 
 ENV PORT=3001 \
     FAKA_ADDR=0.0.0.0 \

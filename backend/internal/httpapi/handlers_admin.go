@@ -3,6 +3,7 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/mail"
@@ -42,46 +43,136 @@ func (a *API) handleAdminUpstreamStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// handleAdminPool 返回下游家宽节点池状态（多节点冗余）。
+// handleAdminPool 返回下游家宽节点列表 + 运行状态 + 一键接入命令。
 func (a *API) handleAdminPool(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
 	}
+	host := serverHost(r)
 	st := upstream.CheckPool()
-	// 顺带给出每个节点的一键接入命令，方便新增设备
-	cmds := make([]upstream.OnboardCommand, 0, len(st.Nodes)+2)
+	runtime := map[int]upstream.PoolNode{}
 	for _, n := range st.Nodes {
-		cmds = append(cmds, upstream.OnboardCommand{
-			Index: n.Index,
-			Port:  upstream.NodePort(n.Index),
-			Shell: upstream.BuildOnboardOneLiner(serverHost(r), "root", n.Index),
-		})
+		runtime[n.Index] = n
 	}
-	// 已配置但尚未接入的节点也给出命令（按最大序号 +1 ~ +3）
-	next := st.TotalNodes + 1
-	for i := 0; i < 3; i++ {
-		idx := next + i
-		cmds = append(cmds, upstream.OnboardCommand{
-			Index: idx,
-			Port:  upstream.NodePort(idx),
-			Shell: upstream.BuildOnboardOneLiner(serverHost(r), "root", idx),
-		})
+
+	all := store.ListPoolNodes()
+	views := make([]map[string]any, 0, len(all))
+	for _, n := range all {
+		rt, has := runtime[n.Index]
+		view := map[string]any{
+			"index":     n.Index,
+			"label":     n.Label,
+			"enabled":   n.Enabled,
+			"createdAt": n.CreatedAt,
+			"online":    has && rt.Healthy,
+			"idle":      rt.Idle,
+			"lastSeen":  rt.LastSeen,
+		}
+		if n.Enabled {
+			view["command"] = upstream.BuildOnboardCommand(host, n)
+		}
+		views = append(views, view)
 	}
-	ok(w, map[string]any{"pool": st, "commands": cmds})
+	ok(w, map[string]any{
+		"listen":     st.Listen,
+		"tunnel":     st.Tunnel,
+		"tunnelAddr": store.PoolTunnelAddr(),
+		"reached":    st.Reached,
+		"error":      st.Error,
+		"nodes":      views,
+		"total":      len(views),
+		"healthy":    st.Healthy,
+	})
 }
 
-// handlePoolInstallScript 下发家宽接入脚本（公开，脚本本身不含敏感信息）。
+// handleAdminPoolPost 新增 / 修改 / 删除下游节点。
+func (a *API) handleAdminPoolPost(w http.ResponseWriter, r *http.Request) {
+	admin := requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	var body struct {
+		Action     string `json:"action"`
+		Index      int    `json:"index"`
+		Label      string `json:"label"`
+		Enable     *bool  `json:"enabled"`
+		TunnelAddr string `json:"tunnelAddr"`
+	}
+	if e := readJSON(r, &body); e != nil {
+		fail(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	switch body.Action {
+	case "add":
+		node, e := store.AddPoolNode(body.Label)
+		if e != nil {
+			fail(w, http.StatusInternalServerError, e.Error())
+			return
+		}
+		store.WriteAudit(&admin.UID, "pool_node_add", "pool", itoa(node.Index), nil,
+			map[string]any{"label": node.Label}, "新增下游家宽节点")
+		ok(w, map[string]any{"node": map[string]any{
+			"index":   node.Index,
+			"label":   node.Label,
+			"command": upstream.BuildOnboardCommand(serverHost(r), node),
+		}})
+	case "update":
+		enabled := true
+		if body.Enable != nil {
+			enabled = *body.Enable
+		}
+		if e := store.UpdatePoolNode(body.Index, body.Label, enabled); e != nil {
+			fail(w, http.StatusBadRequest, e.Error())
+			return
+		}
+		store.WriteAudit(&admin.UID, "pool_node_update", "pool", itoa(body.Index), nil,
+			map[string]any{"label": body.Label, "enabled": enabled}, "修改下游家宽节点")
+		ok(w, nil)
+	case "delete":
+		if e := store.DeletePoolNode(body.Index); e != nil {
+			fail(w, http.StatusBadRequest, e.Error())
+			return
+		}
+		store.WriteAudit(&admin.UID, "pool_node_delete", "pool", itoa(body.Index), nil, nil, "删除下游家宽节点")
+		ok(w, nil)
+	case "saveTunnel":
+		store.SavePoolTunnelAddr(body.TunnelAddr)
+		store.WriteAudit(&admin.UID, "pool_tunnel_save", "pool", "", nil,
+			map[string]any{"tunnelAddr": body.TunnelAddr}, "保存家宽隧道地址")
+		ok(w, map[string]any{"tunnelAddr": store.PoolTunnelAddr()})
+	default:
+		fail(w, http.StatusBadRequest, "未知操作")
+	}
+}
+
+// handlePoolInstallScript 下发家宽接入脚本（脚本内含该节点 token）。
 func (a *API) handlePoolInstallScript(w http.ResponseWriter, r *http.Request) {
 	idx := queryInt(r, "node")
-	if idx <= 0 {
-		idx = 1
+	node := store.GetPoolNode(idx)
+	if node == nil || !node.Enabled {
+		http.Error(w, "节点不存在或已禁用", http.StatusNotFound)
+		return
 	}
-	script := upstream.BuildOnboardScript(serverHost(r), "root", idx)
+	script := upstream.BuildOnboardScript(serverHost(r), *node)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(script))
 }
 
-// serverHost 返回当前请求的对外地址（用于拼接接入命令）。
+// handlePoolAgentBinary 下发 hshop-agent 可执行文件（与镜像同版本）。
+// 家宽设备执行一键命令时从这里下载，避免依赖 GitHub。
+func (a *API) handlePoolAgentBinary(w http.ResponseWriter, r *http.Request) {
+	path := "/usr/local/bin/hshop-agent"
+	f, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "agent 未打包进镜像", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="hshop-agent"`)
+	_, _ = io.Copy(w, f)
+}
+
 // serverHost 返回家宽设备应该连的公网地址，用于拼接接入命令。
 //
 // 优先级：显式配置 > 反向代理头 > 请求 Host。
@@ -95,7 +186,6 @@ func serverHost(r *http.Request) string {
 		return v
 	}
 	host := r.Host
-	// 内网 / 回环地址对家宽设备无意义，给出可配置的提示而不是错误的值
 	if h, _, e := net.SplitHostPort(host); e == nil {
 		if ip := net.ParseIP(h); ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
 			return host + "（请设置 HSTORE_PUBLIC_HOST 为公网地址）"

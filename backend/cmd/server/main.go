@@ -42,6 +42,11 @@ func main() {
 	if err := imagecache.Init(filepath.Join(filepath.Dir(db.DBPath()), "images")); err != nil {
 		log.Printf("[hstore] 图片缓存目录初始化失败: %v", err)
 	}
+	// 启动时把家宽节点 token 同步给 sockspool（它定期热加载该文件）
+	if err := store.WritePoolTokens(); err != nil {
+		log.Printf("[hstore] 家宽节点 token 文件写入失败: %v", err)
+	}
+
 	log.Printf("[hstore] 数据库: %s", db.DBPath())
 
 	addr := getenv("FAKA_ADDR", "127.0.0.1")
