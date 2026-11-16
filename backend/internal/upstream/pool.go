@@ -56,7 +56,8 @@ func poolStatsAddr() string {
 // 聚合器不可达时返回 Reached=false，前端据此提示「聚合器未运行」。
 func CheckPool() PoolStatus {
 	addr := poolStatsAddr()
-	st := PoolStatus{StatsAddress: addr}
+	// Nodes 预置为空切片：nil 会被序列化成 null，前端 .length 会直接崩。
+	st := PoolStatus{StatsAddress: addr, Nodes: []PoolNode{}}
 	client := &http.Client{Timeout: 4 * time.Second}
 	// 聚合器在宿主本机，不能被环境变量里的代理绕出去
 	client.Transport = &http.Transport{Proxy: nil}

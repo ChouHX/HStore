@@ -38,7 +38,8 @@ interface PoolStatus {
   listen: string;
   reached: boolean;
   error?: string;
-  nodes: PoolNode[];
+  /** 后端可能返回 null（nil 切片），渲染时一律按空数组处理 */
+  nodes: PoolNode[] | null;
   healthy: number;
   totalNodes: number;
 }
@@ -144,6 +145,8 @@ export function UpstreamStatusCard() {
 
   const proxy = data?.proxy;
   const upstream = data?.upstream;
+  // 统一在这里兜底：后端可能把空切片序列化成 null
+  const nodes = pool?.nodes ?? [];
   const pTag = proxy ? proxyTag(proxy) : { color: "gray", text: "检测中" };
   const uTag = upstream ? upstreamTag(upstream) : { color: "gray", text: "检测中" };
 
@@ -229,7 +232,7 @@ export function UpstreamStatusCard() {
             )}
 
             <div className="flex flex-col gap-1.5">
-              {(pool?.nodes ?? []).map((n) => (
+              {nodes.map((n) => (
                 <div
                   key={n.address}
                   className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded bg-[#f7f8fa] px-2.5 py-1.5 text-[12px]"
@@ -253,7 +256,7 @@ export function UpstreamStatusCard() {
                   )}
                 </div>
               ))}
-              {pool && pool.nodes.length === 0 && (
+              {pool && nodes.length === 0 && (
                 <div className="text-[11px] text-[#86909c]">尚未配置任何节点。</div>
               )}
             </div>
