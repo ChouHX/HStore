@@ -21,6 +21,34 @@ interface UpstreamProbe {
   message?: string;
 }
 
+interface PoolNode {
+  index: number;
+  address: string;
+  healthy: boolean;
+  latencyMs: number;
+  lastError?: string;
+  total: number;
+  success: number;
+  failed: number;
+  lastProbe?: string;
+}
+
+interface PoolStatus {
+  statsAddress: string;
+  listen: string;
+  reached: boolean;
+  error?: string;
+  nodes: PoolNode[];
+  healthy: number;
+  totalNodes: number;
+}
+
+interface OnboardCommand {
+  index: number;
+  port: number;
+  shell: string;
+}
+
 interface StatusData {
   proxy: ProxyStatus;
   upstream: UpstreamProbe;
@@ -51,6 +79,8 @@ function upstreamTag(u: UpstreamProbe) {
  */
 export function UpstreamStatusCard() {
   const [data, setData] = useState<StatusData | null>(null);
+  const [pool, setPool] = useState<PoolStatus | null>(null);
+  const [commands, setCommands] = useState<OnboardCommand[]>([]);
   const [loading, setLoading] = useState(true);
   const [probing, setProbing] = useState(false);
   const probingRef = useRef(false);
@@ -84,6 +114,24 @@ export function UpstreamStatusCard() {
       }
     }
   }, []);
+
+  const loadPool = useCallback(async () => {
+    try {
+      const j = await fetch("/api/admin/pool", { cache: "no-store" }).then((r) => r.json());
+      if (j.ok) {
+        setPool(j.pool as PoolStatus);
+        setCommands((j.commands as OnboardCommand[]) ?? []);
+      }
+    } catch {
+      // 节点池读取失败不影响主卡片
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPool();
+    const poolTimer = setInterval(loadPool, 30000);
+    return () => clearInterval(poolTimer);
+  }, [loadPool]);
 
   useEffect(() => {
     load(true);
@@ -155,6 +203,94 @@ export function UpstreamStatusCard() {
               代理可用但上游返回人机校验页：家宽出口 IP 可能变了，需要重新加白或更换出口。
             </div>
           )}
+
+          {/* 下游家宽节点池：一个端口收口多个家宽，任一存活即可用 */}
+          <div className="border-t border-[#f2f3f5] pt-3">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <span className="text-[13px] font-medium text-[#1d2129]">下游家宽节点</span>
+              {pool ? (
+                pool.reached ? (
+                  <Tag size="small" color={pool.healthy > 0 ? "green" : "red"}>
+                    {pool.healthy} / {pool.totalNodes} 在线
+                  </Tag>
+                ) : (
+                  <Tag size="small" color="red">聚合器未运行</Tag>
+                )
+              ) : (
+                <Tag size="small" color="gray">检测中</Tag>
+              )}
+              <span className="text-[11px] text-[#86909c]">
+                容器统一走 {pool?.listen || "0.0.0.0:18080"}，自动故障转移
+              </span>
+            </div>
+
+            {pool?.error && (
+              <div className="mb-2 text-[11px] leading-relaxed text-[#f53f3f]">{pool.error}</div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              {(pool?.nodes ?? []).map((n) => (
+                <div
+                  key={n.address}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded bg-[#f7f8fa] px-2.5 py-1.5 text-[12px]"
+                >
+                  <Tag size="small" color={n.healthy ? "green" : "red"}>
+                    {n.healthy ? "在线" : "离线"}
+                  </Tag>
+                  <span className="text-[#4e5969]">
+                    节点 {n.index} <span className="font-mono text-[#86909c]">:{18080 + n.index}</span>
+                  </span>
+                  {n.healthy && <span className="text-[#86909c]">{n.latencyMs} ms</span>}
+                  {n.total > 0 && (
+                    <span className="text-[#86909c]">
+                      连接 {n.total}（成功 {n.success} / 失败 {n.failed}）
+                    </span>
+                  )}
+                  {n.lastError && (
+                    <span className="truncate text-[#f53f3f]" title={n.lastError}>
+                      {n.lastError}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {pool && pool.nodes.length === 0 && (
+                <div className="text-[11px] text-[#86909c]">尚未配置任何节点。</div>
+              )}
+            </div>
+
+            {commands.length > 0 && (
+              <div className="mt-3">
+                <div className="mb-1 text-[12px] text-[#4e5969]">
+                  一键接入命令（在新家宽设备上以 root 执行）
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {commands.slice(0, 4).map((c) => (
+                    <div key={c.index} className="flex items-center gap-2">
+                      <span className="w-[64px] shrink-0 text-[11px] text-[#86909c]">
+                        节点 {c.index}
+                      </span>
+                      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded bg-[#f2f3f5] px-2 py-1 font-mono text-[11px] text-[#4e5969]">
+                        {c.shell}
+                      </code>
+                      <Button
+                        size="mini"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(c.shell);
+                          Message.success(`已复制节点 ${c.index} 的接入命令`);
+                        }}
+                      >
+                        复制
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-1 text-[11px] leading-relaxed text-[#86909c]">
+                  脚本会在设备上安装本地 SOCKS5 与常驻隧道；首次运行会打印公钥，
+                  需加入服务器 <code>authorized_keys</code>（或由管理员执行授权命令）。
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </Card>

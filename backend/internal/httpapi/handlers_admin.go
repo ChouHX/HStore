@@ -40,6 +40,53 @@ func (a *API) handleAdminUpstreamStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+// handleAdminPool 返回下游家宽节点池状态（多节点冗余）。
+func (a *API) handleAdminPool(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	st := upstream.CheckPool()
+	// 顺带给出每个节点的一键接入命令，方便新增设备
+	cmds := make([]upstream.OnboardCommand, 0, len(st.Nodes)+2)
+	for _, n := range st.Nodes {
+		cmds = append(cmds, upstream.OnboardCommand{
+			Index: n.Index,
+			Port:  upstream.NodePort(n.Index),
+			Shell: upstream.BuildOnboardOneLiner(serverHost(r), "root", n.Index),
+		})
+	}
+	// 已配置但尚未接入的节点也给出命令（按最大序号 +1 ~ +3）
+	next := st.TotalNodes + 1
+	for i := 0; i < 3; i++ {
+		idx := next + i
+		cmds = append(cmds, upstream.OnboardCommand{
+			Index: idx,
+			Port:  upstream.NodePort(idx),
+			Shell: upstream.BuildOnboardOneLiner(serverHost(r), "root", idx),
+		})
+	}
+	ok(w, map[string]any{"pool": st, "commands": cmds})
+}
+
+// handlePoolInstallScript 下发家宽接入脚本（公开，脚本本身不含敏感信息）。
+func (a *API) handlePoolInstallScript(w http.ResponseWriter, r *http.Request) {
+	idx := queryInt(r, "node")
+	if idx <= 0 {
+		idx = 1
+	}
+	script := upstream.BuildOnboardScript(serverHost(r), "root", idx)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(script))
+}
+
+// serverHost 返回当前请求的对外地址（用于拼接接入命令）。
+func serverHost(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); v != "" {
+		return v
+	}
+	return r.Host
+}
+
 // cstZone 是业务统一使用的时区（Asia/Shanghai，无夏令时，用固定偏移最省事）。
 // 统计口径里的「今日」「某天 00:00」都必须按这个时区算，不能用 UTC。
 func cstZone() *time.Location { return time.FixedZone("CST", 8*60*60) }

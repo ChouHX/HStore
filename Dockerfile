@@ -35,6 +35,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/hstore-server \
     ./cmd/server
 
+# sockspool：多下游家宽的 SOCKS5 汇聚器（单端口收口 + 故障转移）
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/sockspool \
+    ./cmd/sockspool
+
 
 # ---------- 运行镜像 ----------
 FROM alpine:3.21
@@ -46,6 +53,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && chown app:app /data
 
 COPY --from=build /out/hstore-server /usr/local/bin/hstore-server
+COPY --from=build /out/sockspool /usr/local/bin/sockspool
 
 ENV PORT=3001 \
     FAKA_ADDR=0.0.0.0 \
