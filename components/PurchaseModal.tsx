@@ -479,7 +479,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
     : "";
 
   // 自营商品本地无货时后端会直接拒单，这里同步置灰按钮
-  const soldOut = Boolean(detail) && !detailPurchasable(detail, product);
+  const soldOut = Boolean(detail) && !detailPurchasable(detail);
   const payDisabled =
     !detail ||
     soldOut ||

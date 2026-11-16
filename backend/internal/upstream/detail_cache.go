@@ -18,9 +18,9 @@ const DetailCacheTTL = 10 * time.Minute
 
 // DetailFreshInterval 是「强刷」同一商品的最小间隔。
 //
-// 购买弹窗会带 fresh=1 打开，热门商品被反复点开时不能每次都回源：
-// 同一商品 30 秒内只放行一次强刷，其余请求直接回退本地缓存。
-const DetailFreshInterval = 30 * time.Second
+// 购买弹窗会带 fresh=1 打开，热门商品被反复点开时不能每次都回源。
+// 取 8 秒：既能让缺货在上游变化后很快反映到弹窗，又不至于把上游打爆。
+const DetailFreshInterval = 8 * time.Second
 
 // 同一个商品同时只允许一个后台刷新任务，避免热门商品把上游打爆。
 var (
@@ -97,8 +97,9 @@ func DetailFresh(goodsID int) (json.RawMessage, error) {
 	}
 	detailMu.Unlock()
 	if busy {
+		// 节流命中：用缓存详情，但库存尽量取本地同步到的最新值
 		if cached, _, ok := store.GetProductDetail(goodsID); ok {
-			return json.RawMessage(cached), nil
+			return json.RawMessage(patchStock(cached, goodsID)), nil
 		}
 	}
 	defer func() {
@@ -110,7 +111,7 @@ func DetailFresh(goodsID int) (json.RawMessage, error) {
 	if e != nil {
 		if cached, _, ok := store.GetProductDetail(goodsID); ok {
 			log.Printf("[hstore] 强刷商品详情失败，退回缓存 %d: %v", goodsID, e)
-			return json.RawMessage(cached), nil
+			return json.RawMessage(patchStock(cached, goodsID)), nil
 		}
 		return nil, e
 	}
@@ -120,4 +121,30 @@ func DetailFresh(goodsID int) (json.RawMessage, error) {
 		store.UpdateStock(goodsID, d.StockCount)
 	}
 	return raw, nil
+}
+
+// patchStock 把缓存详情里的 stockCount 换成 products 表里的最新值。
+//
+// 强刷被节流或回源失败时会退回缓存，此时缓存里的库存可能已经过时
+// （上游缺货了但缓存还写着有货）。后台库存同步是独立跑的，本地值通常
+// 比缓存新，用它覆盖可以避免弹窗显示假库存。
+func patchStock(raw json.RawMessage, goodsID int) json.RawMessage {
+	p := store.GetProduct(goodsID)
+	if p == nil || p.StockCount < 0 {
+		return raw
+	}
+	var m map[string]any
+	if e := json.Unmarshal(raw, &m); e != nil {
+		return raw
+	}
+	cur, _ := m["stockCount"].(float64)
+	if int(cur) == p.StockCount {
+		return raw
+	}
+	m["stockCount"] = p.StockCount
+	out, e := json.Marshal(m)
+	if e != nil {
+		return raw
+	}
+	return out
 }

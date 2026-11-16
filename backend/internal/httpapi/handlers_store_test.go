@@ -162,7 +162,7 @@ func TestGoodsDetailProjection(t *testing.T) {
 	}
 
 	// 上游：白名单投影
-	got, e := buildStoreDetail(960002, raw)
+	got, e := buildStoreDetail(960002, raw, false)
 	if e != nil {
 		t.Fatalf("构建上游详情失败: %v", e)
 	}

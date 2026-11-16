@@ -203,9 +203,10 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "商品服务暂不可用，请联系客服")
 		return
 	}
+	fresh := r.URL.Query().Get("fresh") == "1"
 	var raw json.RawMessage
 	var e error
-	if r.URL.Query().Get("fresh") == "1" {
+	if fresh {
 		raw, e = upstream.DetailFresh(id)
 	} else {
 		raw, e = upstream.DetailCached(id)
@@ -214,7 +215,7 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, customerOrderError(e.Error()))
 		return
 	}
-	detail, e := buildStoreDetail(id, raw)
+	detail, e := buildStoreDetail(id, raw, fresh)
 	if e != nil {
 		fail(w, http.StatusInternalServerError, "解析商品详情失败")
 		return
@@ -225,15 +226,29 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 // buildStoreDetail 把上游详情 JSON 裁剪成白名单字段。
 //
 // 缓存里的原始 JSON 带成本价（salesPrice）、上游目录 ID、SKU 结构等内部信息，
-// 不能整包下发；库存优先用本地 stock_count（后台同步比 10 分钟 TTL 的缓存更新）。
-func buildStoreDetail(goodsID int, raw json.RawMessage) (storeDetailView, error) {
+// 不能整包下发。
+//
+// 库存口径按 fresh 区分：
+//   - fresh=true（用户点购买）：上游刚回源的 stockCount 就是「此刻」的真实库存，
+//     必须直接采用，否则上游已缺货时弹窗仍显示有货，用户能下单再失败。
+//   - fresh=false（浏览 / 列表）：用本地 stock_count，避免每次浏览都回源。
+func buildStoreDetail(goodsID int, raw json.RawMessage, fresh bool) (storeDetailView, error) {
 	var d model.GoodsDetail
 	if e := json.Unmarshal(raw, &d); e != nil {
 		return storeDetailView{}, e
 	}
 	stock := d.StockCount
-	if p := store.GetProduct(goodsID); p != nil && p.StockCount >= 0 {
-		stock = p.StockCount
+	if !fresh {
+		// 非强刷场景本地值通常比 10 分钟 TTL 的缓存更新，优先本地
+		if p := store.GetProduct(goodsID); p != nil && p.StockCount >= 0 {
+			stock = p.StockCount
+		}
+	}
+	// 上游没给库存（<0）时，无论是否 fresh 都退回本地值
+	if stock < 0 {
+		if p := store.GetProduct(goodsID); p != nil && p.StockCount >= 0 {
+			stock = p.StockCount
+		}
 	}
 	minQty, maxQty := d.MinQuantity, d.MaxQuantity
 	if minQty < 1 {

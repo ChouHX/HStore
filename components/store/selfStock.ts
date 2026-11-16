@@ -36,14 +36,18 @@ export function detailStockLabel(
 
 /**
  * 详情弹窗里的下单按钮是否可用。
- * 上游商品保持原有行为（只要能拿到详情就可下单，库存由后端下单时校验）；
- * 自营商品本地无货时前端直接置灰。
+ *
+ * 弹窗打开时会带 fresh=1 回源上游，拿到的 stockCount 就是「此刻」的真实库存，
+ * 所以上游商品也必须按它判断：stockCount 为 0 时按钮直接置灰，不能让用户
+ * 点了才在支付环节失败。
+ * 库存未知（<0，上游没给）时不拦截，交给后端下单时校验。
  */
 export function detailPurchasable(
   detail: Pick<GoodsDetail, "stockCount"> | null | undefined,
-  product: Pick<StoreProduct, "fulfillment"> | null | undefined,
 ): boolean {
   if (!detail) return false;
-  if (!isSelfFulfillment(product)) return true;
-  return (detail.stockCount ?? 0) > 0;
+  const stock = detail.stockCount;
+  if (stock === undefined || stock === null) return true;
+  if (stock < 0) return true; // 未知
+  return stock > 0;
 }
