@@ -3,9 +3,11 @@ package httpapi
 import (
 	"database/sql"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,11 +82,26 @@ func (a *API) handlePoolInstallScript(w http.ResponseWriter, r *http.Request) {
 }
 
 // serverHost 返回当前请求的对外地址（用于拼接接入命令）。
+// serverHost 返回家宽设备应该连的公网地址，用于拼接接入命令。
+//
+// 优先级：显式配置 > 反向代理头 > 请求 Host。
+// 这里不能直接用 r.Host：管理员可能从 127.0.0.1 或内网地址打开后台，
+// 那样生成的命令在家宽设备上是连不通的。
 func serverHost(r *http.Request) string {
+	if v := strings.TrimSpace(os.Getenv("HSTORE_PUBLIC_HOST")); v != "" {
+		return v
+	}
 	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); v != "" {
 		return v
 	}
-	return r.Host
+	host := r.Host
+	// 内网 / 回环地址对家宽设备无意义，给出可配置的提示而不是错误的值
+	if h, _, e := net.SplitHostPort(host); e == nil {
+		if ip := net.ParseIP(h); ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+			return host + "（请设置 HSTORE_PUBLIC_HOST 为公网地址）"
+		}
+	}
+	return host
 }
 
 // cstZone 是业务统一使用的时区（Asia/Shanghai，无夏令时，用固定偏移最省事）。
