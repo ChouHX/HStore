@@ -40,6 +40,15 @@ import (
 	"time"
 )
 
+// debug 控制详细日志
+var debug bool
+
+func debugf(format string, args ...any) {
+	if debug {
+		log.Printf("[sockspool] "+format, args...)
+	}
+}
+
 const (
 	agentPrefix = "hshop-agent"
 	dialTimeout = 10 * time.Second
@@ -81,19 +90,48 @@ type tunnelConn struct {
 	br      *bufio.Reader
 	meta    nodeMeta
 	created time.Time
-	claimed bool
+
 	claimMu sync.Mutex
+	claimed bool
+	closed  bool
+	taken   chan struct{}
+}
+
+func newTunnelConn(conn net.Conn, br *bufio.Reader, meta nodeMeta) *tunnelConn {
+	return &tunnelConn{
+		conn: conn, br: br, meta: meta, created: time.Now(),
+		taken: make(chan struct{}),
+	}
 }
 
 // tryClaim 标记该连接被取用；并发下只有一个请求能拿到。
 func (c *tunnelConn) tryClaim() bool {
 	c.claimMu.Lock()
 	defer c.claimMu.Unlock()
-	if c.claimed {
+	if c.claimed || c.closed {
 		return false
 	}
 	c.claimed = true
+	select {
+	case <-c.taken:
+	default:
+		close(c.taken)
+	}
 	return true
+}
+
+// markClosed 标记连接失效，避免被再次取用。
+func (c *tunnelConn) markClosed() {
+	c.claimMu.Lock()
+	c.closed = true
+	c.claimMu.Unlock()
+}
+
+// isClaimed 返回是否已被取用。
+func (c *tunnelConn) isClaimed() bool {
+	c.claimMu.Lock()
+	defer c.claimMu.Unlock()
+	return c.claimed
 }
 
 // tunnelNode 是一个在线节点：持有若干空闲连接。
@@ -208,9 +246,15 @@ func (r *registry) snapshot() []nodeStat {
 }
 
 // handleTunnel 处理一条来自 agent 的连接。
+//
+// 注意：本函数不能在返回时关闭 conn——连接被取用后所有权转移给
+// dialViaTunnel，由它负责关闭。未取用的连接在下面各失败分支显式关闭。
 func (r *registry) handleTunnel(conn net.Conn) {
+	closed := false
 	defer func() {
-		_ = conn.Close()
+		if !closed {
+			_ = conn.Close()
+		}
 	}()
 
 	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
@@ -226,39 +270,43 @@ func (r *registry) handleTunnel(conn net.Conn) {
 	}
 	meta, ok := r.toks.lookup(fields[1])
 	if !ok {
+		log.Printf("[sockspool] 拒绝未知 token: %s", fields[1][:min(12, len(fields[1]))])
 		_, _ = conn.Write([]byte("ERR invalid token\n"))
 		return
 	}
+	log.Printf("[sockspool] agent 认领成功: 节点 %d（%s），来自 %s", meta.Index, meta.Label, conn.RemoteAddr())
 	if _, err := conn.Write([]byte("OK\n")); err != nil {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
 
 	node := r.getOrCreate(meta)
-	tc := &tunnelConn{conn: conn, br: br, meta: meta, created: time.Now()}
+	tc := newTunnelConn(conn, br, meta)
 	node.add(tc)
 
-	// 等待被取用：被取用后 conn 交给请求处理方，这里不再关闭
-	// 通过读取探测判断连接是否还活着：agent 不会主动发数据，
-	// 所以用 SetReadDeadline 触发一次可写检查即可。
+	// 空闲等待：只等「被取用」。
+	// 不做 Peek 探测——它会和 dialViaTunnel 抢读同一条连接上的数据，
+	// 导致刚取到的连接被误判断开。死连接由 dial 失败 + 重试兜住。
+	probe := time.NewTicker(30 * time.Second)
+	defer probe.Stop()
+	// 注意：这里不做任何 Close。
+	// 连接被取用时所有权转移给 dialViaTunnel；没被取用而返回时，
+	// 说明连接已失效（对端断开/超时），由 add 时的清理路径处理。
+	defer node.drop(tc)
 	for {
-		time.Sleep(2 * time.Second)
-		tc.claimMu.Lock()
-		claimed := tc.claimed
-		tc.claimMu.Unlock()
-		if claimed {
-			// 交给使用者，禁止本函数关闭连接
+		select {
+		case <-tc.taken:
+			// 被取用：所有权交给 dialViaTunnel，本函数不能再关闭连接
+			closed = true
 			return
-		}
-		// 连接被 agent 关闭时，这里能读到 EOF
-		_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		if _, err := br.Peek(1); err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				_ = conn.SetReadDeadline(time.Time{})
-				continue
+		case <-probe.C:
+			// 连接太久没被取用就回收，让 agent 补新的，避免堆积死连接
+			if time.Since(tc.created) > idleTTL {
+				log.Printf("[sockspool] 节点 %d 回收超时空闲连接", node.meta.Index)
+				tc.markClosed()
+				_ = conn.Close()
+				return
 			}
-			node.drop(tc)
-			return
 		}
 	}
 }
@@ -273,7 +321,7 @@ func dialViaTunnel(node *tunnelNode, target string) (net.Conn, error) {
 	if tc == nil {
 		return nil, errors.New("节点无空闲连接")
 	}
-	log.Printf("[sockspool] 节点 %d 取到空闲连接，握手 %s", node.meta.Index, target)
+	debugf("节点 %d 取到空闲连接，握手 %s", node.meta.Index, target)
 	// 告诉 agent 拨号目标
 	if _, err := fmt.Fprintf(tc.conn, "CONNECT %s %s\n", host, port); err != nil {
 		_ = tc.conn.Close()
@@ -365,14 +413,20 @@ func (r *registry) handleClient(client net.Conn) {
 	target := net.JoinHostPort(host, fmt.Sprint(binary.BigEndian.Uint16(portBuf)))
 
 	var upstream net.Conn
-	for _, n := range r.ordered() {
-		conn, err := dialViaTunnel(n, target)
-		if err != nil {
-			log.Printf("[sockspool] 节点 %d 拨号 %s 失败: %v", n.meta.Index, target, err)
-			continue
+	// 空连接池时 agent 正在补连接，稍等重试，避免偶发 000
+	for attempt := 0; attempt < 3 && upstream == nil; attempt++ {
+		for _, n := range r.ordered() {
+			conn, err := dialViaTunnel(n, target)
+			if err != nil {
+				debugf("节点 %d 拨号 %s 失败(第%d次): %v", n.meta.Index, target, attempt+1, err)
+				continue
+			}
+			upstream = conn
+			break
 		}
-		upstream = conn
-		break
+		if upstream == nil {
+			time.Sleep(300 * time.Millisecond)
+		}
 	}
 	if upstream == nil {
 		_, _ = client.Write([]byte{0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
@@ -512,6 +566,13 @@ func reloadTokens(path string, toks *tokenStore) error {
 	}
 	toks.replace(m)
 	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func sortNodes(list []*tunnelNode) {

@@ -49,6 +49,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/hshop-agent \
     ./cmd/agent
 
+# poolctl：节点运维工具（服务器上没有后台会话时用）
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /out/poolctl \
+    ./cmd/poolctl
+
 
 # ---------- 运行镜像 ----------
 FROM alpine:3.21
@@ -62,6 +69,8 @@ RUN apk add --no-cache ca-certificates tzdata \
 COPY --from=build /out/hstore-server /usr/local/bin/hstore-server
 COPY --from=build /out/sockspool /usr/local/bin/sockspool
 COPY --from=build /out/hshop-agent /usr/local/bin/hshop-agent
+COPY --from=build /out/poolctl /usr/local/bin/poolctl
+
 
 ENV PORT=3001 \
     FAKA_ADDR=0.0.0.0 \

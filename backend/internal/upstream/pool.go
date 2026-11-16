@@ -128,7 +128,11 @@ func BuildOnboardScript(serverHost string, node store.PoolNode) string {
 	b.WriteString("NODE_LABEL=" + shellQuote(label) + "\n")
 	b.WriteString("TUNNEL_ADDR=" + shellQuote(tunnel) + "\n")
 	b.WriteString("AGENT_TOKEN=" + shellQuote(node.Token) + "\n")
-	b.WriteString("DOWNLOAD_URL=" + shellQuote("http://"+serverHost+"/api/pool/agent") + "\n\n")
+	base := serverHost
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
+	b.WriteString("DOWNLOAD_URL=" + shellQuote(base+"/api/pool/agent") + "\n\n")
 
 	b.WriteString(`echo "[1/4] 下载 hshop-agent"
 mkdir -p /usr/local/bin
@@ -184,5 +188,9 @@ func shellQuote(v string) string {
 
 // BuildOnboardCommand 生成后台可直接复制的单行命令。
 func BuildOnboardCommand(serverHost string, node store.PoolNode) string {
-	return fmt.Sprintf(`bash -c "$(curl -fsSL '%s/api/pool/install.sh?node=%d')"`, serverHost, node.Index)
+	base := serverHost
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
+	return fmt.Sprintf(`bash -c "$(curl -fsSL '%s/api/pool/install.sh?node=%d')"`, base, node.Index)
 }

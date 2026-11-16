@@ -40,6 +40,15 @@ var (
 	dialTarget time.Duration
 )
 
+// debug 控制是否输出详细日志
+var debug bool
+
+func debugf(format string, args ...any) {
+	if debug {
+		log.Printf("[agent] "+format, args...)
+	}
+}
+
 // 统计，便于排查
 var (
 	statServe  atomic.Int64 // 成功承载的隧道数
@@ -49,11 +58,11 @@ var (
 
 func main() {
 	var (
-		server = flag.String("server", "", "服务器隧道地址 host:port")
-		tok    = flag.String("token", "", "节点 token（后台「家宽出口节点」里复制）")
-		pool   = flag.Int("pool", 16, "保持的空闲连接数")
-		dialTO = flag.Int("dial-timeout", 15, "连接目标站点的超时（秒）")
-		debug  = flag.Bool("v", false, "输出详细日志")
+		server  = flag.String("server", "", "服务器隧道地址 host:port")
+		tok     = flag.String("token", "", "节点 token（后台「家宽出口节点」里复制）")
+		pool    = flag.Int("pool", 16, "保持的空闲连接数")
+		dialTO  = flag.Int("dial-timeout", 15, "连接目标站点的超时（秒）")
+		verbose = flag.Bool("v", false, "输出详细日志")
 	)
 	flag.Parse()
 
@@ -68,7 +77,8 @@ func main() {
 	}
 	dialTarget = time.Duration(*dialTO) * time.Second
 
-	if *debug {
+	if *verbose {
+		debug = true
 		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	}
 	log.Printf("[agent] %s 连接 %s，空闲连接数 %d", agentVersion, serverAddr, poolSize)
@@ -134,8 +144,10 @@ func runOnce() error {
 	_ = conn.SetDeadline(time.Time{})
 	cmd, err := br.ReadString('\n')
 	if err != nil {
+		debugf("待命连接结束: %v", err)
 		return nil // 服务器主动关闭空闲连接，属正常情况
 	}
+	debugf("收到指令: %s", strings.TrimSpace(cmd))
 	cmd = strings.TrimSpace(cmd)
 	if !strings.HasPrefix(cmd, "CONNECT ") {
 		return fmt.Errorf("未知指令: %s", cmd)
@@ -146,6 +158,7 @@ func runOnce() error {
 	}
 	target := net.JoinHostPort(parts[1], parts[2])
 
+	debugf("拨号目标 %s", target)
 	// 本机拨号目标站点（用家宽出口）
 	up, err := net.DialTimeout("tcp", target, dialTarget)
 	if err != nil {
