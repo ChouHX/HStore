@@ -144,6 +144,37 @@ function copyText(text: string) {
   Message.success("已复制");
 }
 
+interface TierHintProps {
+  tiers: { minCount: number; discount: number }[];
+  matched: { minCount: number; discount: number } | null;
+  className?: string;
+}
+
+/** 「满 N 件 X 折」提示条：桌面端与移动端共用，避免只改一处漏掉另一处。 */
+function TierDiscountHint({ tiers, matched, className = "" }: TierHintProps) {
+  if (tiers.length === 0) return null;
+  return (
+    <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] ${className}`}>
+      {matched ? (
+        <span className="rounded bg-[#e8ffea] px-1.5 py-0.5 font-medium text-[#00b42a]">
+          已享满 {matched.minCount} 件 {Number((matched.discount * 10).toFixed(2))} 折
+        </span>
+      ) : null}
+      {tiers.map((t) => {
+        const active = matched?.minCount === t.minCount;
+        return (
+          <span
+            key={t.minCount}
+            className={active ? "font-medium text-[#00b42a]" : "text-[#86909c]"}
+          >
+            满 {t.minCount} 件 {Number((t.discount * 10).toFixed(2))} 折
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PurchaseModal({ product, open, discount = 1, user, onOpenChange, onDone }: Props) {
   const [detail, setDetail] = useState<GoodsDetail | null>(null);
   const [count, setCount] = useState(1);
@@ -562,30 +593,6 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         </div>
         {submitButton}
       </div>
-      {/* 批量折扣提示：命中档位显示已享折扣，未命中提示还能更便宜 */}
-      {tierDiscounts.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-          {matchedTier ? (
-            <span className="rounded bg-[#e8ffea] px-1.5 py-0.5 text-[#00b42a]">
-              已享满 {matchedTier.minCount} 件{" "}
-              {Number((matchedTier.discount * 10).toFixed(2))} 折
-            </span>
-          ) : (
-            <span className="text-[#86909c]">批量更优惠：</span>
-          )}
-          {tierDiscounts.map((t) => {
-            const active = matchedTier?.minCount === t.minCount;
-            return (
-              <span
-                key={t.minCount}
-                className={active ? "text-[#00b42a]" : "text-[#86909c]"}
-              >
-                满 {t.minCount} 件 {Number((t.discount * 10).toFixed(2))} 折
-              </span>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 
@@ -885,6 +892,8 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                 按汇率 1 USDT ≈ ¥{formatPrice(guestCfg.crypto.rate)} 换算，金额向上取整到 0.01 USDT。
               </div>
             ) : null}
+            {/* 批量折扣信息放在支付方式下方：不占底栏，避免挤压价格与按钮 */}
+            <TierDiscountHint tiers={tierDiscounts} matched={matchedTier} />
           </div>
 
           {/* 桌面端：数量与金额一行；移动端底栏固定展示，这里隐藏 */}
