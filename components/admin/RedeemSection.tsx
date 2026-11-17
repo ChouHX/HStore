@@ -601,7 +601,7 @@ export function RedeemSection() {
             <Popconfirm
               title={
                 c.status === "used"
-                  ? `该兑换码已使用（订单 ${c.orderNumber || "-"}），删除只影响兑换码记录，不影响已生成的订单。确认删除？`
+                  ? `该兑换码已核销（订单 ${c.orderNumber || "-"}）。删除会同时移除该订单与卡密，用户将无法再用兑换码或订单号查到这笔记录。确认删除？`
                   : "确认删除该兑换码？删除后不可恢复。"
               }
               onOk={() => deleteCode(c.id)}
@@ -804,7 +804,7 @@ export function RedeemSection() {
                     </Button>
                   </Popconfirm>
                   <Popconfirm
-                    title={`删除批次 ${b.batchId} 中未使用/已作废的兑换码？已使用的会保留。`}
+                    title={`删除批次 ${b.batchId} 中的全部兑换码？已核销的会连同订单与卡密一起删除，用户将无法再查到这些记录。`}
                     onOk={() => batchAction("deleteBatch", { batchId: b.batchId })}
                   >
                     <Button size="mini" status="danger">
@@ -830,7 +830,7 @@ export function RedeemSection() {
             </Button>
           </Popconfirm>
           <Popconfirm
-            title={`删除选中的 ${selected.length} 张兑换码？已使用的会保留。`}
+            title={`删除选中的 ${selected.length} 张兑换码？已核销的会连同订单与卡密一起删除。`}
             onOk={() => batchAction("deleteCodes", { codeIds: selected })}
           >
             <Button size="small" status="danger" loading={saving}>

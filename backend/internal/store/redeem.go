@@ -307,15 +307,48 @@ func VoidCode(id int) {
 	_, _ = db.Must().Exec("UPDATE redeem_codes SET status = 'voided' WHERE id = ? AND status IN ('unused','redeeming')", id)
 }
 
-// DeleteCode 物理删除未使用的兑换码；已使用/核销中的码保留以便追溯。
-// 返回是否真的删掉了一行。
+// DeleteCode 物理删除兑换码。
+//
+// 已使用的兑换码也允许删除：用户退款后必须彻底抹掉凭证，不能再用兑换码
+// 或订单号查到该笔记录。删除时会级联清理它核销出来的订单与卡密，
+// 否则「订单查询」仍能凭订单号/兑换码反查到内容。
+//
+// 核销中（redeeming）的码不删：可能正在向上游下单，删了会留下半截状态。
 func DeleteCode(id int) bool {
-	res, e := db.Must().Exec("DELETE FROM redeem_codes WHERE id = ? AND status IN ('unused','voided')", id)
+	d := db.Must()
+	tx, e := d.Begin()
 	if e != nil {
 		return false
 	}
-	n, _ := res.RowsAffected()
-	return n > 0
+	defer func() { _ = tx.Rollback() }()
+
+	var status, orderNumber string
+	if e := tx.QueryRow("SELECT status, COALESCE(order_number,'') FROM redeem_codes WHERE id = ?", id).
+		Scan(&status, &orderNumber); e != nil {
+		return false
+	}
+	if status == "redeeming" {
+		return false
+	}
+
+	res, e := tx.Exec("DELETE FROM redeem_codes WHERE id = ?", id)
+	if e != nil {
+		return false
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false
+	}
+
+	// 已核销的码会关联一笔订单，连同卡密一起删掉，避免还能查到
+	if orderNumber != "" {
+		if _, e := tx.Exec("DELETE FROM cards WHERE order_number = ?", orderNumber); e != nil {
+			return false
+		}
+		if _, e := tx.Exec("DELETE FROM orders WHERE order_number = ?", orderNumber); e != nil {
+			return false
+		}
+	}
+	return tx.Commit() == nil
 }
 
 // VoidCodes 批量作废，返回实际作废数量。
@@ -334,16 +367,12 @@ func VoidCodes(ids []int) int {
 	return total
 }
 
-// DeleteCodes 批量删除未使用/已作废的兑换码，返回实际删除数量。
+// DeleteCodes 批量删除兑换码（含已使用的），返回实际删除数量。
+// 已使用的会级联清理其订单与卡密，口径与 DeleteCode 一致。
 func DeleteCodes(ids []int) int {
 	total := 0
 	for _, id := range ids {
-		res, e := db.Must().Exec(
-			"DELETE FROM redeem_codes WHERE id = ? AND status IN ('unused','voided')", id)
-		if e != nil {
-			continue
-		}
-		if n, _ := res.RowsAffected(); n > 0 {
+		if DeleteCode(id) {
 			total++
 		}
 	}
@@ -365,17 +394,25 @@ func VoidBatch(batchID int64) int {
 }
 
 // DeleteBatch 删除整批中未使用/已作废的兑换码，返回实际删除数量。
+// DeleteBatch 删除整批兑换码（含已使用的），返回实际删除数量。
+// 已使用的逐个走 DeleteCode，连同订单与卡密一起清理。
 func DeleteBatch(batchID int64) int {
 	if batchID <= 0 {
 		return 0
 	}
-	res, e := db.Must().Exec(
-		"DELETE FROM redeem_codes WHERE batch_id = ? AND status IN ('unused','voided')", batchID)
+	rows, e := db.Must().Query("SELECT id FROM redeem_codes WHERE batch_id = ?", batchID)
 	if e != nil {
 		return 0
 	}
-	n, _ := res.RowsAffected()
-	return int(n)
+	ids := []int{}
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	return DeleteCodes(ids)
 }
 
 // BatchSummary 是一个生成批次的汇总信息。

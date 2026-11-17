@@ -115,7 +115,7 @@ func TestVoidAndDeleteBatch(t *testing.T) {
 	}
 }
 
-// 已使用的码不能被删除或作废，避免破坏追溯链。
+// 已使用的码不能被作废（保留核销语义），但允许删除（退款场景）。
 func TestUsedCodeProtected(t *testing.T) {
 	batchID, _ := CreateCodesBatch(CreateCodesInput{FaceValue: 3, Count: 1})
 	t.Cleanup(func() { DeleteBatch(batchID) })
@@ -131,8 +131,10 @@ func TestUsedCodeProtected(t *testing.T) {
 	if n := VoidCodes([]int{id}); n != 0 {
 		t.Fatalf("已使用的码不应被作废，实际作废 %d", n)
 	}
-	if n := DeleteCodes([]int{id}); n != 0 {
-		t.Fatalf("已使用的码不应被删除，实际删除 %d", n)
+	// 已使用的码允许删除（退款场景需要彻底抹掉凭证），
+	// 级联清理订单与卡密的细节见 redeem_delete_used_test.go。
+	if n := DeleteCodes([]int{id}); n != 1 {
+		t.Fatalf("已使用的码应允许删除，实际删除 %d", n)
 	}
 }
 

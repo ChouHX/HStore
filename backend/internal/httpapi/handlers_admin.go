@@ -1429,10 +1429,11 @@ func (a *API) handleAdminRedeemPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !store.DeleteCode(body.CodeID) {
-			fail(w, http.StatusBadRequest, "该兑换码已使用或不存在，无法删除")
+			fail(w, http.StatusBadRequest, "兑换码不存在，或正在核销中（请稍后重试）")
 			return
 		}
-		store.WriteAudit(&admin.UID, "redeem_code_delete", "redeem_code", itoa(body.CodeID), nil, nil, "删除兑换码")
+		store.WriteAudit(&admin.UID, "redeem_code_delete", "redeem_code", itoa(body.CodeID), nil,
+			map[string]any{"cascade": true}, "删除兑换码（含已核销订单与卡密）")
 		ok(w, nil)
 	case "updateGoods":
 		if body.CodeID == 0 {
