@@ -304,7 +304,28 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
   }, [guestQrPayload]);
 
   const templates = useMemo(() => (detail?.rechargeTemplates ?? []).filter((t) => t.title), [detail]);
-  const unitPrice = product ? Number((product.finalPrice * discount).toFixed(4)) : 0;
+
+  // 批量折扣：取满足「数量 >= 门槛」的最高档（与后端 TierDiscountFor 口径一致）
+  const tierDiscounts = useMemo(
+    () =>
+      (detail?.tierDiscounts ?? [])
+        .filter((t) => t.minCount >= 2 && t.discount > 0 && t.discount < 1)
+        .slice()
+        .sort((a, b) => a.minCount - b.minCount),
+    [detail],
+  );
+  const matchedTier = useMemo(() => {
+    let hit: { minCount: number; discount: number } | null = null;
+    for (const t of tierDiscounts) {
+      if (count >= t.minCount) hit = t;
+    }
+    return hit;
+  }, [tierDiscounts, count]);
+  const tierRate = matchedTier?.discount ?? 1;
+
+  // 单价 = 售价 × 等级折扣 × 批量折扣
+  const baseUnitPrice = product ? Number((product.finalPrice * discount).toFixed(4)) : 0;
+  const unitPrice = product ? Number((baseUnitPrice * tierRate).toFixed(4)) : 0;
   const total = unitPrice * count;
   // 支付宝只能支付到分：不足 1 分向上取整（0.064 → 0.07），展示与后端保持一致
   const alipayTotal = ceilToCents(total);
@@ -541,6 +562,30 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
         </div>
         {submitButton}
       </div>
+      {/* 批量折扣提示：命中档位显示已享折扣，未命中提示还能更便宜 */}
+      {tierDiscounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+          {matchedTier ? (
+            <span className="rounded bg-[#e8ffea] px-1.5 py-0.5 text-[#00b42a]">
+              已享满 {matchedTier.minCount} 件{" "}
+              {Number((matchedTier.discount * 10).toFixed(2))} 折
+            </span>
+          ) : (
+            <span className="text-[#86909c]">批量更优惠：</span>
+          )}
+          {tierDiscounts.map((t) => {
+            const active = matchedTier?.minCount === t.minCount;
+            return (
+              <span
+                key={t.minCount}
+                className={active ? "text-[#00b42a]" : "text-[#86909c]"}
+              >
+                满 {t.minCount} 件 {Number((t.discount * 10).toFixed(2))} 折
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 

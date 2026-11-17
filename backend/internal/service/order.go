@@ -113,7 +113,8 @@ func PlaceOrder(opts PlaceOrderOptions) PlaceOrderResult {
 	// 金额按「数量 × 售价」记账。兑换码取件（payment=code）也照此记账，不扣余额：
 	// 这类兑换码在别的平台同样是按售价卖出去的，只是收款不发生在站内，
 	// 记 0 会让后台的销售额 / 毛利偏低（成本照记甚至变负数）。
-	unitPrice := round4(product.FinalPrice * discount)
+	// 单价 = 加价模板后的 final_price × 等级折扣 × 批量折扣
+	unitPrice := store.ResolveUnitPrice(opts.GoodsID, product.FinalPrice, discount, count).UnitPrice
 	saleMoney := round4(unitPrice * float64(count))
 	if opts.SaleMoney != nil {
 		saleMoney = round4(*opts.SaleMoney)
@@ -236,7 +237,8 @@ func placeSelfOrder(opts PlaceOrderOptions, product *model.Product, count int, s
 	if source == "user" || source == "guest" {
 		discount = store.GetLevelDiscount(user.LevelID)
 	}
-	unitPrice := round4(product.FinalPrice * discount)
+	// 单价 = 加价模板后的 final_price × 等级折扣 × 批量折扣
+	unitPrice := store.ResolveUnitPrice(opts.GoodsID, product.FinalPrice, discount, count).UnitPrice
 	saleMoney := round4(unitPrice * float64(count))
 	if opts.SaleMoney != nil {
 		saleMoney = round4(*opts.SaleMoney)

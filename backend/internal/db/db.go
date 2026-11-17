@@ -225,6 +225,20 @@ CREATE TABLE IF NOT EXISTS pricing_rules (
   updated_at   INTEGER NOT NULL
 );
 
+-- 商品阶梯折扣：满 min_count 件时按 discount 打折（在加价模板后的 final_price 基础上）。
+-- 同一商品可配置多档，取满足条件的最高 min_count 那一档。
+CREATE TABLE IF NOT EXISTS product_tier_discounts (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  goods_id   INTEGER NOT NULL,
+  min_count  INTEGER NOT NULL,
+  discount   REAL NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(goods_id, min_count)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tier_discounts_goods ON product_tier_discounts(goods_id, min_count);
+
 CREATE TABLE IF NOT EXISTS levels (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT NOT NULL,

@@ -91,7 +91,9 @@ func guestProduct(goodsID, count int, discount float64) (*model.Product, *model.
 		if discount <= 0 || discount > 1 {
 			discount = 1
 		}
-		amount := round4(product.FinalPrice * discount * float64(count))
+		// 单价含批量折扣（自营商品同样支持阶梯折扣）
+		unit := store.ResolveUnitPrice(goodsID, product.FinalPrice, discount, count).UnitPrice
+		amount := round4(unit * float64(count))
 		if amount <= 0 {
 			return nil, nil, 0, errors.New("商品价格异常")
 		}
@@ -135,7 +137,9 @@ func guestProduct(goodsID, count int, discount float64) (*model.Product, *model.
 	if discount <= 0 || discount > 1 {
 		discount = 1
 	}
-	amount := round4(product.FinalPrice * discount * float64(count))
+	// 单价含批量折扣
+	unit := store.ResolveUnitPrice(goodsID, product.FinalPrice, discount, count).UnitPrice
+	amount := round4(unit * float64(count))
 	if amount <= 0 {
 		return nil, nil, 0, errors.New("商品价格异常")
 	}
@@ -208,7 +212,8 @@ func CreateGuestPurchase(user *model.User, goodsID, count int, attach []map[stri
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	unitPrice := round4(product.FinalPrice * discount)
+	// 单价含批量折扣（USDT 最低数量换算也要用这个单价）
+	unitPrice := store.ResolveUnitPrice(goodsID, product.FinalPrice, discount, count).UnitPrice
 	if channel == "usdt" {
 		// USDT 单笔到账太少无法核对（还要加唯一尾数），自动把数量提到至少 1 USDT。
 		cfg := store.GetCryptoConfig()
@@ -226,7 +231,9 @@ func CreateGuestPurchase(user *model.User, goodsID, count int, attach []map[stri
 				return nil, nil, nil, fmt.Errorf("USDT 支付至少需要 %d 件（约 1 USDT），当前库存不足", minCount)
 			}
 			count = minCount
-			amount = round4(product.FinalPrice * discount * float64(count))
+			// 数量变了要重新取批量折扣：买得更多可能触发更低的档位
+			rebate := store.ResolveUnitPrice(goodsID, product.FinalPrice, discount, count).UnitPrice
+			amount = round4(rebate * float64(count))
 		}
 	}
 	if channel == "alipay" {

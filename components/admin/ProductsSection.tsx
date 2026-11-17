@@ -22,6 +22,7 @@ import type { AdminProduct, ProductFilterOptions } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
 import { BoardOrderSection } from "@/components/admin/BoardOrderSection";
 import { PricingSection } from "@/components/admin/PricingSection";
+import { TierDiscountSection } from "@/components/admin/TierDiscountSection";
 
 const PAGE_SIZE = 15;
 
@@ -119,6 +120,7 @@ export function ProductsSection() {
   const [options, setOptions] = useState<ProductFilterOptions>({ roots: [], subs: [], status: [] });
   const [selected, setSelected] = useState<(string | number)[]>([]);
   const [pricingOpen, setPricingOpen] = useState(false);
+  const [tierOpen, setTierOpen] = useState(false);
   const [boardOrderOpen, setBoardOrderOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -643,6 +645,9 @@ export function ProductsSection() {
         <Button size="small" onClick={() => setPricingOpen(true)}>
           定价规则
         </Button>
+        <Button size="small" onClick={() => setTierOpen(true)} title="满 N 件自动打折，自营与上游商品都支持">
+          批量折扣
+        </Button>
         <Button size="small" onClick={() => setBoardOrderOpen(true)} title="调整商城首页板块的展示顺序，全站生效">
           板块排序
         </Button>
@@ -845,6 +850,18 @@ export function ProductsSection() {
         unmountOnExit
       >
         <PricingSection />
+      </Modal>
+
+      {/* 批量折扣：按商品配置满 N 件折扣 */}
+      <Modal
+        title="商品批量折扣"
+        visible={tierOpen}
+        onCancel={() => setTierOpen(false)}
+        footer={<Button onClick={() => setTierOpen(false)}>关闭</Button>}
+        style={{ width: 900 }}
+        unmountOnExit
+      >
+        <TierDiscountSection />
       </Modal>
 
       {/* 板块排序：调整商城首页板块顺序，全站生效 */}

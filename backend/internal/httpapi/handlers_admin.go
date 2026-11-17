@@ -770,6 +770,64 @@ func (a *API) handleAdminPricing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAdminTierDiscounts 返回阶梯折扣配置（按商品聚合）。
+func (a *API) handleAdminTierDiscounts(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
+	ok(w, map[string]any{"items": store.ListTierDiscountRows(keyword)})
+}
+
+// handleAdminTierDiscountsPost 保存 / 删除某商品的批量折扣。
+//
+// 一次提交该商品的完整档位列表（整体替换），tiers 为空表示清除折扣。
+func (a *API) handleAdminTierDiscountsPost(w http.ResponseWriter, r *http.Request) {
+	admin := requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	var body struct {
+		Action  string `json:"action"`
+		GoodsID int    `json:"goodsId"`
+		Tiers   []struct {
+			MinCount int     `json:"minCount"`
+			Discount float64 `json:"discount"`
+		} `json:"tiers"`
+	}
+	if e := readJSON(r, &body); e != nil {
+		fail(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if body.GoodsID <= 0 {
+		fail(w, http.StatusBadRequest, "缺少商品编号")
+		return
+	}
+	if store.GetProduct(body.GoodsID) == nil {
+		fail(w, http.StatusBadRequest, "商品不存在")
+		return
+	}
+
+	switch body.Action {
+	case "delete":
+		store.DeleteTierDiscounts(body.GoodsID)
+		store.WriteAudit(&admin.UID, "tier_discount_delete", "product", itoa(body.GoodsID), nil, nil, "清空批量折扣")
+		ok(w, nil)
+	default:
+		tiers := make([]store.TierDiscount, 0, len(body.Tiers))
+		for _, t := range body.Tiers {
+			tiers = append(tiers, store.TierDiscount{MinCount: t.MinCount, Discount: t.Discount})
+		}
+		if e := store.ReplaceTierDiscounts(body.GoodsID, tiers); e != nil {
+			fail(w, http.StatusInternalServerError, e.Error())
+			return
+		}
+		store.WriteAudit(&admin.UID, "tier_discount_save", "product", itoa(body.GoodsID), nil,
+			map[string]any{"tiers": body.Tiers}, "保存批量折扣")
+		ok(w, map[string]any{"tiers": store.ListTierDiscounts(body.GoodsID)})
+	}
+}
+
 func (a *API) handleAdminPricingPost(w http.ResponseWriter, r *http.Request) {
 	admin := requireAdmin(w, r)
 	if admin == nil {

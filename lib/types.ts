@@ -148,6 +148,8 @@ export interface GoodsDetail {
   goodsDetail?: string;
   buyNotice?: string;
   rechargeTemplates?: RechargeTemplate[];
+  /** 批量折扣档：购买数量达到 minCount 时单价按 discount 打折 */
+  tierDiscounts?: { minCount: number; discount: number }[];
 }
 
 export interface Card {

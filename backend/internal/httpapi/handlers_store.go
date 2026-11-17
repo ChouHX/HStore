@@ -54,6 +54,10 @@ type storeDetailView struct {
 	GoodsDetail       string          `json:"goodsDetail,omitempty"`
 	BuyNotice         string          `json:"buyNotice,omitempty"`
 	RechargeTemplates json.RawMessage `json:"rechargeTemplates,omitempty"`
+	// TierDiscounts 是批量折扣档，前端据此展示「满 N 件享 X 折」
+	TierDiscounts []store.TierDiscount `json:"tierDiscounts,omitempty"`
+	// LevelRate 是当前访客的会员等级折扣（1 = 无折扣）
+	LevelRate float64 `json:"levelRate,omitempty"`
 }
 
 func (a *API) handleStoreProducts(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +277,7 @@ func buildStoreDetail(goodsID int, raw json.RawMessage, fresh bool) (storeDetail
 		GoodsDetail:       d.GoodsDetail,
 		BuyNotice:         d.BuyNotice,
 		RechargeTemplates: d.RechargeTemplates,
+		TierDiscounts:     store.ListTierDiscounts(goodsID),
 	}, nil
 }
 
@@ -307,6 +312,7 @@ func selfProductDetail(p *model.Product) storeDetailView {
 		MaxQuantity:   999999,
 		WarrantyDays:  p.WarrantyDays,
 		GoodsDescribe: desc,
+		TierDiscounts: store.ListTierDiscounts(p.GoodsID),
 	}
 }
 
