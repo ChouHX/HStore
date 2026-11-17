@@ -191,7 +191,13 @@ func TestUniqueAmountConcurrent(t *testing.T) {
 			}
 			id := InsertCryptoOrder(963, 963, "uid-963", "TTrx963", "TRX",
 				7, "1.00", amt, 7, 7, nowMs+1800000)
-			ch <- res{amt: amt, id: id}
+			// InsertCryptoOrder 撞号时会自动换尾数重试，落库金额可能与传入的不同，
+			// 因此按实际入库值做唯一性断言，而不是用调用方手里的 amt。
+			final := amt
+			if id > 0 {
+				_ = db.Must().QueryRow("SELECT usdt_amount FROM crypto_orders WHERE id = ?", id).Scan(&final)
+			}
+			ch <- res{amt: final, id: id}
 		}()
 	}
 	wg.Wait()
