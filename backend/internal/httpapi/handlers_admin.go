@@ -72,6 +72,10 @@ func (a *API) handleAdminPool(w http.ResponseWriter, r *http.Request) {
 		if n.Enabled {
 			view["command"] = upstream.BuildOnboardCommand(host, n)
 		}
+		// 升级命令与启用状态无关：已禁用的节点也可能需要更新 agent
+		if n.Token != "" {
+			view["updateCommand"] = upstream.BuildUpdateCommand(host, n)
+		}
 		views = append(views, view)
 	}
 	ok(w, map[string]any{
@@ -156,6 +160,21 @@ func (a *API) handlePoolInstallScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	script := upstream.BuildOnboardScript(serverHost(r), *node)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte(script))
+}
+
+// handlePoolUpdateScript 下发「一条命令升级本机 agent」的脚本。
+// 与安装脚本同样用 key 鉴权，避免匿名遍历节点序号。
+func (a *API) handlePoolUpdateScript(w http.ResponseWriter, r *http.Request) {
+	idx := queryInt(r, "node")
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	node := store.GetPoolNode(idx)
+	if node == nil || !node.VerifyInstallKey(key) {
+		http.Error(w, "无权访问或节点不存在，请从管理后台重新复制升级命令", http.StatusForbidden)
+		return
+	}
+	script := upstream.BuildUpdateScript(serverHost(r), *node)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = w.Write([]byte(script))
 }

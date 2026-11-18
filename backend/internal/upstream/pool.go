@@ -216,3 +216,89 @@ func BuildOnboardCommand(serverHost string, node store.PoolNode) string {
 	}
 	return fmt.Sprintf(`bash -c "$(curl -fsSL '%s/api/pool/install.sh?node=%d&key=%s')"`, base, node.Index, node.InstallKey())
 }
+
+// BuildUpdateScript 生成「一条命令更新本机 agent」的脚本。
+//
+// 与首次安装的区别：不写配置、不动 token，只做三件事：
+//  1. 下载最新 hshop-agent（覆盖当前文件）
+//  2. 探测既有的安装方式（系统级 systemd 还是 user 服务）
+//  3. 重启对应服务
+//
+// 这样节点升级不需要重新接入，也不会把 user 服务误装成系统服务。
+func BuildUpdateScript(serverHost string, node store.PoolNode) string {
+	base := serverHost
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
+	var b strings.Builder
+	b.WriteString("#!/bin/bash\n")
+	b.WriteString("# HShop 家宽节点 agent 升级脚本（节点 " + fmt.Sprint(node.Index) + "）\n")
+	b.WriteString("# 只替换二进制并重启服务，不改 token、不动配置\n")
+	b.WriteString("set -euo pipefail\n\n")
+	b.WriteString("DOWNLOAD_URL=" + shellQuote(base+"/api/pool/agent") + "\n\n")
+	b.WriteString(`TMP=$(mktemp)
+echo "[1/3] 下载最新 agent"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$DOWNLOAD_URL" -o "$TMP"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "$TMP" "$DOWNLOAD_URL"
+else
+  echo "需要 curl 或 wget" >&2
+  exit 1
+fi
+chmod +x "$TMP"
+
+echo "[2/3] 定位已安装的 agent 与服务"
+# 优先找正在运行的那个二进制，其次按常见路径兜底
+TARGET=""
+if command -v systemctl >/dev/null 2>&1; then
+  EXEC=$(systemctl show hshop-agent -p ExecStart --value 2>/dev/null | sed -n 's/.*path=\([^ ;]*\).*//p' | head -1)
+  [ -n "$EXEC" ] && [ -x "$EXEC" ] && TARGET="$EXEC"
+fi
+if [ -z "$TARGET" ] && command -v systemctl >/dev/null 2>&1; then
+  EXEC=$(systemctl --user show hshop-agent -p ExecStart --value 2>/dev/null | sed -n 's/.*path=\([^ ;]*\).*//p' | head -1)
+  [ -n "$EXEC" ] && [ -x "$EXEC" ] && TARGET="$EXEC"
+fi
+for p in /usr/local/bin/hshop-agent "$HOME/hshop-agent" ./hshop-agent; do
+  [ -z "$TARGET" ] && [ -x "$p" ] && TARGET="$p"
+done
+
+if [ -z "$TARGET" ]; then
+  echo "没找到已安装的 hshop-agent，请先用接入命令安装" >&2
+  rm -f "$TMP"
+  exit 1
+fi
+echo "  目标: $TARGET"
+mv -f "$TMP" "$TARGET"
+chmod +x "$TARGET"
+
+echo "[3/3] 重启服务"
+if systemctl is-active --quiet hshop-agent 2>/dev/null; then
+  systemctl restart hshop-agent
+  sleep 2
+  systemctl is-active hshop-agent && echo "系统级服务已重启"
+elif systemctl --user is-active --quiet hshop-agent 2>/dev/null; then
+  systemctl --user restart hshop-agent
+  sleep 2
+  systemctl --user is-active hshop-agent && echo "用户级服务已重启"
+else
+  echo "agent 服务未在运行，已替换二进制；请手动启动 hshop-agent" >&2
+  exit 1
+fi
+
+echo
+echo "升级完成：节点 " + fmt.Sprint(node.Index) + " 已运行最新 agent"
+echo "约 30 秒后后台的延迟列会显示真实数值"
+`)
+	return b.String()
+}
+
+// BuildUpdateCommand 生成后台可复制的「一条命令升级」。
+func BuildUpdateCommand(serverHost string, node store.PoolNode) string {
+	base := serverHost
+	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
+		base = "http://" + base
+	}
+	return fmt.Sprintf(`bash -c "$(curl -fsSL '%s/api/pool/update.sh?node=%d&key=%s')"`,
+		base, node.Index, node.InstallKey())
+}

@@ -71,6 +71,7 @@ func (a *API) routes() {
 	a.mux.HandleFunc("GET /api/admin/pool", a.handleAdminPool)
 	a.mux.HandleFunc("POST /api/admin/pool", a.handleAdminPoolPost)
 	a.mux.HandleFunc("GET /api/pool/install.sh", a.handlePoolInstallScript)
+	a.mux.HandleFunc("GET /api/pool/update.sh", a.handlePoolUpdateScript)
 	a.mux.HandleFunc("GET /api/pool/agent", a.handlePoolAgentBinary)
 	a.mux.HandleFunc("GET /api/admin/products", a.handleAdminProducts)
 	a.mux.HandleFunc("POST /api/admin/products", a.handleAdminProductsPost)

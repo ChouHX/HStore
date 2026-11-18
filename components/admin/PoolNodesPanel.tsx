@@ -25,6 +25,8 @@ interface PoolNodeView {
   latencyMs?: number;
   lastSeen?: string;
   command?: string;
+  /** 一条命令升级该节点上的 agent（不改 token、不动配置） */
+  updateCommand?: string;
   createdAt: number;
 }
 
@@ -229,7 +231,7 @@ export function PoolNodesPanel() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 170,
+      width: 250,
       render: (_: unknown, n: PoolNodeView) => (
         <Space size="mini">
           <Button
@@ -237,7 +239,14 @@ export function PoolNodesPanel() {
             disabled={!n.command}
             onClick={() => n.command && copy(n.command, `已复制节点 ${n.index} 接入命令`)}
           >
-            复制命令
+            接入命令
+          </Button>
+          <Button
+            size="mini"
+            disabled={!n.updateCommand}
+            onClick={() => n.updateCommand && copy(n.updateCommand, `已复制节点 ${n.index} 升级命令`)}
+          >
+            升级命令
           </Button>
           <Popconfirm title={`确认删除节点 ${n.index}？`} onOk={() => removeNode(n)}>
             <Button size="mini" status="danger">
@@ -289,7 +298,7 @@ export function PoolNodesPanel() {
             columns={columns}
             data={nodes}
             pagination={false}
-            scroll={{ x: 900 }}
+            scroll={{ x: 980 }}
             noDataElement={
               <div className="py-6 text-center text-[12px] text-[#86909c]">
                 还没有节点，点击右上角「添加节点」创建，然后在对应家宽设备上执行一键命令。
