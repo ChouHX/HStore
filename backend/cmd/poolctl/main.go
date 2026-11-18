@@ -54,6 +54,25 @@ func main() {
 			fmt.Printf("节点 %d  label=%q enabled=%v token=%s...\n",
 				n.Index, n.Label, n.Enabled, n.Token[:12])
 		}
+	case "cmd":
+		// 输出指定节点的接入命令与升级命令（运维排障用，避免去后台翻）
+		list := store.ListPoolNodes()
+		if len(list) == 0 {
+			fmt.Println("（无节点）")
+			return
+		}
+		host := os.Getenv("HSTORE_PUBLIC_HOST")
+		if host == "" {
+			host = "43.166.8.180:3001"
+		}
+		for _, n := range list {
+			if len(args) > 1 && fmt.Sprint(n.Index) != args[1] {
+				continue
+			}
+			fmt.Printf("=== 节点 %d（%s）enabled=%v ===\n", n.Index, n.Label, n.Enabled)
+			fmt.Printf("接入：\n%s\n", upstream.BuildOnboardCommand(host, n))
+			fmt.Printf("升级：\n%s\n\n", upstream.BuildUpdateCommand(host, n))
+		}
 	case "rm":
 		if len(args) < 2 {
 			fmt.Println("用法: poolctl rm <序号>")
