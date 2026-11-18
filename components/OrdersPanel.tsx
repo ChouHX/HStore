@@ -107,8 +107,14 @@ export function OrdersPanel() {
       <Space wrap>
         <Input.Search
           allowClear
+          value={keyword}
           placeholder="订单号 / 商品名称"
           style={{ width: 240 }}
+          autoComplete="off"
+          onChange={(v) => {
+            setKeyword(v);
+            setPage(1);
+          }}
           onSearch={(v) => {
             setKeyword(v);
             setPage(1);
@@ -125,7 +131,11 @@ export function OrdersPanel() {
           <Select.Option value="all">全部状态</Select.Option>
           <Select.Option value="done">已完成</Select.Option>
           <Select.Option value="processing">进行中</Select.Option>
+          <Select.Option value="closed">已关闭</Select.Option>
         </Select>
+        <Button size="small" loading={loading} onClick={load}>
+          刷新
+        </Button>
       </Space>
 
       <Table

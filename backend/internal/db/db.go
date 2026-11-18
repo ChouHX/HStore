@@ -1060,6 +1060,12 @@ func migrate(db *sql.DB) error {
 	}); e != nil {
 		return e
 	}
+	// 启动时幂等校准自营商品冗余库存字段，确保旧库升级后前台按库存排序立即准确。
+	if _, e := db.Exec(`UPDATE products
+		SET stock_count = (SELECT COUNT(*) FROM self_stock s WHERE s.goods_id = products.goods_id AND s.status = 'available')
+		WHERE fulfillment = 'self'`); e != nil {
+		return e
+	}
 	if e := addColumns(db, "redeem_codes", [][2]string{
 		{"start_at", "INTEGER"},
 		{"end_at", "INTEGER"},

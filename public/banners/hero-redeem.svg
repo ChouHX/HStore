@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 220" width="280" height="220" fill="none">
+  <defs>
+    <linearGradient id="rdTicket" x1="42" y1="48" x2="242" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFBEB" stop-opacity="0.96"/>
+      <stop offset="1" stop-color="#FDE68A" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="rdBolt" x1="186" y1="24" x2="246" y2="86" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#EA580C"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="72" cy="52" r="32" fill="#FDE68A" fill-opacity="0.2"/>
+  <circle cx="222" cy="168" r="36" fill="#FDBA74" fill-opacity="0.22"/>
+
+  <!-- Back shadow ticket -->
+  <g transform="rotate(-7 140 112)">
+    <rect x="44" y="54" width="188" height="104" rx="16" fill="#FFFFFF" fill-opacity="0.2" stroke="#FFFFFF" stroke-opacity="0.38" stroke-width="1.2"/>
+  </g>
+
+  <!-- Main perforated voucher -->
+  <path d="M42 78a14 14 0 0 1 14-14h168a14 14 0 0 1 14 14v22a14 14 0 0 0 0 28v22a14 14 0 0 1-14 14H56a14 14 0 0 1-14-14v-22a14 14 0 0 0 0-28V78z" fill="url(#rdTicket)"/>
+  <line x1="176" y1="72" x2="176" y2="156" stroke="#D97706" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="5 5"/>
+
+  <!-- Voucher content -->
+  <rect x="64" y="84" width="54" height="18" rx="9" fill="#EA580C" fill-opacity="0.14"/>
+  <text x="74" y="96" fill="#C2410C" font-family="system-ui,sans-serif" font-size="10" font-weight="700">GIFT</text>
+  <rect x="64" y="112" width="96" height="24" rx="7" fill="#7C2D12" fill-opacity="0.1"/>
+  <text x="72" y="128" fill="#7C2D12" font-family="ui-monospace,Consolas,monospace" font-size="12" font-weight="700" letter-spacing="1">HSHOP-8F2K</text>
+  <rect x="64" y="144" width="68" height="5" rx="2.5" fill="#D97706" fill-opacity="0.45"/>
+
+  <!-- Right stub gift icon -->
+  <rect x="192" y="96" width="30" height="26" rx="5" fill="#EA580C" fill-opacity="0.16" stroke="#EA580C" stroke-width="1.8"/>
+  <path d="M190 105h34M207 96v26" stroke="#EA580C" stroke-width="1.8"/>
+  <path d="M207 96c-4.5 0-8-2.8-8-5.5S202 86 207 91c5-5 8-3.2 8-.5S211.5 96 207 96z" stroke="#EA580C" stroke-width="1.8" stroke-linejoin="round"/>
+
+  <!-- Instant lightning badge -->
+  <circle cx="216" cy="54" r="24" fill="url(#rdBolt)" stroke="#FFFFFF" stroke-width="2"/>
+  <path d="M219 39l-11 16h9l-3 14 13-17h-9l1-13z" fill="#FFFFFF"/>
+
+  <circle cx="42" cy="48" r="3" fill="#FEF3C7"/>
+  <circle cx="252" cy="118" r="3.5" fill="#FDE68A"/>
+</svg>
+

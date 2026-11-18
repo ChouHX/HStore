@@ -189,12 +189,13 @@ func CreateAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error
 	return createAlipayOrder(user, cny, false)
 }
 
-// CreateGuestAlipayOrder 为游客购买创建精确金额订单，不做 1–99 分加价。
+// CreateGuestAlipayOrder 为商品在线直购创建支付宝订单：
+// 优先原价（+0.00），同价位并发或冷却期内自动在 +0.01~0.20 元内随机分配识别尾数，并启用过期冷却期防迟付串单。
 func CreateGuestAlipayOrder(user *model.User, cny float64) (*model.AlipayOrder, error) {
 	return createAlipayOrder(user, cny, true)
 }
 
-func createAlipayOrder(user *model.User, cny float64, exactAmount bool) (*model.AlipayOrder, error) {
+func createAlipayOrder(user *model.User, cny float64, isPurchase bool) (*model.AlipayOrder, error) {
 	cfg := store.GetAlipaySecretConfig()
 	if !cfg.Enabled {
 		return nil, errors.New("支付宝充值未开启")
@@ -209,15 +210,15 @@ func createAlipayOrder(user *model.User, cny float64, exactAmount bool) (*model.
 		return nil, errors.New("请输入充值金额")
 	}
 	requested := int64(math.Round(cny * 100))
-	if exactAmount {
-		// 商品直购走精确金额：不足 1 分向上取整（0.064 → 0.07）
+	if isPurchase {
+		// 商品直购不足 1 分向上取整（0.064 → 0.07）
 		requested = ceilToCents(cny)
 	}
 	if requested < 1 {
 		return nil, errors.New("充值金额过小")
 	}
 	amountCny := float64(requested) / 100
-	if !exactAmount {
+	if !isPurchase {
 		if amountCny < cfg.MinCny {
 			return nil, fmt.Errorf("单笔充值不能低于 ¥%s", store.TrimFloat(cfg.MinCny))
 		}
@@ -233,32 +234,50 @@ func createAlipayOrder(user *model.User, cny float64, exactAmount bool) (*model.
 		ttlSeconds = 300
 	}
 	cooldownSeconds := cfg.CooldownSeconds
-	if exactAmount {
-		// 商品直购使用精确售价，结束后立即释放金额；不额外加价。
-		cooldownSeconds = 0
+	if isPurchase && cooldownSeconds < 120 {
+		cooldownSeconds = 120
 	}
 	if cooldownSeconds < 0 {
 		cooldownSeconds = 0
 	}
 	offsetMax := int64(cfg.AmountOffsetMaxCents)
-	if exactAmount {
-		offsetMax = 0
+	if isPurchase {
+		if offsetMax <= 0 || offsetMax > 20 {
+			offsetMax = 20
+		}
 	} else if offsetMax <= 0 {
 		offsetMax = 1
 	}
 	store.ExpireAlipayOrders()
 	orderNo := store.NewAlipayOrderNo()
 	token := store.AlipayCheckoutToken(orderNo)
-	order, err := store.CreateAlipayOrder(
-		user.UID,
-		orderNo,
-		store.HashAlipayToken(token),
-		cfg.CollectionCode,
-		requested,
-		offsetMax,
-		int64(ttlSeconds)*1000,
-		int64(cooldownSeconds)*1000,
+	var (
+		order *model.AlipayOrder
+		err   error
 	)
+	if isPurchase {
+		order, err = store.CreatePurchaseAlipayOrder(
+			user.UID,
+			orderNo,
+			store.HashAlipayToken(token),
+			cfg.CollectionCode,
+			requested,
+			offsetMax,
+			int64(ttlSeconds)*1000,
+			int64(cooldownSeconds)*1000,
+		)
+	} else {
+		order, err = store.CreateAlipayOrder(
+			user.UID,
+			orderNo,
+			store.HashAlipayToken(token),
+			cfg.CollectionCode,
+			requested,
+			offsetMax,
+			int64(ttlSeconds)*1000,
+			int64(cooldownSeconds)*1000,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}

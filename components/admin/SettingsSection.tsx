@@ -59,6 +59,7 @@ export function SettingsSection() {
         Message.success("配置已保存");
         setAppSecret("");
         await load();
+        window.dispatchEvent(new Event("hstore:upstream-updated"));
       } else Message.error(j.message ?? "保存失败");
     } finally {
       setSaving(false);

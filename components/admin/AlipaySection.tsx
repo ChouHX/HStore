@@ -313,7 +313,7 @@ export function AlipaySection() {
               bordered={false}
               bodyStyle={{ padding: 16 }}
               extra={
-                <Space>
+                <Space wrap>
                   <Tag color={data.configured ? "green" : "red"}>{data.configured ? "已配置" : "未配置"}</Tag>
                   <Tag color={data.openOrders > 0 ? "orange" : "gray"}>待支付 {data.openOrders}</Tag>
                   <Tag color={data.unmatched > 0 ? "red" : "gray"}>待匹配 {data.unmatched}</Tag>
@@ -618,7 +618,7 @@ export function AlipaySection() {
             <Button onClick={() => setLedgerOpen(false)}>关闭</Button>
           </Space>
         }
-        style={{ width: 1120 }}
+        style={{ width: 1120, maxWidth: "95vw" }}
         unmountOnExit
       >
         <div className="flex flex-col gap-3">

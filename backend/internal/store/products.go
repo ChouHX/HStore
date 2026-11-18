@@ -367,8 +367,8 @@ func buildProductWhere(f ProductFilter) (string, []any) {
 		args = append(args, f.Platform)
 	}
 	if f.CategoryID > 0 {
-		where = append(where, "dir_ids LIKE ?")
-		args = append(args, "%"+strconvItoa(f.CategoryID)+"%")
+		where = append(where, "(',' || REPLACE(TRIM(dir_ids, '[]'), ' ', '') || ',' LIKE ?)")
+		args = append(args, "%,"+strconvItoa(f.CategoryID)+",%")
 	}
 	if len(f.RootIDs) > 0 {
 		where = append(where, "root_category_id IN ("+joinInts(f.RootIDs)+")")
@@ -376,7 +376,8 @@ func buildProductWhere(f ProductFilter) (string, []any) {
 	if len(f.SubIDs) > 0 {
 		var ors []string
 		for _, id := range f.SubIDs {
-			ors = append(ors, "dir_ids LIKE '%"+strconvItoa(id)+"%'")
+			ors = append(ors, "(',' || REPLACE(TRIM(dir_ids, '[]'), ' ', '') || ',' LIKE ?)")
+			args = append(args, "%,"+strconvItoa(id)+",%")
 		}
 		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	}
@@ -541,12 +542,15 @@ type CustomizedProduct struct {
 	CustomImg  *string `json:"customImg"`
 }
 
-// ListCustomizedProducts 列出已设置自定义信息的商品。
+// ListCustomizedProducts 列出已设置自定义信息的商品（含名称、描述或图片任一自定义项）。
 func ListCustomizedProducts(keyword string, limit int) []CustomizedProduct {
 	if limit <= 0 {
 		limit = 200
 	}
-	q := "SELECT goods_id, name, platform, custom_name, custom_desc, custom_img FROM products WHERE custom_name IS NOT NULL AND custom_name <> ''"
+	q := `SELECT goods_id, name, platform, custom_name, custom_desc, custom_img FROM products
+		WHERE ((custom_name IS NOT NULL AND custom_name <> '')
+		   OR (custom_desc IS NOT NULL AND custom_desc <> '')
+		   OR (custom_img IS NOT NULL AND custom_img <> ''))`
 	var args []any
 	if keyword != "" {
 		q += " AND (name LIKE ? OR custom_name LIKE ? OR CAST(goods_id AS TEXT) = ?)"
@@ -782,8 +786,8 @@ func ListStoreProducts(q StoreProductQuery) ([]model.Product, int) {
 		args = append(args, q.RootID)
 	}
 	if q.DirID > 0 {
-		where = append(where, "dir_ids LIKE ?")
-		args = append(args, "%"+strconvItoa(q.DirID)+"%")
+		where = append(where, "(',' || REPLACE(TRIM(dir_ids, '[]'), ' ', '') || ',' LIKE ?)")
+		args = append(args, "%,"+strconvItoa(q.DirID)+",%")
 	}
 	if q.Keyword != "" {
 		where = append(where, "(name LIKE ? OR custom_name LIKE ? OR CAST(goods_id AS TEXT) = ?)")

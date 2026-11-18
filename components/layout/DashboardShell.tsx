@@ -9,7 +9,6 @@ import {
   IconNotification,
   IconDashboard,
   IconEdit,
-  IconFile,
   IconGift,
   IconHome,
   IconList,
@@ -59,7 +58,6 @@ const ICONS: Record<string, React.ReactNode> = {
   users: <IconUserGroup />,
   redeem: <IconGift />,
   levels: <IconTrophy />,
-  logs: <IconFile />,
   recharge: <IconGift />,
   orders: <IconList />,
   pickup: <IconEmail />,
@@ -84,12 +82,17 @@ export function DashboardShell({ user, nav, children }: Props) {
       setUpstream(null);
       return;
     }
-    fetch("/api/account")
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.ok) setUpstream(j.balance);
-      })
-      .catch(() => {});
+    const fetchUpstream = () => {
+      fetch("/api/account")
+        .then((r) => r.json())
+        .then((j) => {
+          if (j.ok) setUpstream(j.balance);
+        })
+        .catch(() => {});
+    };
+    fetchUpstream();
+    window.addEventListener("hstore:upstream-updated", fetchUpstream);
+    return () => window.removeEventListener("hstore:upstream-updated", fetchUpstream);
   }, [adminArea]);
 
   async function logout() {

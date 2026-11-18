@@ -45,7 +45,7 @@ body {
     width: calc(100vw - 24px) !important;
     max-width: calc(100vw - 24px) !important;
   }
-  .arco-modal .arco-modal-body {
+  .arco-modal:not(.purchase-dialog) .arco-modal-body {
     max-height: calc(100vh - 180px);
     overflow-y: auto;
   }
@@ -199,7 +199,7 @@ body {
     display: none;
   }
 }
-/* 每次切到某张时，文案逐级淡入（配合 Arco 的 slide-in 时机） */
+/* 每次切到某张时，文案与右侧插画逐级淡入（配合 Arco 的 slide-in 时机） */
 .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > * {
   animation: store-hero-copy-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -207,6 +207,9 @@ body {
 .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(3) { animation-delay: 0.12s; }
 .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(4) { animation-delay: 0.18s; }
 .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *:nth-child(5) { animation-delay: 0.24s; }
+.store-hero-slide.arco-carousel-item-slide-in .store-hero-art > img {
+  animation: store-hero-art-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 @keyframes store-hero-copy-in {
   from {
     opacity: 0;
@@ -217,7 +220,17 @@ body {
     transform: translateY(0);
   }
 }
-/* 主按钮 hover 轻微抬起，弱化次要按钮 */
+@keyframes store-hero-art-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+/* 主按钮 hover 轻微抬起 */
 .store-hero-btn {
   transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
@@ -226,18 +239,19 @@ body {
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.24);
 }
-.store-hero-btn-ghost:hover {
-  background: rgba(255, 255, 255, 0.16) !important;
-  border-color: rgba(255, 255, 255, 0.8) !important;
-}
 /* 减少动态偏好下关掉轮播入场动画 */
 @media (prefers-reduced-motion: reduce) {
-  .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > * {
+  .store-hero-slide.arco-carousel-item-slide-in .store-hero-copy > *,
+  .store-hero-slide.arco-carousel-item-slide-in .store-hero-art > img {
     animation: none;
   }
 }
 
-/* Tailwind preflight 会把 svg 设为 display:block，导致 Arco 表单项的必填星号独占一行 */
+/* Tailwind preflight 会把 svg 设为 display:block，修复 Arco 图标与表单必填星号的行内基线对齐 */
+.arco-icon {
+  display: inline-block;
+  vertical-align: -2px;
+}
 .arco-form-item-symbol > svg {
   display: inline-block;
   vertical-align: baseline;
@@ -245,4 +259,19 @@ body {
 .arco-form-item-symbol {
   display: inline-flex;
   align-items: center;
+}
+
+/* 防止 Arco 无层 .arco-carousel 覆盖 Tailwind @layer utilities 的轮播高度 */
+.store-hero .arco-carousel {
+  height: 188px;
+}
+@media (min-width: 640px) {
+  .store-hero .arco-carousel {
+    height: 252px;
+  }
+}
+@media (min-width: 1024px) {
+  .store-hero .arco-carousel {
+    height: 268px;
+  }
 }

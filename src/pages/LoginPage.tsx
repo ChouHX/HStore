@@ -36,7 +36,7 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <Card style={{ width: 360 }} bordered={false}>
+      <Card style={{ width: "100%", maxWidth: 360 }} bordered={false}>
         <div className="mb-1 flex items-center gap-2">
           <img src="/favicon.svg" alt="HShop" className="h-9 w-9 rounded-lg" />
           <Typography.Title heading={5} style={{ margin: 0 }}>

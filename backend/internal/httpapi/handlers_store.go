@@ -41,8 +41,12 @@ type storeDetailView struct {
 	Fulfillment       string          `json:"fulfillment,omitempty"`
 	GoodsID           int             `json:"goodsId"`
 	Name              string          `json:"name"`
+	CustomName        *string         `json:"customName,omitempty"`
+	CustomDesc        *string         `json:"customDesc,omitempty"`
+	CustomImg         *string         `json:"customImg,omitempty"`
 	ImgURL            string          `json:"imgUrl"`
 	SalesPrice        float64         `json:"salesPrice"`
+	FinalPrice        float64         `json:"finalPrice"`
 	FaceValue         float64         `json:"faceValue"`
 	GoodsType         int             `json:"goodsType"`
 	Status            int             `json:"status"`
@@ -199,7 +203,14 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "缺少商品编号")
 		return
 	}
-	if p := store.GetProduct(id); p != nil && p.Fulfillment == "self" {
+	user := sessionUser(r)
+	isAdmin := user != nil && user.Role == "admin"
+	p := store.GetProduct(id)
+	if p == nil || (!isAdmin && p.Enabled != 1) {
+		fail(w, http.StatusNotFound, "商品不存在或已下架")
+		return
+	}
+	if p.Fulfillment == "self" {
 		ok(w, map[string]any{"detail": selfProductDetail(p)})
 		return
 	}
@@ -219,7 +230,7 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, customerOrderError(e.Error()))
 		return
 	}
-	detail, e := buildStoreDetail(id, raw, fresh)
+	detail, e := buildStoreDetail(id, p, raw, fresh)
 	if e != nil {
 		fail(w, http.StatusInternalServerError, "解析商品详情失败")
 		return
@@ -230,29 +241,25 @@ func (a *API) handleGoodsDetail(w http.ResponseWriter, r *http.Request) {
 // buildStoreDetail 把上游详情 JSON 裁剪成白名单字段。
 //
 // 缓存里的原始 JSON 带成本价（salesPrice）、上游目录 ID、SKU 结构等内部信息，
-// 不能整包下发。
+// 绝不下发上游成本价，salesPrice / finalPrice 统一使用本站定价后的 FinalPrice。
 //
 // 库存口径按 fresh 区分：
 //   - fresh=true（用户点购买）：上游刚回源的 stockCount 就是「此刻」的真实库存，
 //     必须直接采用，否则上游已缺货时弹窗仍显示有货，用户能下单再失败。
 //   - fresh=false（浏览 / 列表）：用本地 stock_count，避免每次浏览都回源。
-func buildStoreDetail(goodsID int, raw json.RawMessage, fresh bool) (storeDetailView, error) {
+func buildStoreDetail(goodsID int, p *model.Product, raw json.RawMessage, fresh bool) (storeDetailView, error) {
 	var d model.GoodsDetail
 	if e := json.Unmarshal(raw, &d); e != nil {
 		return storeDetailView{}, e
 	}
 	stock := d.StockCount
-	if !fresh {
+	if !fresh && p != nil && p.StockCount >= 0 {
 		// 非强刷场景本地值通常比 10 分钟 TTL 的缓存更新，优先本地
-		if p := store.GetProduct(goodsID); p != nil && p.StockCount >= 0 {
-			stock = p.StockCount
-		}
+		stock = p.StockCount
 	}
 	// 上游没给库存（<0）时，无论是否 fresh 都退回本地值
-	if stock < 0 {
-		if p := store.GetProduct(goodsID); p != nil && p.StockCount >= 0 {
-			stock = p.StockCount
-		}
+	if stock < 0 && p != nil && p.StockCount >= 0 {
+		stock = p.StockCount
 	}
 	minQty, maxQty := d.MinQuantity, d.MaxQuantity
 	if minQty < 1 {
@@ -261,11 +268,28 @@ func buildStoreDetail(goodsID int, raw json.RawMessage, fresh bool) (storeDetail
 	if maxQty < 1 {
 		maxQty = 999999
 	}
+	finalPrice := 0.0
+	var customName, customDesc, customImg *string
+	imgURL := d.ImgURL
+	if p != nil {
+		finalPrice = p.FinalPrice
+		customName = p.CustomName
+		customDesc = p.CustomDesc
+		if p.CustomImg != nil && strings.TrimSpace(*p.CustomImg) != "" {
+			localized := imagecache.LocalURL(*p.CustomImg)
+			customImg = &localized
+			imgURL = *p.CustomImg
+		}
+	}
 	return storeDetailView{
 		GoodsID:           goodsID,
 		Name:              d.Name,
-		ImgURL:            imagecache.LocalURL(d.ImgURL),
-		SalesPrice:        d.SalesPrice,
+		CustomName:        customName,
+		CustomDesc:        customDesc,
+		CustomImg:         customImg,
+		ImgURL:            imagecache.LocalURL(imgURL),
+		SalesPrice:        finalPrice,
+		FinalPrice:        finalPrice,
 		FaceValue:         d.FaceValue,
 		GoodsType:         d.GoodsType,
 		Status:            d.Status,
@@ -282,9 +306,6 @@ func buildStoreDetail(goodsID int, raw json.RawMessage, fresh bool) (storeDetail
 }
 
 // selfProductDetail 为自营商品构造与上游一致的详情结构。
-//
-// stockCount 是本地真实可用条数（与列表页同一口径）。本地为 0 但配置了上游兜底
-// 商品时仍然可以下单，前端据列表里的 hasFallback 判断是否放开按钮。
 func selfProductDetail(p *model.Product) storeDetailView {
 	name := p.Name
 	if p.CustomName != nil && strings.TrimSpace(*p.CustomName) != "" {
@@ -295,15 +316,22 @@ func selfProductDetail(p *model.Product) storeDetailView {
 		desc = *p.CustomDesc
 	}
 	img := p.ImgURL
+	var customImg *string
 	if p.CustomImg != nil && *p.CustomImg != "" {
 		img = *p.CustomImg
+		localized := imagecache.LocalURL(img)
+		customImg = &localized
 	}
 	return storeDetailView{
 		GoodsID:       p.GoodsID,
 		Fulfillment:   "self",
 		Name:          name,
+		CustomName:    p.CustomName,
+		CustomDesc:    p.CustomDesc,
+		CustomImg:     customImg,
 		ImgURL:        imagecache.LocalURL(img),
 		SalesPrice:    p.FinalPrice,
+		FinalPrice:    p.FinalPrice,
 		FaceValue:     p.FaceValue,
 		GoodsType:     p.GoodsType,
 		Status:        p.Status,

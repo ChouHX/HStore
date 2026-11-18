@@ -629,7 +629,7 @@ export function RedeemSection() {
           name="redeem-code-search"
           onChange={(v) => {
             setKeyword(v);
-            if (!v) setPage(1);
+            setPage(1);
           }}
           onSearch={(v) => {
             setKeyword(v);
@@ -646,6 +646,7 @@ export function RedeemSection() {
         >
           <Select.Option value="all">全部状态</Select.Option>
           <Select.Option value="unused">未使用</Select.Option>
+          <Select.Option value="redeeming">核销中</Select.Option>
           <Select.Option value="used">已使用</Select.Option>
           <Select.Option value="voided">已作废</Select.Option>
         </Select>
@@ -751,6 +752,11 @@ export function RedeemSection() {
                   <Tag size="small" color="green">
                     未用 {b.unused}
                   </Tag>
+                  {b.redeeming > 0 && (
+                    <Tag size="small" color="orange">
+                      核销中 {b.redeeming}
+                    </Tag>
+                  )}
                   <Tag size="small" color="gray">
                     已用 {b.used}
                   </Tag>

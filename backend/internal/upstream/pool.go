@@ -214,5 +214,5 @@ func BuildOnboardCommand(serverHost string, node store.PoolNode) string {
 	if !strings.HasPrefix(base, "http://") && !strings.HasPrefix(base, "https://") {
 		base = "http://" + base
 	}
-	return fmt.Sprintf(`bash -c "$(curl -fsSL '%s/api/pool/install.sh?node=%d')"`, base, node.Index)
+	return fmt.Sprintf(`bash -c "$(curl -fsSL '%s/api/pool/install.sh?node=%d&key=%s')"`, base, node.Index, node.InstallKey())
 }

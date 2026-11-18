@@ -88,8 +88,6 @@ export function CryptoSection() {
   const [form, setForm] = useState({ apiKey: "", apiSecret: "", rate: 0, minUsdt: 2, chain: "TRX", enabled: true });
   const [newUid, setNewUid] = useState("");
   const [poolOpen, setPoolOpen] = useState(false);
-  const [redeemUrl, setRedeemUrl] = useState("");
-  const [savingRedeem, setSavingRedeem] = useState(false);
 
   const apply = useCallback((j: Snapshot & { refresh?: { errors?: string[] } }) => {
     setData(j);
@@ -106,13 +104,9 @@ export function CryptoSection() {
   }, []);
 
   const load = useCallback(async () => {
-    const [cj, sj] = await Promise.all([
-      fetch("/api/admin/crypto").then((r) => r.json()),
-      fetch("/api/admin/settings").then((r) => r.json()),
-    ]);
+    const cj = await fetch("/api/admin/crypto").then((r) => r.json());
     if (cj.ok) apply(cj as Snapshot);
     else Message.error(cj.message ?? "加载失败");
-    if (sj.ok) setRedeemUrl(sj.redeemPurchaseUrl ?? "");
   }, [apply]);
 
   useEffect(() => {
@@ -134,23 +128,6 @@ export function CryptoSection() {
       } else Message.error(j.message ?? "操作失败");
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function saveRedeem() {
-    setSavingRedeem(true);
-    try {
-      const j = await fetch("/api/admin/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "saveSite", redeemPurchaseUrl: redeemUrl }),
-      }).then((r) => r.json());
-      if (j.ok) {
-        Message.success("兑换码购买链接已保存");
-        setRedeemUrl(j.redeemPurchaseUrl ?? "");
-      } else Message.error(j.message ?? "保存失败");
-    } finally {
-      setSavingRedeem(false);
     }
   }
 
@@ -339,26 +316,6 @@ export function CryptoSection() {
           <div className="mt-1 text-[11px] text-[#86909c]">
             每个子账号对应一条 TRON 地址，以及一条 BSC / Arbitrum One / Polygon PoS 共用的 EVM 地址。
           </div>
-        </div>
-      </Card>
-
-      <Card title="兑换码购买链接" bordered={false} bodyStyle={{ padding: 16 }}>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="min-w-[240px] flex-1">
-            <div className="mb-1 text-[12px] text-[#4e5969]">购买链接（留空隐藏按钮）</div>
-            <Input
-              size="small"
-              value={redeemUrl}
-              onChange={setRedeemUrl}
-              placeholder="https://example.com/buy"
-            />
-          </div>
-          <Button size="small" type="primary" loading={savingRedeem} onClick={saveRedeem}>
-            保存链接
-          </Button>
-        </div>
-        <div className="mt-1 text-[11px] text-[#86909c]">
-          用户会在「个人中心 - 充值 / 兑换」看到「购买兑换码」按钮。
         </div>
       </Card>
 

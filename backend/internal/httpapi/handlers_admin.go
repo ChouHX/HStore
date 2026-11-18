@@ -145,12 +145,13 @@ func (a *API) handleAdminPoolPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handlePoolInstallScript 下发家宽接入脚本（脚本内含该节点 token）。
+// handlePoolInstallScript 下发家宽接入脚本（脚本内含该节点 token，必须校验 HMAC 下载密钥）。
 func (a *API) handlePoolInstallScript(w http.ResponseWriter, r *http.Request) {
 	idx := queryInt(r, "node")
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
 	node := store.GetPoolNode(idx)
-	if node == nil || !node.Enabled {
-		http.Error(w, "节点不存在或已禁用", http.StatusNotFound)
+	if node == nil || !node.Enabled || !node.VerifyInstallKey(key) {
+		http.Error(w, "无权访问或节点不可用，请从管理后台重新复制一键接入命令", http.StatusForbidden)
 		return
 	}
 	script := upstream.BuildOnboardScript(serverHost(r), *node)
@@ -206,23 +207,26 @@ type salesWindow struct {
 	Cost  float64 `json:"cost"`
 }
 
-// sumSales 统计 created_at ∈ [fromMs, toMs] 的销售数据。
+// sumSales 统计 created_at ∈ [fromMs, toMs] 的有效销售数据（排除后台测试单与发货失败/已取消单）。
 func sumSales(d *sql.DB, fromMs, toMs int64) salesWindow {
 	w := salesWindow{}
 	_ = d.QueryRow(`SELECT COUNT(*),
-		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN sale_money ELSE 0 END),2),0),
-		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN cost_money ELSE 0 END),2),0)
-		FROM orders WHERE created_at >= ? AND created_at <= ?`, fromMs, toMs).Scan(&w.Total, &w.Sale, &w.Cost)
+		COALESCE(ROUND(SUM(sale_money),2),0),
+		COALESCE(ROUND(SUM(cost_money),2),0)
+		FROM orders
+		WHERE source IN ('user','guest') AND status NOT IN (4, 5)
+		  AND created_at >= ? AND created_at <= ?`, fromMs, toMs).Scan(&w.Total, &w.Sale, &w.Cost)
 	return w
 }
 
-// sumSalesAllTime 统计全部订单的销售数据（不加时间过滤）。
+// sumSalesAllTime 统计全部有效销售订单的数据（排除后台测试单与发货失败/已取消单）。
 func sumSalesAllTime(d *sql.DB) salesWindow {
 	w := salesWindow{}
 	_ = d.QueryRow(`SELECT COUNT(*),
-		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN sale_money ELSE 0 END),2),0),
-		COALESCE(ROUND(SUM(CASE WHEN source IN ('user','guest') THEN cost_money ELSE 0 END),2),0)
-		FROM orders`).Scan(&w.Total, &w.Sale, &w.Cost)
+		COALESCE(ROUND(SUM(sale_money),2),0),
+		COALESCE(ROUND(SUM(cost_money),2),0)
+		FROM orders
+		WHERE source IN ('user','guest') AND status NOT IN (4, 5)`).Scan(&w.Total, &w.Sale, &w.Cost)
 	return w
 }
 
@@ -293,10 +297,10 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	rangeProfit := roundMoney(rangeStat.Sale - rangeStat.Cost)
 	allProfit := roundMoney(allTime.Sale - allTime.Cost)
 
-	var batches, codes, used int
-	_ = d.QueryRow(`SELECT (SELECT COUNT(*) FROM redeem_batches),
-		(SELECT COUNT(*) FROM redeem_codes),
-		(SELECT COALESCE(SUM(CASE WHEN status='used' THEN 1 ELSE 0 END),0) FROM redeem_codes)`).Scan(&batches, &codes, &used)
+	batches := store.CountBatches()
+	var codes, used int
+	_ = d.QueryRow(`SELECT (SELECT COUNT(*) FROM redeem_codes),
+		(SELECT COALESCE(SUM(CASE WHEN status='used' THEN 1 ELSE 0 END),0) FROM redeem_codes)`).Scan(&codes, &used)
 
 	type platRow struct {
 		Platform string `json:"platform"`
@@ -327,9 +331,11 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 	}
 	store.ExpireAlipayOrders()
 	store.ExpireCryptoOrders()
+	alipayPurchases := store.GuestPaymentIDs("alipay")
+	usdtPurchases := store.GuestPaymentIDs("usdt")
 	recent := make([]recentRecharge, 0, 20)
 	for _, o := range store.ListAlipayOrders(0, 30) {
-		if o.Status != "paid" && o.Status != "waiting" {
+		if alipayPurchases[o.ID] || (o.Status != "paid" && o.Status != "waiting") {
 			continue
 		}
 		amount := o.RequestedCny
@@ -343,16 +349,18 @@ func (a *API) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for _, o := range store.ListCryptoOrders(0, 30) {
-		if o.Status != "paid" && o.Status != "waiting" {
+		if usdtPurchases[o.ID] || (o.Status != "paid" && o.Status != "waiting") {
 			continue
 		}
 		amount := o.CreditCny
 		if o.Credited != nil {
 			amount = *o.Credited
 		}
-		username := ""
-		if u := store.GetUser(o.UID); u != nil {
-			username = u.Username
+		username := o.Username
+		if username == "" {
+			if u := store.GetUser(o.UID); u != nil {
+				username = u.Username
+			}
 		}
 		recent = append(recent, recentRecharge{
 			Key: "usdt-" + itoa(o.ID), ID: o.ID, OrderNo: o.OrderNo,
@@ -1018,7 +1026,8 @@ func (a *API) handleAdminUsersPost(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "调整金额不能为 0")
 			return
 		}
-		ok2, msg, before, after := store.AdjustBalance(uid, amount, admin.UID, "")
+		remark := strings.TrimSpace(str(body["remark"]))
+		ok2, msg, before, after := store.AdjustBalance(uid, amount, admin.UID, remark)
 		if !ok2 {
 			fail(w, http.StatusBadRequest, msg)
 			return
@@ -1102,7 +1111,7 @@ func adminOrderFilter(r *http.Request) store.OrderFilter {
 	case "processing":
 		f.Statuses = []int{1, 2, 7, 8}
 	case "closed":
-		f.Statuses = []int{4}
+		f.Statuses = []int{4, 5}
 	case "all", "":
 		f.Statuses = queryIntList(r, "statuses")
 	}
@@ -1143,16 +1152,6 @@ func (a *API) handleAdminOrderDetail(w http.ResponseWriter, r *http.Request) {
 		code = row.Code
 	}
 	ok(w, map[string]any{"order": order, "redeemCode": code})
-}
-
-func (a *API) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
-		return
-	}
-	page, pageSize, offset := parsePage(r, 20)
-	items := store.ListAudit(pageSize, offset)
-	total := store.CountAudit()
-	ok(w, paged(items, total, page, pageSize))
 }
 
 // ===== 公告 =====

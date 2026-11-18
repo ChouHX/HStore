@@ -22,6 +22,7 @@ import type { AdminProduct, ProductFilterOptions } from "@/lib/api-types";
 import { formatPrice } from "@/lib/format";
 import { BoardOrderSection } from "@/components/admin/BoardOrderSection";
 import { PricingSection } from "@/components/admin/PricingSection";
+import { SelfStockFileUploader } from "@/components/admin/SelfStockFileUploader";
 import { TierDiscountSection } from "@/components/admin/TierDiscountSection";
 
 const PAGE_SIZE = 15;
@@ -130,7 +131,6 @@ export function ProductsSection() {
     name: string;
     self: boolean;
     stock: number;
-    content: string;
     items: { id: number; content: string; status: string }[];
   } | null>(null);
   const [editTarget, setEditTarget] = useState<{
@@ -305,7 +305,9 @@ export function ProductsSection() {
           (v ?? "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
         const upName = d.name?.trim() || r.name;
         const upDesc = d.goodsDescribe?.trim() || strip(d.goodsDetail);
-        const upImg = d.imgUrl?.trim() || r.imgUrl || "";
+        // 详情接口的 imgUrl 是站内 /api/img/ 代理路径，后台编辑上游原图优先保留列表里的原始 r.imgUrl，避免把代理路径误存为自定义图片。
+        const rawDetailImg = d.imgUrl?.trim() ?? "";
+        const upImg = r.imgUrl?.trim() || (rawDetailImg.startsWith("/api/img/") ? "" : rawDetailImg);
         setEditTarget((t) =>
           t && t.goodsId === r.goodsId
             ? {
@@ -398,23 +400,6 @@ export function ProductsSection() {
     if (!j) return;
     Message.success("已保存自营设置");
     setSelfModal({ ...selfModal, stock: j.stockCount });
-    load();
-  }
-
-  async function importSelfStock() {
-    if (!selfModal || !selfModal.content.trim()) {
-      Message.warning("请粘贴卡密内容，一行一条");
-      return;
-    }
-    const j = await selfAction({
-      action: "self-import",
-      goodsId: selfModal.goodsId,
-      content: selfModal.content,
-    });
-    if (!j) return;
-    Message.success(`已导入 ${j.added} 条，跳过 ${j.skipped} 条`);
-    setSelfModal({ ...selfModal, content: "", stock: j.stockCount });
-    await loadSelfStock(selfModal.goodsId);
     load();
   }
 
@@ -553,7 +538,6 @@ export function ProductsSection() {
                     name: r.name,
                     self: r.fulfillment === "self",
                     stock: r.stockCount,
-                    content: "",
                     items: [],
                   });
                   void loadSelfStock(r.goodsId);
@@ -595,8 +579,13 @@ export function ProductsSection() {
       <Space wrap>
         <Input.Search
           allowClear
+          value={keyword}
           placeholder="名称 / 商品编号"
           style={{ width: 220 }}
+          onChange={(v) => {
+            setKeyword(v);
+            setPage(1);
+          }}
           onSearch={(v) => {
             setKeyword(v);
             setPage(1);
@@ -803,18 +792,16 @@ export function ProductsSection() {
               </span>
             </div>
             <div>
-              <div className="mb-1 text-[12px] text-[#4e5969]">导入卡密（一行一条）</div>
-              <Input.TextArea
-                value={selfModal.content}
-                onChange={(v) => setSelfModal({ ...selfModal, content: v })}
-                autoSize={{ minRows: 4, maxRows: 8 }}
-                placeholder="邮箱----密码----clientid----refreshtoken"
+              <div className="mb-1 text-[12px] text-[#4e5969]">文件导入卡密（后端流式解析并自动切换为自营）</div>
+              <SelfStockFileUploader
+                goodsId={selfModal.goodsId}
+                enableSelf
+                onUploaded={async (res) => {
+                  setSelfModal((m) => (m ? { ...m, self: true, stock: res.stockCount } : m));
+                  await loadSelfStock(selfModal.goodsId);
+                  load();
+                }}
               />
-              <div className="mt-2">
-                <Button size="small" type="primary" onClick={importSelfStock}>
-                  导入库存
-                </Button>
-              </div>
             </div>
             {selfModal.items.length > 0 && (
               <div className="max-h-[220px] overflow-y-auto rounded border border-[#e5e6eb]">

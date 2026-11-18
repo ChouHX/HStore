@@ -258,10 +258,11 @@ function ProductCard({
 }
 
 export function ProductBrowser({ boards, configured, lastSync, user, discount, announcements, popup }: Props) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [purchaseProduct, setPurchaseProduct] = useState<StoreProduct | null>(null);
   const [boardId, setBoardId] = useState<number | null>(boards[0]?.id ?? null);
   const [dirFilter, setDirFilter] = useState(0);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q")?.trim() ?? "");
   const [sort, setSort] = useState<SortKey>("name-asc");
   const [layout, setLayout] = useState<"list" | "2" | "4">("4");
   const [page, setPage] = useState(1);
@@ -333,9 +334,27 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
     load();
   }, [load]);
 
+  // 当板块列表异步变化且当前 boardId 不在列表中时自动修正，避免空白
+  useEffect(() => {
+    if (boards.length === 0) {
+      if (boardId !== null) setBoardId(null);
+      return;
+    }
+    if (!boards.some((b) => b.id === boardId)) {
+      setBoardId(boards[0].id);
+    }
+  }, [boards, boardId]);
+
+  const qParam = searchParams.get("q");
+  useEffect(() => {
+    if (qParam !== null) {
+      setQuery(qParam.trim());
+      setPage(1);
+    }
+  }, [qParam]);
+
   // 支持 /?goods=<id> 直达商品：从兑换中心等外部页面点商品卡片进来时，
   // 列表可能还没加载到该商品，这里用详情接口取到后直接打开购买弹窗。
-  const [searchParams, setSearchParams] = useSearchParams();
   const goodsParam = searchParams.get("goods");
   const openedGoodsRef = useRef<number | null>(null);
 
@@ -352,16 +371,17 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         const d = j.detail as Record<string, unknown> | undefined;
         if (!d) return;
         openedGoodsRef.current = id;
-        // 详情接口的字段与列表项不同，这里拼一个足够打开购买弹窗的商品对象。
+        // 详情接口的 finalPrice / salesPrice 已统一为本站销售价，绝非上游成本价。
         setPurchaseProduct({
           goodsId: Number(d.goodsId ?? id),
           name: String(d.name ?? ""),
-          finalPrice: Number(d.salesPrice ?? 0),
+          finalPrice: Number(d.finalPrice ?? d.salesPrice ?? 0),
           stockCount: Number(d.stockCount ?? 0),
           status: Number(d.status ?? 1),
           imgUrl: String(d.imgUrl ?? ""),
-          customImg: undefined,
-          customName: undefined,
+          customImg: (d.customImg as string | null | undefined) ?? undefined,
+          customName: (d.customName as string | null | undefined) ?? undefined,
+          customDesc: (d.customDesc as string | null | undefined) ?? undefined,
           fulfillment: d.fulfillment === "self" ? "self" : undefined,
         } as StoreProduct);
       } catch {
@@ -372,6 +392,16 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
       cancelled = true;
     };
   }, [goodsParam]);
+
+  function applySearch(v: string) {
+    setQuery(v);
+    setPage(1);
+    if (!v.trim() && searchParams.get("q")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("q");
+      setSearchParams(next, { replace: true });
+    }
+  }
 
   // 关闭弹窗时把 goods 参数清掉，避免刷新后又被自动打开。
   function closePurchase() {
@@ -404,10 +434,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
       <StoreHeader
         user={user}
         searchQuery={query}
-        onSearch={(q) => {
-          setQuery(q);
-          setPage(1);
-        }}
+        onSearch={applySearch}
         announcements={announcements}
         hasPopup={!!popup}
         onOpenNotice={() => setNoticeOpen(true)}
@@ -423,7 +450,13 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
         <HeroSection
           announcements={announcements}
           hasPopup={!!popup}
+          isLoggedIn={Boolean(user)}
           onOpenNotice={() => setNoticeOpen(true)}
+          onSelectBoardKeyword={(kw) => {
+            if (query) applySearch("");
+            const target = boards.find((b) => b.name.includes(kw));
+            if (target) pickBoard(target.id);
+          }}
         />
 
         {boards.length === 0 ? (
@@ -479,7 +512,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
               </div>
             )}
 
-            {activeBoard && (
+            {(activeBoard || searching) && (
               <div className="mt-3">
                 <div className="min-w-0">
                   {searching && (
@@ -490,10 +523,7 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                       </div>
                       <Button
                         size="small"
-                        onClick={() => {
-                          setQuery("");
-                          setPage(1);
-                        }}
+                        onClick={() => applySearch("")}
                       >
                         清除搜索
                       </Button>
@@ -549,14 +579,8 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
                           value={query}
                           placeholder="搜索全部商品名称 / 编号"
                           style={{ maxWidth: 360 }}
-                          onChange={(v) => {
-                            setQuery(v);
-                            if (!v) setPage(1);
-                          }}
-                          onSearch={(v) => {
-                            setQuery(v);
-                            setPage(1);
-                          }}
+                          onChange={(v) => applySearch(v)}
+                          onSearch={(v) => applySearch(v)}
                         />
                       </span>
                     </div>

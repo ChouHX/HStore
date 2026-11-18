@@ -269,7 +269,7 @@ export function TierDiscountSection() {
       bordered={false}
       title="商品批量折扣"
       extra={
-        <Space>
+        <Space wrap>
           <Input.Search
             allowClear
             value={keyword}

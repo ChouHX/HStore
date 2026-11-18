@@ -49,25 +49,41 @@ export function StoreHeader({
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [kw, setKw] = useState(searchQuery);
+  const [fallbackNotices, setFallbackNotices] = useState<Announcement[]>([]);
+  const [noticesLoaded, setNoticesLoaded] = useState(false);
 
   useEffect(() => {
     setKw(searchQuery);
   }, [searchQuery]);
 
-  // 有关键弹窗公告时直接重新弹出；否则退回到公告列表抽屉
+  // 子页面（订单查询 / 兑换中心）未预加载公告时，首次点开抽屉自动拉取一次公开公告
   function openNotice() {
-    if (hasPopup && onOpenNotice) onOpenNotice();
-    else setNoticeOpen(true);
+    if (hasPopup && onOpenNotice) {
+      onOpenNotice();
+      return;
+    }
+    setNoticeOpen(true);
+    if (announcements.length === 0 && !noticesLoaded) {
+      setNoticesLoaded(true);
+      fetch("/api/store/home")
+        .then((r) => r.json())
+        .then((j) => {
+          if (j.ok && Array.isArray(j.announcements)) {
+            setFallbackNotices(j.announcements as Announcement[]);
+          }
+        })
+        .catch(() => {});
+    }
   }
 
-  const noticeCount = announcements.length;
+  const effectiveAnnouncements = announcements.length > 0 ? announcements : fallbackNotices;
+  const noticeCount = effectiveAnnouncements.length;
   const noticeLabel = noticeCount > 0 ? `公告（${noticeCount}）` : "公告";
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     invalidateSession();
     navigate("/");
-    window.location.reload();
   }
 
   // 公告入口只保留 header 顶部的公告按钮，菜单里不再重复放一项
@@ -152,11 +168,13 @@ export function StoreHeader({
                       余额 <span className="font-semibold text-[#f53f3f]">¥{formatPrice(user.balance)}</span>
                     </div>
                     <Menu onClickMenuItem={onMenu} style={{ border: "none" }}>
-                      <Menu.Item key="home">
-                        <span className="inline-flex items-center gap-2">
-                          <IconHome /> 返回商城
-                        </span>
-                      </Menu.Item>
+                      {active !== "store" && (
+                        <Menu.Item key="home">
+                          <span className="inline-flex items-center gap-2">
+                            <IconHome /> 返回商城
+                          </span>
+                        </Menu.Item>
+                      )}
                       <Menu.Item key="account">
                         <span className="inline-flex items-center gap-2">
                           <IconUser /> 个人中心
@@ -302,10 +320,10 @@ export function StoreHeader({
         unmountOnExit
       >
         <div className="flex flex-col">
-          {announcements.length === 0 ? (
+          {effectiveAnnouncements.length === 0 ? (
             <div className="text-[12px] text-[#86909c]">暂无公告</div>
           ) : (
-            announcements.map((a) => (
+            effectiveAnnouncements.map((a) => (
               <div key={a.id} className="py-2.5">
                 <div className="flex items-baseline gap-2">
                   <span className="shrink-0 text-[11px] text-[#86909c]">
@@ -340,7 +358,12 @@ export function StoreHeader({
           placeholder="搜索全部商品名称 / 编号"
           onChange={setKw}
           onSearch={(v) => {
-            onSearch?.(v);
+            if (onSearch) {
+              onSearch(v);
+            } else {
+              const trimmed = v.trim();
+              navigate(trimmed ? `/?q=${encodeURIComponent(trimmed)}` : "/");
+            }
             setSearchOpen(false);
           }}
         />

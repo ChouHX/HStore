@@ -95,7 +95,6 @@ func (a *API) routes() {
 	// 业务订单（含兑换码核销单）
 	a.mux.HandleFunc("GET /api/admin/orders", a.handleAdminOrders)
 	a.mux.HandleFunc("GET /api/admin/orders/detail", a.handleAdminOrderDetail)
-	a.mux.HandleFunc("GET /api/admin/audit", a.handleAdminAudit)
 	a.mux.HandleFunc("GET /api/admin/announcements", a.handleAdminAnnouncements)
 	a.mux.HandleFunc("POST /api/admin/announcements", a.handleAdminAnnouncementsPost)
 	a.mux.HandleFunc("GET /api/admin/redeem", a.handleAdminRedeem)
@@ -108,6 +107,7 @@ func (a *API) routes() {
 	a.mux.HandleFunc("POST /api/admin/self/products", a.handleAdminSelfProductsPost)
 	a.mux.HandleFunc("GET /api/admin/self/stocks", a.handleAdminSelfStocks)
 	a.mux.HandleFunc("POST /api/admin/self/stocks", a.handleAdminSelfStocksPost)
+	a.mux.HandleFunc("POST /api/admin/self/stocks/upload", a.handleAdminSelfStocksUpload)
 	a.mux.HandleFunc("GET /api/admin/settings", a.handleAdminSettings)
 	a.mux.HandleFunc("POST /api/admin/settings", a.handleAdminSettingsPost)
 	a.mux.HandleFunc("POST /api/admin/settings/cookie", a.handleAdminCookieRefresh)

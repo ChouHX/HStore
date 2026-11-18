@@ -129,7 +129,7 @@ export function CatalogSection() {
 
 
 
-  /** 全量同步：按上游板块重新拉取微软/谷歌商品（会覆盖本地同名商品的上下架状态） */
+  /** 全量同步：从上游同步最新商品与库存成本，保留本地已设置的上下架、锁价与自定义信息 */
   async function fullSync() {
     setFullSyncing(true);
     try {
@@ -295,7 +295,7 @@ export function CatalogSection() {
               刷新
             </Button>
             <Popconfirm
-              title="将从上游重新拉取「微软/谷歌」板块的全部商品并覆盖本地同编号商品（上下架状态会被重置为上架），确定继续？"
+              title="将从上游同步最新商品与成本库存，保留本地已配置的上下架状态、锁价与自定义信息；上游已下线的商品将自动下架或清理，确定继续？"
               onOk={fullSync}
             >
               <Button size="small" loading={fullSyncing}>

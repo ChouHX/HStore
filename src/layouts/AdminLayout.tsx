@@ -10,10 +10,8 @@ const NAV: NavItem[] = [
   { id: "catalog", href: "/admin/catalog", label: "商品同步" },
   { id: "users", href: "/admin/users", label: "用户与资产" },
   { id: "redeem", href: "/admin/redeem", label: "兑换码" },
-  { id: "announcements", href: "/admin/announcements", label: "公告管理" },
-  { id: "logs", href: "/admin/logs", label: "操作日志" },
   { id: "orders", href: "/admin/orders", label: "订单管理" },
-  { id: "payments", href: "/admin/payments", label: "支付订单" },
+  { id: "announcements", href: "/admin/announcements", label: "公告管理" },
   { id: "payment", href: "/admin/payment", label: "支付设置" },
   { id: "settings", href: "/admin/settings", label: "系统设置" },
 ];
@@ -23,7 +21,7 @@ export function AdminLayout() {
   const loc = useLocation();
 
   if (user === undefined) return <PageLoading />;
-  if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+  if (!user) return <Navigate to="/login" replace state={{ from: loc.pathname + loc.search }} />;
   if (user.role !== "admin") return <Navigate to="/account/overview" replace />;
 
   return (

@@ -294,6 +294,33 @@ func GuestPaymentGoods(channel string) map[int]GuestGoods {
 	return out
 }
 
+// GuestBuyer 是购物支付单对应的真实买家信息（登录用户或匿名游客）。
+type GuestBuyer struct {
+	UID       int
+	GuestUser int
+	Username  string
+}
+
+// GuestPaymentBuyers 返回支付单 id → 真实买家，避免后台把登录用户的在线直购显示成临时 guest 账号。
+func GuestPaymentBuyers(channel string) map[int]GuestBuyer {
+	out := map[int]GuestBuyer{}
+	rows, err := db.Must().Query(`SELECT gp.payment_order_id, gp.uid, gp.guest_user, COALESCE(u.username, '')
+		FROM guest_purchases gp LEFT JOIN users u ON u.uid = gp.uid
+		WHERE gp.channel = ? AND gp.payment_order_id > 0`, channel)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		var b GuestBuyer
+		if rows.Scan(&id, &b.UID, &b.GuestUser, &b.Username) == nil {
+			out[id] = b
+		}
+	}
+	return out
+}
+
 func GuestPaymentIDs(channel string) map[int]bool {
 	out := map[int]bool{}
 	rows, err := db.Must().Query(

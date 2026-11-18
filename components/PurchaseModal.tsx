@@ -11,6 +11,8 @@ import { PaymentMethodTags, type PaymentChannel } from "@/components/PaymentMeth
 import { DeliveryWaiting } from "@/components/DeliveryWaiting";
 import { RichTextView } from "@/components/common/RichTextView";
 import { detailPurchasable, detailStockLabel } from "@/components/store/selfStock";
+import { sanitizeRichText } from "@/lib/rich-text";
+import { invalidateSession } from "@/src/hooks/useSession";
 import {
   clearGuestToken,
   loadLastContact,
@@ -434,6 +436,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
           });
         }
         Message.success("下单成功");
+        invalidateSession();
         onDone();
         onOpenChange(false);
         if (j.order?.orderNumber) navigate(`/order/${encodeURIComponent(j.order.orderNumber)}`);
@@ -655,7 +658,11 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                 </div>
                 <div className="mt-2 text-[34px] font-semibold leading-none text-[#f53f3f]">{guestAmount}</div>
                 {guestOrder.channel === "alipay" && (
-                  <div className="mt-1 text-[11px] text-[#d25f00]">商品直购价，无额外加价</div>
+                  <div className="mt-1 text-[11px] text-[#d25f00]">
+                    {guestOrder.payableCents === Math.round(guestOrder.amountCny * 100)
+                      ? "请按上方显示金额精确付款"
+                      : "含系统分配的识别尾数，请务必按上方精确金额付款"}
+                  </div>
                 )}
               </div>
 
@@ -767,10 +774,10 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                 />
               )}
               <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium">{product?.customName || detail.name}</div>
-                {!isSelfProduct && (product?.customDesc || detail.goodsDescribe) && (
+                <div className="truncate text-[13px] font-medium">{product?.customName || detail.customName || detail.name}</div>
+                {!isSelfProduct && (product?.customDesc || detail.customDesc || detail.goodsDescribe) && (
                   <div className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[#86909c]">
-                    {product?.customDesc || detail.goodsDescribe}
+                    {product?.customDesc || detail.customDesc || detail.goodsDescribe}
                   </div>
                 )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#86909c]">
@@ -788,7 +795,7 @@ export function PurchaseModal({ product, open, discount = 1, user, onOpenChange,
                 <div role="region" aria-label="商品详情" tabIndex={0} className="mt-1.5 max-h-[132px] overflow-y-auto overscroll-contain break-words text-[12px] leading-relaxed text-[#4e5969] sm:max-h-[180px]">
                   {selfDescription && <RichTextView content={selfDescription} />}
                   {detail.goodsDetail && (
-                    <div className="product-detail" dangerouslySetInnerHTML={{ __html: detail.goodsDetail }} />
+                    <div className="product-detail" dangerouslySetInnerHTML={{ __html: sanitizeRichText(detail.goodsDetail) }} />
                   )}
                   {detail.buyNotice && (
                     <div className="mt-2 whitespace-pre-wrap">购买须知：{detail.buyNotice}</div>

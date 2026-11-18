@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"hstore/backend/internal/imagecache"
 	"hstore/backend/internal/model"
@@ -90,6 +91,8 @@ func (a *API) handleOrderList(w http.ResponseWriter, r *http.Request) {
 		statuses = []int{3}
 	case "processing":
 		statuses = []int{1, 2, 7, 8}
+	case "closed":
+		statuses = []int{4, 5}
 	}
 	f := store.OrderFilter{
 		Statuses: statuses,
@@ -134,9 +137,17 @@ func (a *API) handleCardVoid(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(body.CardID)), "SELF-") {
+		fail(w, http.StatusBadRequest, "自营商品卡券不支持自助作废，请联系客服处理")
+		return
+	}
 	status, result, e := upstream.VoidCard(body.CardID)
 	if e != nil {
-		fail(w, http.StatusInternalServerError, e.Error())
+		msg := e.Error()
+		if user.Role != "admin" {
+			msg = customerOrderError(msg)
+		}
+		fail(w, http.StatusInternalServerError, msg)
 		return
 	}
 	if status == 0 {
@@ -148,9 +159,24 @@ func (a *API) handleCardVoid(w http.ResponseWriter, r *http.Request) {
 	store.UpdateCardStatus(body.CardID, status, result)
 	var order any
 	if owner != "" {
-		order = store.GetOrder(owner)
+		if o := store.GetOrder(owner); o != nil {
+			order = hideUpstreamForUser(o, user.Role)
+		}
 	}
 	ok(w, map[string]any{"status": status, "order": order})
+}
+
+func appendRedeemGoodsImg(payload map[string]any, order *model.LocalOrder) {
+	if order == nil {
+		return
+	}
+	if p := store.GetProduct(order.GoodsID); p != nil {
+		img := p.ImgURL
+		if p.CustomImg != nil && *p.CustomImg != "" {
+			img = *p.CustomImg
+		}
+		payload["goodsImg"] = imagecache.LocalURL(img)
+	}
 }
 
 func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
@@ -161,17 +187,67 @@ func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "参数错误")
 		return
 	}
+	code := strings.TrimSpace(body.Code)
+	if code == "" {
+		fail(w, http.StatusBadRequest, "请输入兑换码")
+		return
+	}
 	user := sessionUser(r)
-	if user == nil {
-		// 旧 Redeem 的兑换码本来就不要求登录；匿名兑换只允许「商品码」，
-		// 余额码仍然必须登录，避免把余额发到临时游客账号上。
-		if !allowQuery(clientIP(r)) {
-			fail(w, http.StatusTooManyRequests, "操作过于频繁，请稍后再试")
+	ip := clientIP(r)
+	isAnon := user == nil
+	if isAnon {
+		// 匿名兑换只允许「商品码」，余额码必须登录。
+		// 先按 IP 做防刷和前置状态检查，避免输错码或重复回看已用码时不断在 users 表产生孤儿游客账号。
+		if !allowQuery(ip) || anonRedeemBlocked(ip) {
+			fail(w, http.StatusTooManyRequests, "失败次数过多或操作过频，请 1 分钟后再试")
 			return
 		}
-		row := store.GetCodeByCode(body.Code)
-		if row == nil || row.GoodsID == nil {
-			fail(w, http.StatusUnauthorized, "请先登录后再兑换")
+		row := store.GetCodeByCode(code)
+		if row == nil {
+			recordAnonRedeemFailure(ip)
+			fail(w, http.StatusBadRequest, "兑换码不存在")
+			return
+		}
+		if row.GoodsID == nil {
+			fail(w, http.StatusUnauthorized, "该兑换码为余额充值码，请先登录后再兑换")
+			return
+		}
+		nowMs := time.Now().UnixMilli()
+		switch row.Status {
+		case "voided":
+			recordAnonRedeemFailure(ip)
+			fail(w, http.StatusBadRequest, "兑换码已作废")
+			return
+		case "used":
+			if row.OrderNumber != "" {
+				if existing := store.GetOrder(row.OrderNumber); existing != nil {
+					clearAnonRedeemFailures(ip)
+					payload := map[string]any{
+						"ok": true, "message": "兑换码已使用，已载入原订单", "kind": "product",
+						"order": hideUpstreamForUser(existing, "guest"), "orderNumber": existing.OrderNumber,
+						"balance": 0,
+					}
+					appendRedeemGoodsImg(payload, existing)
+					writeJSON(w, http.StatusOK, payload)
+					return
+				}
+			}
+			recordAnonRedeemFailure(ip)
+			fail(w, http.StatusBadRequest, "兑换码已被使用")
+			return
+		case "redeeming":
+			if row.RedeemingAt != nil && nowMs-*row.RedeemingAt < 3*60*1000 {
+				fail(w, http.StatusConflict, "兑换码正在处理中，请稍后刷新查看")
+				return
+			}
+		}
+		if row.StartAt != nil && nowMs < *row.StartAt {
+			fail(w, http.StatusBadRequest, "兑换活动尚未开始")
+			return
+		}
+		if row.EndAt != nil && nowMs > *row.EndAt {
+			recordAnonRedeemFailure(ip)
+			fail(w, http.StatusBadRequest, "兑换码已过期")
 			return
 		}
 		guest, e := store.CreateGuestUser()
@@ -181,27 +257,27 @@ func (a *API) handleRedeem(w http.ResponseWriter, r *http.Request) {
 		}
 		user = guest
 	}
-	res := service.Redeem(user.UID, body.Code)
+	res := service.Redeem(user.UID, code)
+	if isAnon {
+		if res.OK {
+			clearAnonRedeemFailures(ip)
+		} else {
+			recordAnonRedeemFailure(ip)
+		}
+	}
 	if user.Role != "admin" {
 		res.Message = customerOrderError(res.Message)
 	}
-	fresh := store.GetUser(user.UID)
+	var fresh *model.User
+	if !isAnon {
+		fresh = store.GetUser(user.UID)
+	}
 	payload := map[string]any{
 		"ok": res.OK, "message": res.Message, "kind": res.Kind,
 		"amount": res.Amount, "order": hideUpstreamForUser(res.Order, user.Role), "orderNumber": res.OrderNumber,
 		"user": fresh,
 	}
-	// 兑换结果页要把商品展示成带缩略图、可点击的卡片，
-	// 订单本身只存 goods_id，这里补上下单商品的图片（自营优先用 custom_img）。
-	if res.Order != nil {
-		if p := store.GetProduct(res.Order.GoodsID); p != nil {
-			img := p.ImgURL
-			if p.CustomImg != nil && *p.CustomImg != "" {
-				img = *p.CustomImg
-			}
-			payload["goodsImg"] = imagecache.LocalURL(img)
-		}
-	}
+	appendRedeemGoodsImg(payload, res.Order)
 	if fresh != nil {
 		payload["balance"] = fresh.Balance
 	} else {

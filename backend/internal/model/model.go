@@ -294,6 +294,7 @@ type RedeemCode struct {
 	Status      string  `json:"status"`
 	UsedBy      *int    `json:"usedBy"`
 	UsedAt      *int64  `json:"usedAt"`
+	RedeemingAt *int64  `json:"redeemingAt,omitempty"`
 	StartAt     *int64  `json:"startAt"`
 	EndAt       *int64  `json:"endAt"`
 	CreatedAt   int64   `json:"createdAt"`
@@ -320,6 +321,7 @@ type CryptoOrder struct {
 	ID         int    `json:"id"`
 	OrderNo    string `json:"orderNo"`
 	UID        int    `json:"uid"`
+	Username   string `json:"username,omitempty"`
 	PoolID     int    `json:"poolId"`
 	SubUID     string `json:"subUid"`
 	Address    string `json:"address"`

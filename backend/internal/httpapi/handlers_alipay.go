@@ -17,13 +17,22 @@ func alipaySnapshot() map[string]any {
 	purchases := store.GuestPaymentIDs("alipay")
 	related := store.GuestPaymentOrderNumbers("alipay")
 	goods := store.GuestPaymentGoods("alipay")
+	buyers := store.GuestPaymentBuyers("alipay")
 	for i := range orders {
 		if purchases[orders[i].ID] {
 			orders[i].Kind = "purchase"
 			orders[i].RelatedOrderNo = related[orders[i].ID]
-			// 后台订单管理需要知道这笔支付买了哪个商品。
+			// 后台订单管理需要知道这笔支付买了哪个商品及真实下单用户。
 			orders[i].GoodsID = goods[orders[i].ID].ID
 			orders[i].GoodsName = goods[orders[i].ID].Name
+			if b, ok := buyers[orders[i].ID]; ok {
+				if b.GuestUser == 0 && b.UID > 0 {
+					orders[i].UID = b.UID
+					orders[i].Username = b.Username
+				} else {
+					orders[i].Username = "游客"
+				}
+			}
 		} else {
 			orders[i].Kind = "recharge"
 		}

@@ -26,6 +26,7 @@ interface EditForm {
   phone: string;
   email: string;
   balance: number;
+  balanceRemark: string;
   levelId: string;
   locked: boolean;
   status: "active" | "frozen";
@@ -97,6 +98,7 @@ export function UsersSection() {
       phone: u.phone,
       email: u.email,
       balance: u.balance,
+      balanceRemark: "",
       levelId: u.levelId ? String(u.levelId) : "auto",
       locked: u.levelLocked === 1,
       status: u.status,
@@ -184,7 +186,12 @@ export function UsersSection() {
         changed = true;
       }
       if (Math.abs(balanceDelta) >= 0.0001) {
-        const j = await post({ action: "balance", uid: orig.uid, amount: balanceDelta });
+        const j = await post({
+          action: "balance",
+          uid: orig.uid,
+          amount: balanceDelta,
+          remark: form.balanceRemark.trim(),
+        });
         if (!j.ok) return Message.error(j.message ?? "余额调整失败");
         changed = true;
       }
@@ -331,8 +338,14 @@ export function UsersSection() {
       <Space wrap>
         <Input.Search
           allowClear
+          value={keyword}
           placeholder="UID / 手机 / 邮箱 / 昵称"
           style={{ width: 220 }}
+          autoComplete="off"
+          onChange={(v) => {
+            setKeyword(v);
+            setPage(1);
+          }}
           onSearch={(v) => {
             setKeyword(v);
             setPage(1);
@@ -425,7 +438,17 @@ export function UsersSection() {
                 style={{ width: "100%" }}
                 onChange={(v) => setForm({ ...form, balance: Number(v) || 0 })}
               />
-              <div className="mt-1 text-[11px] text-[#86909c]">余额变动自动记录为「管理员调整」</div>
+              {Math.abs(form.balance - managed.balance) >= 0.0001 ? (
+                <Input
+                  size="small"
+                  style={{ marginTop: 6 }}
+                  value={form.balanceRemark}
+                  onChange={(v) => setForm({ ...form, balanceRemark: v })}
+                  placeholder="调账备注（选填，将写入资金明细）"
+                />
+              ) : (
+                <div className="mt-1 text-[11px] text-[#86909c]">余额变动自动记录为「管理员调整」</div>
+              )}
             </div>
             <div>
               <div className="mb-1 text-[12px] text-[#4e5969]">会员等级</div>

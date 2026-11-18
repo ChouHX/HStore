@@ -55,10 +55,16 @@ function copy(text: string) {
   Message.success("已复制");
 }
 
-// 兑换码形如 XXXX-XXXX-XXXX；订单号形如 HS + 时间 + 混淆串（不含短横线），两者不会混淆。
-function looksLikeRedeemCode(v: string): boolean {
-  const s = v.trim();
-  return /^[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}$/.test(s);
+// 规整并校验兑换码（兼容新版 16 位四段式 XXXX-XXXX-XXXX-XXXX 与旧版 12 位三段式 XXXX-XXXX-XXXX，支持带或不带连字符）。
+function normalizeRedeemCode(v: string | undefined | null): string | null {
+  if (!v) return null;
+  const s = v.trim().toUpperCase();
+  if (/^[0-9A-Z]{4}(-[0-9A-Z]{4}){2,3}$/.test(s)) return s;
+  const digits = s.replace(/[^0-9A-Z]/g, "");
+  if ((digits.length === 12 || digits.length === 16) && /^[0-9A-Z]+$/.test(digits) && !s.startsWith("HS")) {
+    return digits.match(/.{1,4}/g)!.join("-");
+  }
+  return null;
 }
 
 /**
@@ -151,10 +157,14 @@ export function OrderQueryPage() {
       navigate(`/g/${encodeURIComponent(it.token)}`);
       return;
     }
-    // 兑换码取件单没有联系方式，要把用户输入的兑换码带过去当第二重凭证。
+    // 兑换码取件单没有联系方式，需将兑换码（用户输入或本机列表里的兑换码单号本身）作为第二重凭证带上。
     const params = new URLSearchParams();
-    if (it.contact) params.set("contact", it.contact);
-    else if (looksLikeRedeemCode(keyword)) params.set("code", keyword.trim());
+    if (it.contact) {
+      params.set("contact", it.contact);
+    } else {
+      const redeemCode = normalizeRedeemCode(keyword) ?? normalizeRedeemCode(it.orderNumber);
+      if (redeemCode) params.set("code", redeemCode);
+    }
     const qs = params.toString() ? `?${params.toString()}` : "";
     navigate(`/order/${encodeURIComponent(it.orderNumber)}${qs}`);
   }
@@ -179,9 +189,12 @@ export function OrderQueryPage() {
                 allowClear
                 size="large"
                 value={keyword}
-                onChange={setKeyword}
+                onChange={(v) => {
+                  setKeyword(v);
+                  if (!v) void loadLocal();
+                }}
                 onPressEnter={() => search()}
-                placeholder="订单号 或 联系方式"
+                placeholder="订单号 / 兑换码 / 联系方式"
               />
               <Button type="primary" size="large" icon={<IconSearch />} loading={loading} onClick={() => search()}>
                 查询

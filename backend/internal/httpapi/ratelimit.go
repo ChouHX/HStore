@@ -129,6 +129,64 @@ func remoteHost(r *http.Request) string {
 const guestCreateWindow = time.Minute
 const guestCreateMaxPerIP = 8
 
+// 匿名兑换失败限流：与已登录用户的 store.FailLimit() 对齐（1 分钟最多 5 次错误码试探）。
+const (
+	anonRedeemFailWindow = time.Minute
+	anonRedeemFailMax    = 5
+)
+
+var (
+	anonRedeemFailMu      sync.Mutex
+	anonRedeemFailBuckets = map[string]*ipBucket{}
+	anonRedeemFailCalls   int
+)
+
+func anonRedeemBlocked(ip string) bool {
+	if ip == "" {
+		ip = "-"
+	}
+	now := time.Now()
+	anonRedeemFailMu.Lock()
+	defer anonRedeemFailMu.Unlock()
+	b := anonRedeemFailBuckets[ip]
+	if b == nil || now.After(b.reset) {
+		return false
+	}
+	return b.used >= anonRedeemFailMax
+}
+
+func recordAnonRedeemFailure(ip string) {
+	if ip == "" {
+		ip = "-"
+	}
+	now := time.Now()
+	anonRedeemFailMu.Lock()
+	defer anonRedeemFailMu.Unlock()
+	anonRedeemFailCalls++
+	if anonRedeemFailCalls%pickupSweepEach == 0 {
+		for k, b := range anonRedeemFailBuckets {
+			if now.After(b.reset) {
+				delete(anonRedeemFailBuckets, k)
+			}
+		}
+	}
+	b := anonRedeemFailBuckets[ip]
+	if b == nil || now.After(b.reset) {
+		anonRedeemFailBuckets[ip] = &ipBucket{used: 1, reset: now.Add(anonRedeemFailWindow)}
+		return
+	}
+	b.used++
+}
+
+func clearAnonRedeemFailures(ip string) {
+	if ip == "" {
+		ip = "-"
+	}
+	anonRedeemFailMu.Lock()
+	delete(anonRedeemFailBuckets, ip)
+	anonRedeemFailMu.Unlock()
+}
+
 var (
 	guestMu      sync.Mutex
 	guestBuckets = map[string]*ipBucket{}

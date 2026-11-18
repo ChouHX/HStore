@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { MailboxDrawer, type MailboxTarget } from "@/components/MailboxDrawer";
 import { PaymentMethodTags } from "@/components/PaymentMethodTags";
 import { formatPrice } from "@/lib/format";
+import { invalidateSession } from "@/src/hooks/useSession";
 
 interface AlipayCfg {
   enabled: boolean;
@@ -228,7 +229,11 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
     const currentChannel = active.channel;
     const orderID = active.order.id;
     const orderNo = active.order.orderNo;
-    const timer = setInterval(async () => {
+    const interval = currentChannel === "alipay" ? 4000 : 5000;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
       try {
         const j =
           currentChannel === "alipay"
@@ -238,25 +243,34 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
                 body: JSON.stringify({ id: orderID }),
               }).then((r) => r.json())
             : await fetch(`/api/crypto/order?orderNo=${encodeURIComponent(orderNo)}`).then((r) => r.json());
-        if (!j.ok || !j.order) return;
-        if (currentChannel === "alipay") {
-          setActive((prev) =>
-            prev && prev.channel === "alipay" ? { ...prev, order: j.order as AlipayOrderView } : prev,
-          );
-        } else {
-          setActive((prev) =>
-            prev && prev.channel === "usdt" ? { ...prev, order: j.order as CryptoOrderView } : prev,
-          );
-        }
-        if (j.order.status === "paid") {
-          Message.success("充值已到账");
-          onRecharged?.();
+        if (!stopped && j.ok && j.order) {
+          if (currentChannel === "alipay") {
+            setActive((prev) =>
+              prev && prev.channel === "alipay" ? { ...prev, order: j.order as AlipayOrderView } : prev,
+            );
+          } else {
+            setActive((prev) =>
+              prev && prev.channel === "usdt" ? { ...prev, order: j.order as CryptoOrderView } : prev,
+            );
+          }
+          if (j.order.status === "paid") {
+            Message.success("充值已到账");
+            invalidateSession();
+            onRecharged?.();
+            return;
+          }
         }
       } catch {
         /* 下一轮继续 */
       }
-    }, currentChannel === "alipay" ? 4000 : 5000);
-    return () => clearInterval(timer);
+      if (!stopped) timer = setTimeout(tick, interval);
+    };
+
+    timer = setTimeout(tick, interval);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [active?.channel, active?.order.id, active?.order.orderNo, active?.order.status, onRecharged]);
 
   async function submitCode() {
@@ -282,6 +296,7 @@ export function RechargeSection({ onRecharged }: { onRecharged?: () => void }) {
         } else {
           setRedeemed(null);
           Message.success(`${j.message}，到账 ¥${formatPrice(j.amount)}`);
+          invalidateSession();
           onRecharged?.();
         }
       } else Message.error(j.message ?? "兑换失败");

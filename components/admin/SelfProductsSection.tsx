@@ -18,6 +18,7 @@ import {
   Tag,
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
+import { SelfStockFileUploader } from "@/components/admin/SelfStockFileUploader";
 
 const PAGE_SIZE = 20;
 
@@ -55,28 +56,21 @@ const STOCK_TAG: Record<string, { color: string; label: string }> = {
 
 // ===== 商品管理 =====
 
-function ProductsTab() {
-  const [items, setItems] = useState<SelfProduct[]>([]);
-  const [loading, setLoading] = useState(false);
+function ProductsTab({
+  items,
+  loading,
+  onRefresh,
+  onOpenImportFor,
+}: {
+  items: SelfProduct[];
+  loading: boolean;
+  onRefresh: () => void;
+  onOpenImportFor: (goodsId: number) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<SelfProduct | null>(null);
   const [form] = Form.useForm();
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const j = await fetch("/api/admin/self/products").then((r) => r.json());
-      if (j.ok) setItems(j.items as SelfProduct[]);
-      else Message.error(j.message ?? "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   function openCreate() {
     setEditing(null);
@@ -125,7 +119,7 @@ function ProductsTab() {
       if (j.ok) {
         Message.success(editing ? "已保存" : `已创建，商品编号 ${j.goodsId}`);
         setOpen(false);
-        load();
+        onRefresh();
       } else Message.error(j.message ?? "保存失败");
     } finally {
       setSaving(false);
@@ -140,7 +134,7 @@ function ProductsTab() {
     }).then((r) => r.json());
     if (j.ok) {
       Message.success(row.enabled === 1 ? "已下架" : "已上架");
-      load();
+      onRefresh();
     } else Message.error(j.message ?? "操作失败");
   }
 
@@ -152,7 +146,7 @@ function ProductsTab() {
     }).then((r) => r.json());
     if (j.ok) {
       Message.success(j.message || "已删除");
-      load();
+      onRefresh();
     } else Message.error(j.message ?? "删除失败");
   }
 
@@ -187,17 +181,15 @@ function ProductsTab() {
     {
       title: "售价",
       dataIndex: "finalPrice",
-      width: 130,
-      render: (v: number, row: SelfProduct) => (
-        <span className="text-[#f53f3f]">¥{formatPrice(v)}</span>
-      ),
+      width: 120,
+      render: (v: number) => <span className="text-[#f53f3f]">¥{formatPrice(v)}</span>,
     },
     {
       title: "可用库存",
       dataIndex: "stockAvailable",
-      width: 100,
+      width: 110,
       render: (v: number) =>
-        v > 0 ? <span>{v}</span> : <span className="text-[#f53f3f]">0（需补货）</span>,
+        v > 0 ? <span className="font-medium text-[#00b42a]">{v}</span> : <span className="text-[#f53f3f]">0（需补货）</span>,
     },
     { title: "已售", dataIndex: "stockSold", width: 80 },
     {
@@ -218,10 +210,13 @@ function ProductsTab() {
     {
       title: "操作",
       dataIndex: "op",
-      width: 220,
+      width: 260,
       fixed: "right" as const,
       render: (_: unknown, row: SelfProduct) => (
-        <Space size="small">
+        <Space size="mini">
+          <Button size="mini" type="primary" onClick={() => onOpenImportFor(row.goodsId)}>
+            导入卡密
+          </Button>
           <Button size="mini" onClick={() => openEdit(row)}>
             编辑
           </Button>
@@ -247,7 +242,7 @@ function ProductsTab() {
         <Button size="small" type="primary" onClick={openCreate}>
           新建自营商品
         </Button>
-        <Button size="small" onClick={load}>
+        <Button size="small" loading={loading} onClick={onRefresh}>
           刷新
         </Button>
       </Space>
@@ -257,7 +252,7 @@ function ProductsTab() {
         loading={loading}
         columns={columns}
         data={items}
-        scroll={{ x: 900 }}
+        scroll={{ x: 940 }}
         pagination={false}
         noDataElement={<Empty description="还没有自营商品，点击「新建自营商品」开始" />}
       />
@@ -269,7 +264,7 @@ function ProductsTab() {
         onOk={save}
         confirmLoading={saving}
         okText="保存"
-        style={{ width: 560 }}
+        style={{ width: 560, maxWidth: "95vw" }}
         unmountOnExit
       >
         <Form form={form} layout="vertical">
@@ -306,9 +301,19 @@ function ProductsTab() {
 
 // ===== 卡密管理 =====
 
-function StocksTab() {
-  const [products, setProducts] = useState<SelfProduct[]>([]);
+function StocksTab({
+  products,
+  onRefreshProducts,
+  externalImportGoodsId,
+  onClearExternalImport,
+}: {
+  products: SelfProduct[];
+  onRefreshProducts: () => void;
+  externalImportGoodsId: number | null;
+  onClearExternalImport: () => void;
+}) {
   const [goodsId, setGoodsId] = useState<number>(0);
+  const [importGoodsId, setImportGoodsId] = useState<number>(0);
   const [status, setStatus] = useState("all");
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
@@ -318,20 +323,24 @@ function StocksTab() {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [importOpen, setImportOpen] = useState(false);
-  const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch("/api/admin/self/products")
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.ok) {
-          const list = j.items as SelfProduct[];
-          setProducts(list);
-          if (list.length > 0) setGoodsId((cur) => cur || list[0].goodsId);
-        }
-      });
-  }, []);
+    if (products.length > 0 && importGoodsId === 0) {
+      setImportGoodsId(products[0].goodsId);
+    }
+  }, [products, importGoodsId]);
+
+  useEffect(() => {
+    if (externalImportGoodsId && externalImportGoodsId > 0) {
+      setGoodsId(externalImportGoodsId);
+      setImportGoodsId(externalImportGoodsId);
+      setPage(1);
+      setSelected([]);
+      setImportOpen(true);
+      onClearExternalImport();
+    }
+  }, [externalImportGoodsId, onClearExternalImport]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -339,7 +348,7 @@ function StocksTab() {
       const sp = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (goodsId > 0) sp.set("goodsId", String(goodsId));
       if (status !== "all") sp.set("status", status);
-      if (keyword) sp.set("keyword", keyword);
+      if (keyword.trim()) sp.set("keyword", keyword.trim());
       const j = await fetch(`/api/admin/self/stocks?${sp}`).then((r) => r.json());
       if (j.ok) {
         setItems(j.items as SelfStock[]);
@@ -351,34 +360,12 @@ function StocksTab() {
   }, [goodsId, status, keyword, page, pageSize]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  async function doImport() {
-    if (!goodsId) {
-      Message.warning("请先选择自营商品");
-      return;
-    }
-    if (!content.trim()) {
-      Message.warning("请粘贴卡密内容");
-      return;
-    }
-    setSaving(true);
-    try {
-      const j = await fetch("/api/admin/self/stocks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "import", goodsId, content }),
-      }).then((r) => r.json());
-      if (j.ok) {
-        Message.success(`导入成功 ${j.added} 条${j.skipped ? `，跳过重复 ${j.skipped} 条` : ""}`);
-        setImportOpen(false);
-        setContent("");
-        load();
-      } else Message.error(j.message ?? "导入失败");
-    } finally {
-      setSaving(false);
-    }
+  function openImportModal() {
+    setImportGoodsId(goodsId > 0 ? goodsId : products[0]?.goodsId ?? 0);
+    setImportOpen(true);
   }
 
   async function removeOne(row: SelfStock) {
@@ -389,7 +376,8 @@ function StocksTab() {
     }).then((r) => r.json());
     if (j.ok) {
       Message.success("已删除");
-      load();
+      void load();
+      onRefreshProducts();
     } else Message.error(j.message ?? "删除失败");
   }
 
@@ -405,7 +393,8 @@ function StocksTab() {
       if (j.ok) {
         Message.success(`已删除 ${j.deleted} 条`);
         setSelected([]);
-        load();
+        void load();
+        onRefreshProducts();
       } else Message.error(j.message ?? "删除失败");
     } finally {
       setSaving(false);
@@ -419,6 +408,23 @@ function StocksTab() {
       width: 80,
       render: (v: number) => <span className="font-mono text-[12px]">{v}</span>,
     },
+    ...(goodsId === 0
+      ? [
+          {
+            title: "所属商品",
+            dataIndex: "goodsName",
+            width: 190,
+            render: (v: string, row: SelfStock) => (
+              <div className="min-w-0 text-[12px]">
+                <div className="truncate" title={v}>
+                  {v || "-"}
+                </div>
+                <div className="font-mono text-[11px] text-[#86909c]">#{row.goodsId}</div>
+              </div>
+            ),
+          },
+        ]
+      : []),
     {
       title: "卡密内容",
       dataIndex: "content",
@@ -481,6 +487,7 @@ function StocksTab() {
           style={{ width: 260 }}
           placeholder="选择自营商品"
         >
+          <Select.Option value={0}>全部自营商品</Select.Option>
           {products.map((p) => (
             <Select.Option key={p.goodsId} value={p.goodsId}>
               <span className="text-[12px]">
@@ -492,8 +499,14 @@ function StocksTab() {
         </Select>
         <Input.Search
           allowClear
+          value={keyword}
           placeholder="搜索卡密 / 订单号"
-          style={{ width: 200 }}
+          style={{ width: 210 }}
+          autoComplete="off"
+          onChange={(v) => {
+            setKeyword(v);
+            setPage(1);
+          }}
           onSearch={(v) => {
             setKeyword(v);
             setPage(1);
@@ -512,8 +525,11 @@ function StocksTab() {
           <Select.Option value="sold">已售出</Select.Option>
           <Select.Option value="reserved">锁定中</Select.Option>
         </Select>
-        <Button size="small" type="primary" onClick={() => setImportOpen(true)}>
-          导入卡密
+        <Button size="small" type="primary" disabled={products.length === 0} onClick={openImportModal}>
+          上传导入卡密
+        </Button>
+        <Button size="small" loading={loading} onClick={load}>
+          刷新
         </Button>
         {selected.length > 0 && (
           <Popconfirm title={`确认删除选中的 ${selected.length} 条卡密？`} onOk={removeBatch}>
@@ -534,7 +550,7 @@ function StocksTab() {
         loading={loading}
         columns={columns}
         data={items}
-        scroll={{ x: 820 }}
+        scroll={{ x: goodsId === 0 ? 1010 : 820 }}
         rowSelection={{
           selectedRowKeys: selected,
           onChange: (keys) => setSelected(keys as number[]),
@@ -556,40 +572,45 @@ function StocksTab() {
       />
 
       <Modal
-        title="导入自营卡密"
+        title="文件导入自营卡密"
         visible={importOpen}
         onCancel={() => setImportOpen(false)}
-        onOk={doImport}
-        confirmLoading={saving}
-        okText="导入"
-        style={{ width: 600 }}
+        footer={<Button onClick={() => setImportOpen(false)}>关闭</Button>}
+        style={{ width: 600, maxWidth: "95vw" }}
         unmountOnExit
       >
         <div className="flex flex-col gap-3">
           <div>
-            <div className="mb-1 text-[12px] text-[#4e5969]">导入到商品</div>
-            <Select value={goodsId} onChange={(v) => setGoodsId(Number(v))} style={{ width: "100%" }}>
+            <div className="mb-1 text-[12px] text-[#4e5969]">导入到目标商品</div>
+            <Select
+              value={importGoodsId || undefined}
+              placeholder="请选择自营商品"
+              onChange={(v) => setImportGoodsId(Number(v))}
+              style={{ width: "100%" }}
+            >
               {products.map((p) => (
                 <Select.Option key={p.goodsId} value={p.goodsId}>
                   <span className="text-[12px]">
                     <span className="font-mono text-[#86909c]">{p.goodsId}</span> {p.name}
+                    <span className="ml-2 text-[#00b42a]">当前可用 {p.stockAvailable}</span>
                   </span>
                 </Select.Option>
               ))}
             </Select>
           </div>
-          <div>
-            <div className="mb-1 text-[12px] text-[#4e5969]">
-              卡密内容（每行一条，重复内容会自动跳过）
-            </div>
-            <Input.TextArea
-              value={content}
-              onChange={setContent}
-              placeholder={"账号----密码\n账号----密码"}
-              autoSize={{ minRows: 8, maxRows: 16 }}
-              style={{ fontFamily: "monospace", fontSize: 12 }}
-            />
-          </div>
+          <SelfStockFileUploader
+            goodsId={importGoodsId}
+            onUploaded={() => {
+              if (goodsId === 0 || goodsId === importGoodsId) {
+                void load();
+              } else {
+                setGoodsId(importGoodsId);
+                setPage(1);
+              }
+              onRefreshProducts();
+              setImportOpen(false);
+            }}
+          />
         </div>
       </Modal>
     </div>
@@ -597,22 +618,55 @@ function StocksTab() {
 }
 
 export function SelfProductsSection() {
+  const [activeTab, setActiveTab] = useState<"products" | "stocks">("products");
+  const [products, setProducts] = useState<SelfProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [externalImportGoodsId, setExternalImportGoodsId] = useState<number | null>(null);
+
+  const loadProducts = useCallback(async () => {
+    setProductsLoading(true);
+    try {
+      const j = await fetch("/api/admin/self/products").then((r) => r.json());
+      if (j.ok) setProducts(j.items as SelfProduct[]);
+      else Message.error(j.message ?? "加载失败");
+    } finally {
+      setProductsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProducts();
+  }, [loadProducts]);
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div>
           <div className="text-[15px] font-medium text-[#1d2129]">自营商品</div>
           <div className="text-[12px] text-[#86909c]">
-            自营商品完全独立于上游：自行定价、自行维护卡密库存，不参与上游同步与兑底。
+            自营商品独立于上游：自行定价、上传卡密文件交由后端流式入库，不参与上游同步。
           </div>
         </div>
       </div>
-      <Tabs defaultActiveTab="products" type="rounded">
+      <Tabs activeTab={activeTab} onChange={(k) => setActiveTab(k as "products" | "stocks")} type="rounded">
         <Tabs.TabPane key="products" title="商品管理">
-          <ProductsTab />
+          <ProductsTab
+            items={products}
+            loading={productsLoading}
+            onRefresh={loadProducts}
+            onOpenImportFor={(gid) => {
+              setExternalImportGoodsId(gid);
+              setActiveTab("stocks");
+            }}
+          />
         </Tabs.TabPane>
         <Tabs.TabPane key="stocks" title="卡密管理">
-          <StocksTab />
+          <StocksTab
+            products={products}
+            onRefreshProducts={loadProducts}
+            externalImportGoodsId={externalImportGoodsId}
+            onClearExternalImport={() => setExternalImportGoodsId(null)}
+          />
         </Tabs.TabPane>
       </Tabs>
     </div>

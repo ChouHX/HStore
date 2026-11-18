@@ -229,14 +229,18 @@ func CancelCryptoOrderFor(id int, uid int, isAdmin bool) (*model.CryptoOrder, er
 	return store.GetCryptoOrder(id), nil
 }
 
-// SimulateCryptoOrder 管理员测试：模拟到账。
+// SimulateCryptoOrder 管理员测试：模拟到账（若是商品在线直购单则一并触发自动履约）。
 func SimulateCryptoOrder(id int) *model.CryptoOrder {
 	order := store.GetCryptoOrder(id)
 	if order == nil || order.Status != "waiting" {
 		return order
 	}
 	txid := "SIM-" + store.TrimFloat(float64(id)) + "-" + store.TrimFloat(float64(time.Now().UnixMilli()))
-	return store.SettleCryptoOrder(order, txid, order.UsdtAmount, "模拟到账（测试）")
+	settled := store.SettleCryptoOrder(order, txid, order.UsdtAmount, "模拟到账（测试）")
+	if settled != nil && settled.Status == "paid" {
+		_ = FulfillGuestPurchaseByPayment("usdt", settled.ID)
+	}
+	return settled
 }
 
 func parseFloatSafe(s string) float64 {

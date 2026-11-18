@@ -2,12 +2,14 @@ package store
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -361,6 +363,37 @@ func ListAlipayOrders(uid, limit int) []model.AlipayOrder {
 
 // CreateAlipayOrder 在事务内选择唯一应付金额、写入订单并占用金额槽。
 func CreateAlipayOrder(uid int, orderNo, checkoutHash, collectionCode string, requestedCents int64, offsetMax, ttlMs, cooldownMs int64) (*model.AlipayOrder, error) {
+	return createAlipayOrderInternal(uid, orderNo, checkoutHash, collectionCode, requestedCents, offsetMax, ttlMs, cooldownMs, false)
+}
+
+// CreatePurchaseAlipayOrder 为商品直购分配应付金额：空闲且不在冷却期时优先使用原价（+0.00），
+// 同金额并发或处于冷却期时在 1..offsetMax 分内随机挑选空闲尾数，兼顾原价体验、并发能力与防迟付串单。
+func CreatePurchaseAlipayOrder(uid int, orderNo, checkoutHash, collectionCode string, requestedCents int64, offsetMax, ttlMs, cooldownMs int64) (*model.AlipayOrder, error) {
+	return createAlipayOrderInternal(uid, orderNo, checkoutHash, collectionCode, requestedCents, offsetMax, ttlMs, cooldownMs, true)
+}
+
+func shuffledAlipayOffsets(maxOffset int64) []int64 {
+	out := make([]int64, 0, maxOffset+1)
+	out = append(out, 0)
+	if maxOffset <= 0 {
+		return out
+	}
+	rest := make([]int64, maxOffset)
+	for i := int64(0); i < maxOffset; i++ {
+		rest[i] = i + 1
+	}
+	for i := len(rest) - 1; i > 0; i-- {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			continue
+		}
+		j := int(n.Int64())
+		rest[i], rest[j] = rest[j], rest[i]
+	}
+	return append(out, rest...)
+}
+
+func createAlipayOrderInternal(uid int, orderNo, checkoutHash, collectionCode string, requestedCents int64, offsetMax, ttlMs, cooldownMs int64, randomPurchase bool) (*model.AlipayOrder, error) {
 	if requestedCents < 1 {
 		return nil, errors.New("支付金额过小")
 	}
@@ -377,13 +410,20 @@ func CreateAlipayOrder(uid int, orderNo, checkoutHash, collectionCode string, re
 	nowMs := now()
 	var payable int64
 	found := false
-	maxOffset := offsetMax
-	startOffset := int64(1)
-	if exactAmount {
-		maxOffset = 0
-		startOffset = 0
+
+	var candidates []int64
+	if randomPurchase {
+		candidates = shuffledAlipayOffsets(offsetMax)
+	} else if exactAmount {
+		candidates = []int64{0}
+	} else {
+		candidates = make([]int64, 0, offsetMax)
+		for offset := int64(1); offset <= offsetMax; offset++ {
+			candidates = append(candidates, offset)
+		}
 	}
-	for offset := startOffset; offset <= maxOffset; offset++ {
+
+	for _, offset := range candidates {
 		candidate := requestedCents + offset
 		var one int
 		err := tx.QueryRow(`SELECT 1 FROM alipay_amount_slots WHERE payable_cents=?

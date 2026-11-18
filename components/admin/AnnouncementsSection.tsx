@@ -2,7 +2,6 @@
 
 import {
   Button,
-  Card,
   Input,
   InputNumber,
   Message,
@@ -170,7 +169,7 @@ export function AnnouncementsSection() {
           )
         }
         confirmLoading={busy}
-        style={{ width: 720 }}
+        style={{ width: 720, maxWidth: "95vw" }}
         unmountOnExit
       >
         <div className="flex flex-col gap-3">

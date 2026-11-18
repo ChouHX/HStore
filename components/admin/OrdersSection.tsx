@@ -9,10 +9,13 @@ import {
   Select,
   Space,
   Table,
+  Tabs,
   Tag,
   Tooltip,
 } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { PaymentOrdersSection } from "@/components/admin/PaymentOrdersSection";
 import { formatPrice } from "@/lib/format";
 import { ORDER_STATUS, arcoColor, orderStatusColor } from "@/lib/status";
 import type { LocalOrder } from "@/lib/types";
@@ -20,10 +23,10 @@ import type { LocalOrder } from "@/lib/types";
 const PAGE_SIZE = 15;
 
 /**
- * 兑换码格式（XXXX-XXXX-XXXX-XXXX）。
+ * 兑换码格式（兼容新版 XXXX-XXXX-XXXX-XXXX 与旧版 XXXX-XXXX-XXXX）。
  * 兑换码核销单直接用兑换码当业务单号，界面上不能把它当成「上游单号」显示。
  */
-const REDEEM_ORDER_NO_RE = /^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/;
+const REDEEM_ORDER_NO_RE = /^[0-9A-Z]{4}(-[0-9A-Z]{4}){2,3}$/;
 
 function isRedeemOrderNo(no: string | undefined | null): boolean {
   return !!no && REDEEM_ORDER_NO_RE.test(no.trim().toUpperCase());
@@ -39,7 +42,7 @@ const SOURCE_TAG: Record<string, { color: string; text: string }> = {
 const KIND_OPTIONS = [
   { value: "all", label: "全部订单" },
   { value: "redeem", label: "兑换码订单" },
-  { value: "normal", label: "非兑换码订单" },
+  { value: "normal", label: "购买订单" },
 ];
 
 const STATUS_OPTIONS = [
@@ -66,15 +69,7 @@ interface DetailState {
   redeemCode: string;
 }
 
-/**
- * 业务订单管理：orders 表里的全部订单。
- *
- * 与「支付单」不是一回事：
- *   - 支付单（支付宝 / USDT）记录的是「钱怎么进来的」，在 PaymentOrdersSection；
- *   - 业务订单记录的是「货怎么出去的」，包含兑换码核销单、自营单、余额购买单、游客直购单。
- * 兑换码核销单不会写 contact，也不扣余额，以前后台完全看不到，这里补上。
- */
-export function OrdersSection() {
+function BusinessOrdersTab() {
   const [items, setItems] = useState<LocalOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -94,7 +89,7 @@ export function OrdersSection() {
       if (kind !== "all") sp.set("kind", kind);
       if (status !== "all") sp.set("status", status);
       if (source !== "all") sp.set("source", source);
-      if (keyword) sp.set("keyword", keyword);
+      if (keyword.trim()) sp.set("keyword", keyword.trim());
       const j = await fetch(`/api/admin/orders?${sp}`).then((r) => r.json());
       if (j.ok) {
         setItems(j.items as LocalOrder[]);
@@ -108,7 +103,7 @@ export function OrdersSection() {
   }, [page, pageSize, kind, status, source, keyword]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   async function openDetail(orderNumber: string) {
@@ -137,8 +132,6 @@ export function OrdersSection() {
       dataIndex: "orderNumber",
       width: 200,
       render: (_: unknown, o: LocalOrder) => {
-        // 兑换码单号本身已经是兑换码，上游单号对用户/管理员都没有意义
-        // （历史上自营单还会被写成同格式的脏值），这里直接不显示。
         const showUpstream = o.upstreamOrderNo && !isRedeemOrderNo(o.orderNumber);
         return (
           <div>
@@ -254,7 +247,7 @@ export function OrdersSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      <Space wrap>
+      <div className="flex flex-wrap items-center gap-2">
         <Input.Search
           allowClear
           value={keyword}
@@ -263,7 +256,7 @@ export function OrdersSection() {
           autoComplete="off"
           onChange={(v) => {
             setKeyword(v);
-            if (!v) setPage(1);
+            setPage(1);
           }}
           onSearch={(v) => {
             setKeyword(v);
@@ -311,16 +304,18 @@ export function OrdersSection() {
           <Select.Option value="guest">游客</Select.Option>
           <Select.Option value="admin">后台</Select.Option>
         </Select>
-        <Button size="small" onClick={resetFilters}>
-          重置筛选
-        </Button>
-        <Button size="small" loading={loading} onClick={load}>
-          刷新
-        </Button>
+        <Space size="small">
+          <Button size="small" onClick={resetFilters}>
+            重置筛选
+          </Button>
+          <Button size="small" loading={loading} onClick={load}>
+            刷新
+          </Button>
+        </Space>
         <span className="ml-auto text-[11px] text-[#86909c]">
-          共 {total} 单。兑换码核销单在这里；支付单（支付宝 / USDT）见「支付设置 → 支付订单」。
+          共 {total} 单（含余额购买、游客直购与兑换码核销单）
         </span>
-      </Space>
+      </div>
 
       <Table
         rowKey="orderNumber"
@@ -346,7 +341,7 @@ export function OrdersSection() {
         visible={detail !== null}
         onCancel={() => setDetail(null)}
         footer={<Button onClick={() => setDetail(null)}>关闭</Button>}
-        style={{ width: 720 }}
+        style={{ width: 720, maxWidth: "95vw" }}
         unmountOnExit
       >
         {detail && (
@@ -413,6 +408,48 @@ export function OrdersSection() {
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * 统一订单管理页：
+ *   - 「商品订单」Tab：展示所有业务发货订单（余额购买、游客直购、兑换码核销、自营单）；
+ *   - 「充值与支付记录」Tab：展示支付宝 / USDT 充值记录及直购支付流水，支持按充值/直购与渠道筛选。
+ */
+export function OrdersSection() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get("tab") === "payments" ? "payments" : "orders";
+
+  function changeTab(next: string) {
+    const sp = new URLSearchParams(searchParams);
+    if (next === "payments") {
+      sp.set("tab", "payments");
+    } else {
+      sp.delete("tab");
+      sp.delete("channel");
+      sp.delete("kind");
+    }
+    setSearchParams(sp, { replace: true });
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <div className="text-[15px] font-medium text-[#1d2129]">订单与充值管理</div>
+        <div className="text-[12px] text-[#86909c]">
+          统一查看商品发货订单与支付宝 / USDT 充值及支付记录。
+        </div>
+      </div>
+
+      <Tabs activeTab={activeTab} onChange={changeTab} type="rounded">
+        <Tabs.TabPane key="orders" title="商品订单">
+          <BusinessOrdersTab />
+        </Tabs.TabPane>
+        <Tabs.TabPane key="payments" title="充值与支付记录">
+          <PaymentOrdersSection />
+        </Tabs.TabPane>
+      </Tabs>
     </div>
   );
 }

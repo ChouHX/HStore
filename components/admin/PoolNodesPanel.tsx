@@ -11,7 +11,6 @@ import {
   Switch,
   Table,
   Tag,
-  Typography,
 } from "@arco-design/web-react";
 import { IconPlus, IconRefresh } from "@arco-design/web-react/icon";
 import { useCallback, useEffect, useState } from "react";
@@ -54,8 +53,8 @@ export function PoolNodesPanel() {
   const [tunnelInput, setTunnelInput] = useState("");
   const [createdCmd, setCreatedCmd] = useState<{ index: number; command: string } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const j = await fetch("/api/admin/pool", { cache: "no-store" }).then((r) => r.json());
       if (j.ok) {
@@ -69,18 +68,29 @@ export function PoolNodesPanel() {
           total: j.total,
           healthy: j.healthy,
         });
-      } else {
+      } else if (!silent) {
         Message.error(j.message ?? "加载失败");
       }
+    } catch {
+      if (!silent) Message.error("加载失败");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-    const timer = setInterval(load, 30000);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    void load(false);
+    const tick = async () => {
+      await load(true);
+      if (!stopped) timer = setTimeout(tick, 30000);
+    };
+    timer = setTimeout(tick, 30000);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [load]);
 
   async function post(body: Record<string, unknown>) {
@@ -219,8 +229,8 @@ export function PoolNodesPanel() {
         bordered={false}
         title="家宽出口节点"
         extra={
-          <Space>
-            <Button size="mini" icon={<IconRefresh />} loading={loading} onClick={() => load()}>
+          <Space wrap>
+            <Button size="mini" icon={<IconRefresh />} loading={loading} onClick={() => load(false)}>
               刷新
             </Button>
             <Button size="mini" onClick={() => { setTunnelInput(data?.tunnelAddr || ""); setKeysOpen(true); }}>

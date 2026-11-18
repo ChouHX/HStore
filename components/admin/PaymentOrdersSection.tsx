@@ -1,5 +1,22 @@
-import { Button, Card, Descriptions, Dropdown, Input, Menu, Message, Modal, Select, Table, Tag, Tooltip } from "@arco-design/web-react";
+"use client";
+
+import {
+  Button,
+  Descriptions,
+  Dropdown,
+  Input,
+  Menu,
+  Message,
+  Modal,
+  Radio,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Tooltip,
+} from "@arco-design/web-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { formatPrice } from "@/lib/format";
 
 interface AlipayOrder {
@@ -31,6 +48,7 @@ interface CryptoOrder {
   /** 系统生成的支付单号（US 开头） */
   orderNo: string;
   uid: number;
+  username?: string;
   chain: string;
   /** 链路的中文/展示名，如 TRON (TRC20)；chain 只是 Bybit 内部代号 */
   chainLabel: string;
@@ -38,6 +56,7 @@ interface CryptoOrder {
   requestedCny: number;
   usdtAmount: string;
   creditCny: number;
+  credited: number | null;
   status: string;
   txid: string | null;
   receivedUsdt: string | null;
@@ -89,8 +108,8 @@ const STATUS: Record<string, { color: string; text: string }> = {
 };
 
 const KIND: Record<string, { color: string; text: string }> = {
-  recharge: { color: "arcoblue", text: "充值" },
-  purchase: { color: "green", text: "购物" },
+  recharge: { color: "arcoblue", text: "余额充值" },
+  purchase: { color: "green", text: "直购支付" },
 };
 
 const STATUS_OPTIONS = [
@@ -121,18 +140,42 @@ function Ellipsis({ text, width = 110 }: { text: string; width?: number }) {
 }
 
 /**
- * 支付订单管理：支付宝经营码订单与 USDT 链上订单合并成一张表，
- * 用类型 / 渠道 / 状态 / 关键字筛选。
+ * 充值与支付记录：将支付宝经营码订单与 USDT 链上订单合并展示，
+ * 支持一键筛选「余额充值 / 直购支付」、渠道、状态与关键字，嵌入在「订单管理」页中。
  */
 export function PaymentOrdersSection() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [kind, setKind] = useState("all");
-  const [channel, setChannel] = useState("all");
+  const [kind, setKind] = useState(() => {
+    const k = searchParams.get("kind");
+    return k === "recharge" || k === "purchase" ? k : "all";
+  });
+  const [channel, setChannel] = useState(() => {
+    const ch = searchParams.get("channel");
+    return ch === "alipay" || ch === "usdt" ? ch : "all";
+  });
   const [status, setStatus] = useState("all");
   const [keyword, setKeyword] = useState("");
   const [detail, setDetail] = useState<Row | null>(null);
+
+  useEffect(() => {
+    const ch = searchParams.get("channel");
+    if (ch === "alipay" || ch === "usdt") setChannel(ch);
+    const k = searchParams.get("kind");
+    if (k === "recharge" || k === "purchase") setKind(k);
+  }, [searchParams]);
+
+  function updateQueryFilter(nextKind: string, nextChannel: string) {
+    const sp = new URLSearchParams(searchParams);
+    sp.set("tab", "payments");
+    if (nextKind === "recharge" || nextKind === "purchase") sp.set("kind", nextKind);
+    else sp.delete("kind");
+    if (nextChannel === "alipay" || nextChannel === "usdt") sp.set("channel", nextChannel);
+    else sp.delete("channel");
+    setSearchParams(sp, { replace: true });
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,7 +220,7 @@ export function PaymentOrdersSection() {
           channel: "usdt",
           id: o.id,
           uid: o.uid,
-          username: "",
+          username: o.username || "",
           orderNo: o.orderNo || `#${o.id}`,
           relatedOrderNo: o.relatedOrderNo,
           goodsId: o.goodsId,
@@ -185,7 +228,7 @@ export function PaymentOrdersSection() {
           payText: `${o.usdtAmount} USDT`,
           paySub: `申请 ¥${formatPrice(o.requestedCny)} · ${o.chainLabel || o.chain}`,
           receiveText: o.receivedUsdt ? `${o.receivedUsdt} USDT` : "-",
-          creditedText: `¥${formatPrice(o.creditCny)}`,
+          creditedText: o.credited != null ? `¥${formatPrice(o.credited)}` : "-",
           status: o.status,
           statusText: STATUS[o.status]?.text ?? o.status,
           extraLabel: "TXID",
@@ -205,7 +248,7 @@ export function PaymentOrdersSection() {
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   async function act(path: string, body: unknown, okText: string) {
@@ -254,11 +297,19 @@ export function PaymentOrdersSection() {
     return c;
   }, [rows]);
 
+  function resetFilters() {
+    setKind("all");
+    setChannel("all");
+    setStatus("all");
+    setKeyword("");
+    updateQueryFilter("all", "all");
+  }
+
   const columns = [
     {
       title: "类型",
       dataIndex: "kind",
-      width: 80,
+      width: 90,
       render: (_: unknown, r: Row) => (
         <Tag size="small" color={KIND[r.kind]?.color}>
           {KIND[r.kind]?.text}
@@ -304,7 +355,7 @@ export function PaymentOrdersSection() {
       render: (_: unknown, r: Row) =>
         r.goodsId ? (
           <Tooltip content={r.goodsName || `商品 #${r.goodsId}`} position="top">
-            <span className="cursor-default font-mono text-[12px] text-[#4e5969]">{r.goodsId}</span>
+            <span className="cursor-default font-mono text-[12px] text-[#4e5969]">#{r.goodsId}</span>
           </Tooltip>
         ) : (
           <span className="text-[12px] text-[#c9cdd4]">-</span>
@@ -317,7 +368,6 @@ export function PaymentOrdersSection() {
       render: (_: unknown, r: Row) => (
         <div className="text-[12px]">
           <div className="text-[#f53f3f]">{r.payText}</div>
-          {/* 链路名比内部代号长（如 Arbitrum One (USDT0)），截断并悬停看全量，避免挤到相邻列 */}
           <Ellipsis text={r.paySub} width={150} />
         </div>
       ),
@@ -371,7 +421,6 @@ export function PaymentOrdersSection() {
       width: 90,
       fixed: "right" as const,
       render: (_: unknown, r: Row) => {
-        // 已到账的订单不允许删除：它已经记账、加过余额，删掉账目就对不上了。
         const deletable = r.status !== "paid" && r.status !== "disputed";
         return (
           <Dropdown
@@ -382,9 +431,9 @@ export function PaymentOrdersSection() {
                 onClickMenuItem={(key) => {
                   if (key === "detail") setDetail(r);
                   if (key === "checkout" && r.checkoutUrl) window.open(r.checkoutUrl, "_blank", "noopener,noreferrer");
-                  if (key === "close") act("/api/admin/alipay", { action: "closeOrder", orderId: r.id }, "订单已关闭");
-                  if (key === "check") act("/api/admin/crypto", { action: "checkOrder", orderId: r.id }, "已检查订单");
-                  if (key === "simulate") act("/api/admin/crypto", { action: "simulate", orderId: r.id }, "已模拟到账（测试）");
+                  if (key === "close") void act("/api/admin/alipay", { action: "closeOrder", orderId: r.id }, "订单已关闭");
+                  if (key === "check") void act("/api/admin/crypto", { action: "checkOrder", orderId: r.id }, "已检查订单");
+                  if (key === "simulate") void act("/api/admin/crypto", { action: "simulate", orderId: r.id }, "已模拟到账（测试）");
                   if (key === "delete") {
                     Modal.confirm({
                       title: "删除订单",
@@ -413,7 +462,7 @@ export function PaymentOrdersSection() {
               </Menu>
             }
           >
-            <Button size="small" disabled={busy}>
+            <Button size="mini" disabled={busy}>
               操作
             </Button>
           </Dropdown>
@@ -426,60 +475,85 @@ export function PaymentOrdersSection() {
   const usdtDetail = detail?.channel === "usdt" ? (detail.raw as CryptoOrder) : null;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2 rounded border border-[#e5e6eb] bg-white p-2">
-        <Button size="small" loading={loading} onClick={load}>
-          刷新
-        </Button>
-        <Select value={kind} onChange={setKind} style={{ width: 130 }} size="small">
-          <Select.Option value="all">全部类型（{rows.length}）</Select.Option>
-          <Select.Option value="recharge">充值（{counts.recharge}）</Select.Option>
-          <Select.Option value="purchase">购物（{counts.purchase}）</Select.Option>
-        </Select>
-        <Select value={channel} onChange={setChannel} style={{ width: 130 }} size="small">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Radio.Group
+          type="button"
+          size="small"
+          value={kind}
+          onChange={(v) => {
+            const next = String(v);
+            setKind(next);
+            updateQueryFilter(next, channel);
+          }}
+        >
+          <Radio value="all">全部记录（{rows.length}）</Radio>
+          <Radio value="recharge">余额充值（{counts.recharge}）</Radio>
+          <Radio value="purchase">直购支付（{counts.purchase}）</Radio>
+        </Radio.Group>
+
+        <Select
+          value={channel}
+          onChange={(v) => {
+            const next = String(v);
+            setChannel(next);
+            updateQueryFilter(kind, next);
+          }}
+          style={{ width: 145 }}
+        >
           <Select.Option value="all">全部渠道</Select.Option>
           <Select.Option value="alipay">支付宝（{counts.alipay}）</Select.Option>
           <Select.Option value="usdt">USDT（{counts.usdt}）</Select.Option>
         </Select>
-        <Select value={status} onChange={setStatus} style={{ width: 130 }} size="small">
+
+        <Select value={status} onChange={(v) => setStatus(String(v))} style={{ width: 130 }}>
           {STATUS_OPTIONS.map((o) => (
             <Select.Option key={o.value} value={o.value}>
               {o.label}
             </Select.Option>
           ))}
         </Select>
+
         <Input.Search
           allowClear
-          size="small"
           value={keyword}
-          placeholder="订单号 / UID / 用户名 / 商品 / TXID"
-          style={{ width: 240 }}
+          placeholder="支付单号 / 业务单号 / 用户名 / TXID"
+          style={{ width: 250 }}
+          autoComplete="off"
           onChange={setKeyword}
+          onSearch={setKeyword}
         />
+
+        <Space size="small">
+          <Button size="small" onClick={resetFilters}>
+            重置筛选
+          </Button>
+          <Button size="small" loading={loading} onClick={load}>
+            刷新
+          </Button>
+        </Space>
+
         <span className="ml-auto text-[11px] text-[#86909c]">
-          充值 = 余额充值单；购物 = 游客直购单。渠道配置在「支付设置」。
+          共 {filtered.length} 条记录；收款渠道参数请在左侧「支付设置」配置。
         </span>
       </div>
 
-      <Card bordered={false} bodyStyle={{ padding: 12 }}>
-        <Table
-          // 筛选变化时重建表格，回到第 1 页，避免停在不存在的页码上
-          key={`${kind}-${channel}-${status}-${keyword}`}
-          rowKey="key"
-          columns={columns}
-          data={filtered}
-          loading={loading}
-          pagination={{ pageSize: 10, showTotal: true, sizeCanChange: true }}
-          scroll={{ x: 1420 }}
-        />
-      </Card>
+      <Table
+        key={`${kind}-${channel}-${status}-${keyword}`}
+        rowKey="key"
+        columns={columns}
+        data={filtered}
+        loading={loading}
+        pagination={{ pageSize: 15, showTotal: true, sizeCanChange: true }}
+        scroll={{ x: 1420 }}
+      />
 
       <Modal
-        title={detail ? `${KIND[detail.kind].text}订单详情 · ${detail.channel === "alipay" ? "支付宝" : "USDT"}` : ""}
+        title={detail ? `${KIND[detail.kind].text}详情 · ${detail.channel === "alipay" ? "支付宝" : "USDT"}` : ""}
         visible={detail !== null}
         onCancel={() => setDetail(null)}
         footer={<Button onClick={() => setDetail(null)}>关闭</Button>}
-        style={{ width: 640 }}
+        style={{ width: 640, maxWidth: "95vw" }}
         unmountOnExit
       >
         {detail && (
@@ -501,7 +575,7 @@ export function PaymentOrdersSection() {
                       label: "商品",
                       value: (
                         <span>
-                          <span className="font-mono">{detail.goodsId}</span>
+                          <span className="font-mono">#{detail.goodsId}</span>
                           <span className="ml-2 text-[12px] text-[#86909c]">{detail.goodsName || "-"}</span>
                         </span>
                       ),

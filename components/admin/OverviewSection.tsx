@@ -366,9 +366,13 @@ export function OverviewSection() {
             ) : (
               <div className="py-10 text-center text-[12px] text-[#86909c]">暂无充值订单</div>
             )}
-            <div className="mt-3 flex gap-2">
-              <Link to="/admin/payment?tab=alipay"><Button size="small">支付宝订单</Button></Link>
-              <Link to="/admin/payment?tab=usdt"><Button size="small">USDT 订单</Button></Link>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link to="/admin/orders?tab=payments&kind=recharge&channel=alipay">
+                <Button size="small">支付宝充值记录</Button>
+              </Link>
+              <Link to="/admin/orders?tab=payments&kind=recharge&channel=usdt">
+                <Button size="small">USDT 充值记录</Button>
+              </Link>
             </div>
           </Card>
         </Col>

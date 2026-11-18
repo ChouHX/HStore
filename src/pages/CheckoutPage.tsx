@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Tag } from "@arco-design/web-react";
+import { Button, Message, Tag } from "@arco-design/web-react";
 import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -44,34 +44,61 @@ export function CheckoutPage() {
   const [checkout, setCheckout] = useState<CheckoutView | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [syncWarning, setSyncWarning] = useState("");
   const [qr, setQr] = useState("");
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/alipay/checkout/${encodeURIComponent(token)}`);
-      const j = await res.json();
-      if (j.ok && j.checkout) {
-        setCheckout(j.checkout as CheckoutView);
-        setError("");
-      } else {
-        setError(j.message ?? "订单不存在或链接已失效");
+  const load = useCallback(
+    async (mode: "initial" | "silent" | "manual" = "silent") => {
+      if (mode === "initial") setLoading(true);
+      if (mode === "manual") setRefreshing(true);
+      try {
+        const res = await fetch(`/api/alipay/checkout/${encodeURIComponent(token)}`);
+        const j = await res.json();
+        if (j.ok && j.checkout) {
+          setCheckout(j.checkout as CheckoutView);
+          setError("");
+          setSyncWarning("");
+        } else if (mode !== "silent") {
+          setError(j.message ?? "订单不存在或链接已失效");
+        }
+      } catch {
+        if (mode === "initial") {
+          setError("网络错误，请稍后重试");
+        } else if (mode === "manual") {
+          Message.error("刷新失败，请稍后重试");
+        } else {
+          setSyncWarning("网络连接短暂波动，正在自动重试检查到账状态…");
+        }
+      } finally {
+        if (mode === "initial") setLoading(false);
+        if (mode === "manual") setRefreshing(false);
       }
-    } catch {
-      setError("网络错误，请稍后重试");
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+    },
+    [token],
+  );
 
   useEffect(() => {
-    load();
+    setCheckout(null);
+    setError("");
+    setSyncWarning("");
+    void load("initial");
   }, [load]);
 
   useEffect(() => {
     if (!checkout || checkout.status !== "waiting") return;
-    const timer = setInterval(load, 4000);
-    return () => clearInterval(timer);
-  }, [checkout, load]);
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      await load("silent");
+      if (!stopped) timer = setTimeout(tick, 4000);
+    };
+    timer = setTimeout(tick, 4000);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [checkout?.status, load]);
 
   useEffect(() => {
     if (!checkout?.collectionCode) {
@@ -102,9 +129,11 @@ export function CheckoutPage() {
         <div className="w-full max-w-[420px] rounded-xl bg-white p-8 text-center shadow-lg">
           <div className="text-[16px] font-medium text-[#1d2129]">收银台不可用</div>
           <div className="mt-2 text-[13px] text-[#86909c]">{error || "订单不存在"}</div>
-          <Button className="mt-5" type="primary" onClick={() => navigate("/account/overview?focus=recharge")}>
-            返回充值页
-          </Button>
+          <div className="mt-5">
+            <Button type="primary" onClick={() => navigate("/account/overview?focus=recharge")}>
+              返回充值页
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -171,13 +200,17 @@ export function CheckoutPage() {
               </div>
             </div>
 
+            {syncWarning && (
+              <div className="mt-3 text-center text-[11px] text-[#d25f00]">{syncWarning}</div>
+            )}
+
             <div className="mt-5 rounded-lg bg-[#f7f8fa] px-3 py-2 text-[11px] leading-relaxed text-[#4e5969]">
               打开支付宝「扫一扫」→ 扫描上方经营码 → 输入 <b>¥{amount}</b> → 确认付款。
               支付后本页会自动检测到账，无需手动刷新。
             </div>
 
             <div className="mt-4 flex justify-center gap-2">
-              <Button loading={loading} onClick={load}>
+              <Button loading={refreshing} onClick={() => load("manual")}>
                 刷新状态
               </Button>
               <Button onClick={() => navigate("/account/overview?focus=recharge")}>返回充值页</Button>
@@ -199,7 +232,9 @@ export function CheckoutPage() {
               <Button type="primary" onClick={() => navigate("/account/overview?focus=recharge")}>
                 重新充值
               </Button>
-              <Button onClick={load}>刷新状态</Button>
+              <Button loading={refreshing} onClick={() => load("manual")}>
+                刷新状态
+              </Button>
             </div>
           </div>
         )}

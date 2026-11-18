@@ -1,7 +1,10 @@
 package store
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -33,6 +36,25 @@ type PoolNode struct {
 
 // Port 返回该节点在状态面板上展示的端口号（仅作标识，实际走隧道）。
 func (n PoolNode) Port() int { return 18080 + n.Index }
+
+// InstallKey 生成该节点接入脚本的下载鉴权密钥（基于会话密钥与节点凭证的 HMAC）。
+func (n PoolNode) InstallKey() string {
+	mac := hmac.New(sha256.New, []byte(db.SessionSecret()))
+	mac.Write([]byte(fmt.Sprintf("pool-install:%d:%s", n.Index, n.Token)))
+	return hex.EncodeToString(mac.Sum(nil))[:32]
+}
+
+// VerifyInstallKey 恒定时间校验接入脚本下载密钥，防止匿名遍历节点序号窃取凭证。
+func (n PoolNode) VerifyInstallKey(key string) bool {
+	if strings.TrimSpace(n.Token) == "" {
+		return false
+	}
+	want := n.InstallKey()
+	if len(key) != len(want) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(key), []byte(want)) == 1
+}
 
 // ListPoolNodes 读取全部节点配置。
 func ListPoolNodes() []PoolNode {

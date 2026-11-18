@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -210,26 +212,109 @@ func (a *API) handleAdminSelfStocksPost(w http.ResponseWriter, r *http.Request) 
 		ok(w, map[string]any{"stockCount": store.SelfStockCount(body.GoodsID)})
 
 	case "batchDelete":
-		if body.GoodsID == 0 {
-			fail(w, http.StatusBadRequest, "请选择自营商品")
-			return
-		}
 		if len(body.IDs) == 0 {
 			fail(w, http.StatusBadRequest, "未选择卡密")
 			return
 		}
-		n := 0
-		for _, id := range body.IDs {
-			if store.DeleteSelfStock(body.GoodsID, id) {
-				n++
-			}
+		n, affected := store.DeleteSelfStockBatch(body.GoodsID, body.IDs)
+		for _, gid := range affected {
+			service.CheckSelfStockLow(gid)
 		}
-		service.CheckSelfStockLow(body.GoodsID)
 		store.WriteAudit(&admin.UID, "self_stock_delete", "self_stock", joinIDs(body.IDs),
 			nil, map[string]any{"deleted": n}, "批量删除自营卡密")
-		ok(w, map[string]any{"deleted": n, "stockCount": store.SelfStockCount(body.GoodsID)})
+		stockCount := 0
+		if body.GoodsID > 0 {
+			stockCount = store.SelfStockCount(body.GoodsID)
+		}
+		ok(w, map[string]any{"deleted": n, "stockCount": stockCount})
 
 	default:
 		fail(w, http.StatusBadRequest, "未知操作")
 	}
+}
+
+var allowedSelfStockExts = map[string]bool{
+	"":     true,
+	".txt": true,
+	".csv": true,
+	".tsv": true,
+	".log": true,
+	".dat": true,
+}
+
+// handleAdminSelfStocksUpload 接收管理员上传的卡密文本文件（multipart/form-data），在后端流式解析并分批入库。
+func (a *API) handleAdminSelfStocksUpload(w http.ResponseWriter, r *http.Request) {
+	admin := requireAdmin(w, r)
+	if admin == nil {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+	if e := r.ParseMultipartForm(8 << 20); e != nil {
+		fail(w, http.StatusBadRequest, "文件解析失败，请上传不超过 32MB 的文本卡密文件")
+		return
+	}
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+
+	goodsID, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("goodsId")))
+	if goodsID <= 0 {
+		fail(w, http.StatusBadRequest, "请先选择自营商品")
+		return
+	}
+	if store.GetProduct(goodsID) == nil {
+		fail(w, http.StatusBadRequest, "商品不存在")
+		return
+	}
+
+	files := append([]*multipart.FileHeader{}, r.MultipartForm.File["files"]...)
+	files = append(files, r.MultipartForm.File["file"]...)
+	if len(files) == 0 {
+		fail(w, http.StatusBadRequest, "请选择要上传的卡密文件（.txt / .csv）")
+		return
+	}
+
+	for _, fh := range files {
+		ext := strings.ToLower(filepath.Ext(fh.Filename))
+		if !allowedSelfStockExts[ext] {
+			fail(w, http.StatusBadRequest, "不支持的文件格式 "+ext+"，请上传 .txt 或 .csv 纯文本文件")
+			return
+		}
+	}
+
+	totalAdded, totalSkipped := 0, 0
+	names := make([]string, 0, len(files))
+	for _, fh := range files {
+		f, e := fh.Open()
+		if e != nil {
+			fail(w, http.StatusBadRequest, "读取上传文件失败："+fh.Filename)
+			return
+		}
+		added, skipped, importErr := store.ImportSelfStockReader(goodsID, f, "admin", "")
+		_ = f.Close()
+		totalAdded += added
+		totalSkipped += skipped
+		if importErr != nil {
+			fail(w, http.StatusBadRequest, fh.Filename+"："+importErr.Error())
+			return
+		}
+		names = append(names, fh.Filename)
+	}
+
+	enableSelf := strings.TrimSpace(r.FormValue("enableSelf"))
+	if enableSelf == "1" || strings.EqualFold(enableSelf, "true") {
+		_ = store.SetProductSelf(goodsID, true, 0)
+	}
+	service.CheckSelfStockLow(goodsID)
+	store.WriteAudit(&admin.UID, "self_stock_upload", "product", itoa(goodsID),
+		nil, map[string]any{"files": names, "added": totalAdded, "skipped": totalSkipped}, "文件导入自营卡密")
+
+	ok(w, map[string]any{
+		"added":      totalAdded,
+		"skipped":    totalSkipped,
+		"files":      len(files),
+		"stockCount": store.SelfStockCount(goodsID),
+	})
 }

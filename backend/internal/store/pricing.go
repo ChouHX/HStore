@@ -243,7 +243,7 @@ func RecomputeAllPrices() int {
 	d := db.Must()
 	rows, e := d.Query(`SELECT goods_id, cost_price, dir_ids, platform, manual_price, price_locked,
 		COALESCE(root_category_id,0)
-		FROM products`)
+		FROM products WHERE COALESCE(fulfillment,'upstream') <> 'self'`)
 	if e != nil {
 		return 0
 	}
@@ -282,7 +282,7 @@ func RecomputeAllPrices() int {
 // RecomputeProductPrice 重算单个商品售价。
 func RecomputeProductPrice(goodsID int) {
 	p := GetProduct(goodsID)
-	if p == nil {
+	if p == nil || p.Fulfillment == "self" {
 		return
 	}
 	// 自营商品与上游已分离，不存在「跟随上游价格」的路径，锁价优先。

@@ -1,7 +1,10 @@
 package upstream
 
 import (
+	"database/sql"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -202,29 +205,8 @@ func SyncFromRemote() (SyncResult, error) {
 
 	d := db.Must()
 
-	// 同步是「先删后插」，这里把已有详情缓存带过去。
-	// 否则刚同步完所有商品的详情缓存都会变空，用户点开商品又要一个个回源。
-	type detailSnap struct {
-		json string
-		at   int64
-	}
-	cached := map[int]detailSnap{}
-	if rows, e := d.Query("SELECT goods_id, detail_json, detail_synced_at FROM products WHERE platform IN ('microsoft','google')"); e == nil {
-		for rows.Next() {
-			var gid int
-			var js string
-			var at int64
-			if rows.Scan(&gid, &js, &at) == nil && js != "" {
-				cached[gid] = detailSnap{json: js, at: at}
-			}
-		}
-		_ = rows.Close()
-	}
-
-	// 只清理上游商品；自营商品（fulfillment='self'）由管理员维护，同步不得删除。
-	if _, e := d.Exec("DELETE FROM products WHERE platform IN ('microsoft','google') AND COALESCE(fulfillment,'upstream') <> 'self'"); e != nil {
-		return SyncResult{}, e
-	}
+	// 保留本地已有商品的上下架、手动锁价、自定义图文与详情缓存，不再先 DELETE 后 INSERT；
+	// 远端已下线的旧商品在同步完成后按是否含本地配置/业务关联做精准清理或下架处理。
 	if e := store.SaveCategories(flat); e != nil {
 		return SyncResult{}, e
 	}
@@ -266,7 +248,6 @@ func SyncFromRemote() (SyncResult, error) {
 					} else if r, ok := dirRoot[dirID]; ok {
 						rootID = r
 					}
-					snap := cached[p.GoodsID]
 					_, _ = d.Exec(`INSERT INTO products(
 						goods_id, name, face_value, sales_price, cost_price, final_price, goods_type, warranty_days, status,
 						multiple, is_repeat, is_ref_order, is_ref_money, sku_type, img_url, dir_ids,
@@ -277,7 +258,6 @@ func SyncFromRemote() (SyncResult, error) {
 						  cost_price=excluded.cost_price,
 						  final_price=CASE
 						    -- 自营商品与锁价商品一律保留原有售价，不被上游同步覆盖。
-						    -- （兜底已下线：不再有「绑定兜底的自营商品随上游浮动」路径）
 						    WHEN COALESCE(products.fulfillment,'upstream')='self'
 						      OR COALESCE(products.price_locked,0)=1
 						    THEN products.final_price ELSE excluded.final_price END,
@@ -287,13 +267,11 @@ func SyncFromRemote() (SyncResult, error) {
 						  dir_ids=excluded.dir_ids, platform=excluded.platform,
 						  root_category_id=CASE WHEN COALESCE(products.fulfillment,'upstream')='self'
 						    THEN products.root_category_id ELSE excluded.root_category_id END,
-						  updated_at=excluded.updated_at,
-						  detail_json=CASE WHEN excluded.detail_json<>'' THEN excluded.detail_json ELSE products.detail_json END,
-						  detail_synced_at=CASE WHEN excluded.detail_json<>'' THEN excluded.detail_synced_at ELSE products.detail_synced_at END`,
+						  updated_at=excluded.updated_at`,
 						p.GoodsID, p.Name, p.FaceValue, p.SalesPrice, p.SalesPrice, p.SalesPrice,
 						defInt(p.GoodsType, 1), store.NormalizeWarranty(p), defInt(p.Status, 1),
 						defInt(p.Multiple, 1), p.IsRepeat, p.IsRefOrder, p.IsRefMoney, p.SkuType,
-						p.ImgURL, string(dirJSON), platform, nullInt(rootID), ts, snap.json, snap.at)
+						p.ImgURL, string(dirJSON), platform, nullInt(rootID), ts, "", 0)
 					count++
 				}
 				totalPages = data.AllPage
@@ -312,6 +290,7 @@ func SyncFromRemote() (SyncResult, error) {
 	for id := range seen {
 		ids = append(ids, id)
 	}
+	pruneRemovedUpstreamProducts(d, seen, ts)
 	enrichStock(ids)
 
 	store.RecomputeAllPrices()
@@ -429,4 +408,58 @@ func itoa(v int) string {
 	return string(b[i:])
 }
 
-func strconvItoa64(v int64) string { return itoa(int(v)) }
+// pruneRemovedUpstreamProducts 处理远端已下线的上游微软/谷歌商品：
+//   - 无本地自定义信息、未锁价且无关联兑换码/待处理游客单的旧商品直接清理；
+//   - 有本地配置或业务关联的记录保留，并自动标记为下架（enabled=0, status=2），防止继续售卖失效商品。
+func pruneRemovedUpstreamProducts(d interface {
+	Query(string, ...any) (*sql.Rows, error)
+	Exec(string, ...any) (sql.Result, error)
+}, seen map[int]bool, ts int64) {
+	rows, e := d.Query(`SELECT p.goods_id,
+		CASE WHEN COALESCE(p.price_locked,0)=1
+		       OR p.manual_price IS NOT NULL
+		       OR (p.custom_name IS NOT NULL AND p.custom_name <> '')
+		       OR (p.custom_desc IS NOT NULL AND p.custom_desc <> '')
+		       OR (p.custom_img IS NOT NULL AND p.custom_img <> '')
+		       OR EXISTS(SELECT 1 FROM redeem_codes rc WHERE rc.goods_id = p.goods_id)
+		       OR EXISTS(SELECT 1 FROM guest_purchases gp WHERE gp.goods_id = p.goods_id AND gp.status IN ('waiting','fulfilling','failed'))
+		     THEN 1 ELSE 0 END AS keep_record
+		FROM products p
+		WHERE p.platform IN ('microsoft','google') AND COALESCE(p.fulfillment,'upstream') <> 'self'`)
+	if e != nil {
+		return
+	}
+	var toDelete, toDisable []int
+	for rows.Next() {
+		var gid, keep int
+		if rows.Scan(&gid, &keep) != nil {
+			continue
+		}
+		if seen[gid] {
+			continue
+		}
+		if keep == 1 {
+			toDisable = append(toDisable, gid)
+		} else {
+			toDelete = append(toDelete, gid)
+		}
+	}
+	_ = rows.Close()
+
+	if len(toDelete) > 0 {
+		parts := make([]string, len(toDelete))
+		for i, id := range toDelete {
+			parts[i] = strconv.Itoa(id)
+		}
+		_, _ = d.Exec("DELETE FROM products WHERE goods_id IN (" + strings.Join(parts, ",") + ")")
+	}
+	if len(toDisable) > 0 {
+		parts := make([]string, len(toDisable))
+		for i, id := range toDisable {
+			parts[i] = strconv.Itoa(id)
+		}
+		_, _ = d.Exec("UPDATE products SET enabled = 0, status = 2, updated_at = ? WHERE goods_id IN ("+strings.Join(parts, ",")+")", ts)
+	}
+}
+
+func strconvItoa64(v int64) string { return strconv.FormatInt(v, 10) }

@@ -62,15 +62,15 @@ func RandomRedeemCode() string {
 }
 
 const codeSelect = `SELECT rc.id, rc.code, rc.face_value, rc.goods_id, rc.goods_count, rc.order_number,
-	rc.status, rc.used_by, rc.used_at, rc.start_at, rc.end_at, rc.created_at, COALESCE(p.name,'')
+	rc.status, rc.used_by, rc.used_at, rc.redeeming_at, rc.start_at, rc.end_at, rc.created_at, COALESCE(p.name,'')
 	FROM redeem_codes rc LEFT JOIN products p ON p.goods_id = rc.goods_id`
 
 func scanCode(sc interface{ Scan(...any) error }) (model.RedeemCode, error) {
 	var c model.RedeemCode
 	var goodsID, usedBy sql.NullInt64
-	var usedAt, startAt, endAt sql.NullInt64
+	var usedAt, redeemingAt, startAt, endAt sql.NullInt64
 	e := sc.Scan(&c.ID, &c.Code, &c.FaceValue, &goodsID, &c.GoodsCount, &c.OrderNumber,
-		&c.Status, &usedBy, &usedAt, &startAt, &endAt, &c.CreatedAt, &c.GoodsName)
+		&c.Status, &usedBy, &usedAt, &redeemingAt, &startAt, &endAt, &c.CreatedAt, &c.GoodsName)
 	if goodsID.Valid {
 		v := int(goodsID.Int64)
 		c.GoodsID = &v
@@ -82,6 +82,10 @@ func scanCode(sc interface{ Scan(...any) error }) (model.RedeemCode, error) {
 	if usedAt.Valid {
 		v := usedAt.Int64
 		c.UsedAt = &v
+	}
+	if redeemingAt.Valid {
+		v := redeemingAt.Int64
+		c.RedeemingAt = &v
 	}
 	if startAt.Valid {
 		v := startAt.Int64

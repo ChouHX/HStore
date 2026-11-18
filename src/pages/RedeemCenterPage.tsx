@@ -9,7 +9,8 @@ import { ORDER_STATUS, arcoColor, isOrderPending, orderStatusColor } from "@/lib
 import { DeliveryWaiting } from "@/components/DeliveryWaiting";
 import type { StoreHome } from "@/lib/api-types";
 import type { StoreProduct } from "@/lib/types";
-import { useSession } from "@/src/hooks/useSession";
+import { saveOrder } from "@/lib/orderStorage";
+import { invalidateSession, useSession } from "@/src/hooks/useSession";
 import { isSoldOut } from "@/components/store/selfStock";
 import { productImg, productTitle } from "@/components/store/productView";
 
@@ -118,12 +119,24 @@ export function RedeemCenterPage() {
         Message.error(j.message ?? "兑换失败");
         return;
       }
+      const nextOrder = (j.order as RedeemOrder) ?? null;
       setMessage(j.message ?? "兑换成功");
-      setOrder((j.order as RedeemOrder) ?? null);
+      setOrder(nextOrder);
       setRedeemedCode(v);
       setBalanceAmount(Number(j.amount) || 0);
       setGoodsImg(String(j.goodsImg ?? ""));
       setDone(true);
+      if (nextOrder?.orderNumber) {
+        saveOrder({
+          orderNumber: nextOrder.orderNumber,
+          contact: "",
+          goodsName: nextOrder.goodsName,
+          amount: Number(nextOrder.saleMoney ?? nextOrder.money ?? 0),
+        });
+      }
+      if (j.kind === "balance") {
+        invalidateSession();
+      }
       Message.success(j.message ?? "兑换成功");
     } finally {
       setLoading(false);

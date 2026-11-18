@@ -134,8 +134,12 @@ export interface GoodsDetail {
   fulfillment?: "upstream" | "self";
   goodsId: number;
   name: string;
+  customName?: string | null;
+  customDesc?: string | null;
+  customImg?: string | null;
   imgUrl: string;
   salesPrice: number;
+  finalPrice?: number;
   faceValue: number;
   goodsType: number;
   status: number;

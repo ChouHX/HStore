@@ -50,12 +50,12 @@ export function contentToHtml(content: string) {
 export function contentToPlainText(content: string) {
   if (!content) return "";
   if (!looksLikeHtml(content)) return content;
-  if (typeof document === "undefined") {
-    return content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const safe = sanitizeRichText(content);
+  if (typeof DOMParser === "undefined") {
+    return safe.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
-  const holder = document.createElement("div");
-  holder.innerHTML = content;
-  return (holder.textContent ?? "").replace(/\s+/g, " ").trim();
+  const doc = new DOMParser().parseFromString(safe, "text/html");
+  return (doc.body?.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
 /** 编辑器为空时 Quill 会留下一个空段落，存库前统一按空处理。 */

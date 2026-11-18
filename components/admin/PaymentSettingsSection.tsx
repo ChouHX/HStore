@@ -25,7 +25,7 @@ export function PaymentSettingsSection() {
         </Radio.Group>
         <Space>
           <span className="text-[11px] text-[#86909c]">
-            这里只做渠道配置；支付订单在「订单管理」页统一查看。
+            这里只做渠道配置；充值与支付记录请在左侧「订单管理 → 充值与支付记录」统一查看。
           </span>
         </Space>
       </div>

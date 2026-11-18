@@ -418,7 +418,12 @@ func autoAssignLevel(tx *sql.Tx, uid int) *int {
 		}
 		return nil
 	}
-	target := ResolveLevelID(spent)
+	// 必须复用当前事务连接查询 levels，不能调用 db.Must() 另借连接，否则连接池占满时会永久死锁。
+	var targetID int
+	var target *int
+	if e := tx.QueryRow("SELECT id FROM levels WHERE threshold <= ? ORDER BY threshold DESC LIMIT 1", spent).Scan(&targetID); e == nil {
+		target = &targetID
+	}
 	if target != nil && (!levelID.Valid || int(levelID.Int64) != *target) {
 		_, _ = tx.Exec("UPDATE users SET level_id = ?, updated_at = ? WHERE uid = ?", *target, now(), uid)
 		return target

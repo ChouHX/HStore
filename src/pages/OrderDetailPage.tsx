@@ -370,9 +370,11 @@ export function OrderDetailPage() {
             <div className="py-10 text-center">
               <div className="text-[15px] font-medium">订单不可用</div>
               <div className="mt-2 text-[12px] text-[#86909c]">{error}</div>
-              <Button className="mt-4" type="primary" onClick={() => navigate("/orders")}>
-                去订单查询
-              </Button>
+              <div className="mt-4">
+                <Button type="primary" onClick={() => navigate("/orders")}>
+                  去订单查询
+                </Button>
+              </div>
             </div>
           </Card>
         ) : (

@@ -3,10 +3,12 @@ import { useCallback, useEffect, useState } from "react";
 import { ProductBrowser } from "@/components/ProductBrowser";
 import type { StoreHome } from "@/lib/api-types";
 import { PageLoading } from "@/src/components/PageLoading";
+import { useSession } from "@/src/hooks/useSession";
 
 export function HomePage() {
   const [data, setData] = useState<StoreHome | null>(null);
   const [error, setError] = useState("");
+  const sessionUser = useSession();
 
   const load = useCallback(async () => {
     setError("");
@@ -41,7 +43,7 @@ export function HomePage() {
       boards={data.boards ?? []}
       configured={data.configured}
       lastSync={data.lastSync || null}
-      user={data.user}
+      user={sessionUser === undefined ? data.user : sessionUser}
       discount={data.discount ?? 1}
       announcements={data.announcements ?? []}
       popup={data.popup ?? null}

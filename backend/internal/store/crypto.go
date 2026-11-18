@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
-	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -273,15 +272,17 @@ func SetPoolSlotEnabled(id int, enabled bool) bool {
 	return n == 1
 }
 
-const cryptoOrderCols = `id, order_no, uid, pool_id, sub_uid, address, chain, requested_cny, requested_usdt,
-	usdt_amount, rate, credit_cny, status, txid, received_usdt, credited, expires_at, created_at, paid_at`
+const cryptoOrderCols = `co.id, co.order_no, co.uid, COALESCE(u.username, ''), co.pool_id, co.sub_uid, co.address, co.chain, co.requested_cny, co.requested_usdt,
+	co.usdt_amount, co.rate, co.credit_cny, co.status, co.txid, co.received_usdt, co.credited, co.expires_at, co.created_at, co.paid_at`
+
+const cryptoOrderFrom = `FROM crypto_orders co LEFT JOIN users u ON u.uid = co.uid`
 
 func scanCryptoOrder(sc interface{ Scan(...any) error }) (model.CryptoOrder, error) {
 	var o model.CryptoOrder
 	var txid, received sql.NullString
 	var credited sql.NullFloat64
 	var paidAt sql.NullInt64
-	e := sc.Scan(&o.ID, &o.OrderNo, &o.UID, &o.PoolID, &o.SubUID, &o.Address, &o.Chain, &o.RequestedCny,
+	e := sc.Scan(&o.ID, &o.OrderNo, &o.UID, &o.Username, &o.PoolID, &o.SubUID, &o.Address, &o.Chain, &o.RequestedCny,
 		&o.RequestedUsdt, &o.UsdtAmount, &o.Rate, &o.CreditCny, &o.Status, &txid, &received,
 		&credited, &o.ExpiresAt, &o.CreatedAt, &paidAt)
 	for _, c := range CryptoChains {
@@ -310,7 +311,7 @@ func scanCryptoOrder(sc interface{ Scan(...any) error }) (model.CryptoOrder, err
 
 // GetCryptoOrder 取加密充值订单。
 func GetCryptoOrder(id int) *model.CryptoOrder {
-	row := db.Must().QueryRow("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE id = ?", id)
+	row := db.Must().QueryRow("SELECT "+cryptoOrderCols+" "+cryptoOrderFrom+" WHERE co.id = ?", id)
 	o, e := scanCryptoOrder(row)
 	if e != nil {
 		return nil
@@ -324,7 +325,7 @@ func GetCryptoOrderByNo(orderNo string) *model.CryptoOrder {
 	if orderNo == "" {
 		return nil
 	}
-	row := db.Must().QueryRow("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE order_no = ?", orderNo)
+	row := db.Must().QueryRow("SELECT "+cryptoOrderCols+" "+cryptoOrderFrom+" WHERE co.order_no = ?", orderNo)
 	o, e := scanCryptoOrder(row)
 	if e != nil {
 		return nil
@@ -340,9 +341,9 @@ func ListCryptoOrders(uid, limit int) []model.CryptoOrder {
 	var rows *sql.Rows
 	var e error
 	if uid > 0 {
-		rows, e = db.Must().Query("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE uid=? ORDER BY id DESC LIMIT ?", uid, limit)
+		rows, e = db.Must().Query("SELECT "+cryptoOrderCols+" "+cryptoOrderFrom+" WHERE co.uid=? ORDER BY co.id DESC LIMIT ?", uid, limit)
 	} else {
-		rows, e = db.Must().Query("SELECT "+cryptoOrderCols+" FROM crypto_orders ORDER BY id DESC LIMIT ?", limit)
+		rows, e = db.Must().Query("SELECT "+cryptoOrderCols+" "+cryptoOrderFrom+" ORDER BY co.id DESC LIMIT ?", limit)
 	}
 	if e != nil {
 		return []model.CryptoOrder{}
@@ -431,13 +432,17 @@ func InsertCryptoOrder(uid, poolID int, subUID, address, chain string, cny float
 	d := db.Must()
 	// usdt_amount 上有「同地址内未结束订单」的部分唯一索引。
 	// 选金额是「先查再插」，并发下两个请求可能挑到同一个尾数；
-	// 撞索引时以原金额的整数部分为基准重新取尾数重试，而不是直接失败。
-	base := math.Floor(parseFloat(usdtAmount))
+	// 撞索引时必须以原请求金额（requestedUsdt，保留小数）为基准重新取尾数，绝不能 Floor 截断小数导致少收。
+	base := parseFloat(requestedUsdt)
+	if base <= 0 {
+		base = parseFloat(usdtAmount)
+	}
 	amount := usdtAmount
+	credit := creditCny
 	for i := 0; i < 20; i++ {
 		res, e := d.Exec(`INSERT INTO crypto_orders(uid,order_no,pool_id,sub_uid,address,chain,requested_cny,requested_usdt,usdt_amount,rate,credit_cny,status,expires_at,created_at)
 			VALUES(?,?,?,?,?,?,?,?,?,?,?,'waiting',?,?)`,
-			uid, NewOrderNo(PrefixCrypto), poolID, subUID, address, chain, cny, requestedUsdt, amount, rate, creditCny, expires, now())
+			uid, NewOrderNo(PrefixCrypto), poolID, subUID, address, chain, cny, requestedUsdt, amount, rate, credit, expires, now())
 		if e == nil {
 			id, _ := res.LastInsertId()
 			_, _ = d.Exec("UPDATE bybit_pool SET current_order_id=? WHERE id=?", id, poolID)
@@ -446,12 +451,13 @@ func InsertCryptoOrder(uid, poolID int, subUID, address, chain string, cny float
 		if !isUniqueViolation(e) {
 			return 0
 		}
-		// 金额被并发单占用：以原请求金额为基准重新取尾数。
+		// 金额被并发单占用：以原请求金额为基准重新取尾数，并同步重算应入账 CNY。
 		next, ok := UniqueAmountOnSlot(poolID, base)
 		if !ok {
 			return 0
 		}
 		amount = next
+		credit = round4(parseFloat(amount) * rate)
 	}
 	return 0
 }
@@ -474,13 +480,13 @@ func isUniqueViolation(err error) bool {
 //   - 尾数用 4 位小数（1~9999），空间足够大，避免同一金额下建单上限太低
 //   - 随机源用 crypto/rand，不用时间戳：同一毫秒内并发请求会拿到相同值
 //
-// PoolSlotIsIdle 判断该地址当前是否没有任何待支付订单。
+// PoolSlotIsIdle 判断该地址当前是否没有任何未结束（waiting 或过期未结算）订单。
 //
 // 空闲地址可以独占给一个用户，此时金额直接用原值，不需要随机尾数。
 func PoolSlotIsIdle(poolID int) bool {
 	var n int
 	_ = db.Must().QueryRow(`SELECT COUNT(*) FROM crypto_orders
-		WHERE pool_id = ? AND status = 'waiting'`, poolID).Scan(&n)
+		WHERE pool_id = ? AND status IN ('waiting','expired') AND COALESCE(txid,'') = ''`, poolID).Scan(&n)
 	return n == 0
 }
 
@@ -553,6 +559,7 @@ func SettleCryptoOrder(order *model.CryptoOrder, txid, received, remark string) 
 		return order
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
+		_ = tx.Rollback()
 		return GetCryptoOrder(order.ID)
 	}
 	var before float64
@@ -603,7 +610,7 @@ func DeleteCryptoOrder(id int) (*model.CryptoOrder, error) {
 		return nil, e
 	}
 	defer tx.Rollback()
-	row := tx.QueryRow("SELECT "+cryptoOrderCols+" FROM crypto_orders WHERE id=?", id)
+	row := tx.QueryRow("SELECT "+cryptoOrderCols+" "+cryptoOrderFrom+" WHERE co.id=?", id)
 	order, e := scanCryptoOrder(row)
 	if e != nil {
 		if errors.Is(e, sql.ErrNoRows) {

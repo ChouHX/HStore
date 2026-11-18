@@ -6,6 +6,7 @@ export type SessionState = User | null | undefined;
 
 let cached: SessionState;
 let pending: Promise<SessionState> | null = null;
+const listeners = new Set<() => void>();
 
 /** 拉取当前登录用户（进程内缓存，避免每次切页都请求） */
 export function fetchSession(): Promise<SessionState> {
@@ -24,26 +25,32 @@ export function fetchSession(): Promise<SessionState> {
   return pending;
 }
 
-/** 登录/退出后清缓存 */
+/** 登录/退出/充值/下单/核销后清缓存并通知所有挂载组件刷新余额与会话态 */
 export function invalidateSession() {
   cached = undefined;
   pending = null;
+  listeners.forEach((fn) => fn());
 }
 
 export function useSession(): SessionState {
   const [user, setUser] = useState<SessionState>(cached);
 
   useEffect(() => {
-    if (cached !== undefined) {
-      setUser(cached);
-      return;
-    }
     let alive = true;
-    fetchSession().then((u) => {
-      if (alive) setUser(u);
-    });
+    const sync = () => {
+      if (cached !== undefined) {
+        if (alive) setUser(cached);
+        return;
+      }
+      fetchSession().then((u) => {
+        if (alive) setUser(u);
+      });
+    };
+    listeners.add(sync);
+    sync();
     return () => {
       alive = false;
+      listeners.delete(sync);
     };
   }, []);
 

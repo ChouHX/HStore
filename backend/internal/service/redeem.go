@@ -58,9 +58,9 @@ func Redeem(uid int, rawCode string) RedeemResult {
 		store.RecordFailure(uid)
 		return RedeemResult{Message: "兑换码已被使用", Kind: kind}
 	case "redeeming":
-		// 占用未超时可提示稍后查看；超时视为可重新占用
-		if row.UsedAt != nil && time.Now().UnixMilli()-*row.UsedAt < redeemLockMS {
-			return RedeemResult{Message: "兑换码正在处理中，请稍后查看订单", Kind: kind}
+		// 占用未超时可提示稍后查看（不计入失败次数）；超时后再检查是否已有落库订单可恢复
+		if row.RedeemingAt != nil && time.Now().UnixMilli()-*row.RedeemingAt < redeemLockMS {
+			return RedeemResult{Message: "兑换码正在处理中，请稍后刷新查看", Kind: kind}
 		}
 	}
 
@@ -100,7 +100,33 @@ func redeemProduct(uid int, row *model.RedeemCode) RedeemResult {
 	if user.Status != "active" {
 		return RedeemResult{Message: "账号已被冻结", Kind: "product"}
 	}
+	targetOrderNo := redeemOrderNo(row.Code)
+	// 若上一次核销已成功落库订单（如进程崩溃未及时写 FinishCode），直接恢复绑定并返回原订单，绝不重复向上游下单。
+	if store.IsRedeemOrderNo(targetOrderNo) {
+		if existing := store.GetOrder(targetOrderNo); existing != nil {
+			store.FinishCode(row.ID, existing.OrderNumber)
+			store.ClearFailures(uid)
+			return RedeemResult{
+				OK: true, Kind: "product", Message: "兑换码已使用，已载入原订单",
+				Order: existing, OrderNumber: existing.OrderNumber,
+			}
+		}
+	}
+
 	if !store.ClaimCode(row.ID, uid, redeemLockMS) {
+		if cur := store.GetCodeByID(row.ID); cur != nil {
+			if cur.Status == "used" && cur.OrderNumber != "" {
+				if existing := store.GetOrder(cur.OrderNumber); existing != nil {
+					return RedeemResult{
+						OK: true, Kind: "product", Message: "兑换码已使用，已载入原订单",
+						Order: existing, OrderNumber: existing.OrderNumber,
+					}
+				}
+			}
+			if cur.Status == "redeeming" {
+				return RedeemResult{Message: "兑换码正在处理中，请稍后刷新查看", Kind: "product"}
+			}
+		}
 		store.RecordFailure(uid)
 		return RedeemResult{Message: "兑换码正在处理中或已被使用", Kind: "product"}
 	}
@@ -114,7 +140,7 @@ func redeemProduct(uid int, row *model.RedeemCode) RedeemResult {
 		Remark:  "兑换码取件",
 		// 直接把兑换码当作业务订单号：用户手里的凭证就是兑换码，
 		// 查询/取件也是输兑换码，不必再记一个内部单号。
-		OrderNumber: redeemOrderNo(row.Code),
+		OrderNumber: targetOrderNo,
 	})
 	if !r.OK {
 		store.ReleaseCode(row.ID)
