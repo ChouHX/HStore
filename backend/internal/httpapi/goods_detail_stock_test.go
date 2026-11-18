@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"hstore/backend/internal/db"
+	"hstore/backend/internal/store"
 )
 
 // 上游已缺货（stockCount=0）时，点购买（fresh=1）必须如实返回 0，
@@ -21,8 +22,10 @@ func TestBuildStoreDetailFreshTrustsUpstreamStock(t *testing.T) {
 
 	raw := json.RawMessage(`{"goodsId":960101,"name":"库存口径测试","stockCount":0,"status":1}`)
 
+	prod := store.GetProduct(gid)
+
 	// 非 fresh：浏览路径用本地值（省上游）
-	got, e := buildStoreDetail(gid, raw, false)
+	got, e := buildStoreDetail(gid, prod, raw, false)
 	if e != nil {
 		t.Fatalf("构建详情失败: %v", e)
 	}
@@ -31,7 +34,7 @@ func TestBuildStoreDetailFreshTrustsUpstreamStock(t *testing.T) {
 	}
 
 	// fresh：点购买必须以上游为准
-	got, e = buildStoreDetail(gid, raw, true)
+	got, e = buildStoreDetail(gid, prod, raw, true)
 	if e != nil {
 		t.Fatalf("构建详情失败: %v", e)
 	}
@@ -49,7 +52,7 @@ func TestBuildStoreDetailFreshFallsBackWhenUnknown(t *testing.T) {
 		t.Fatalf("准备商品失败: %v", e)
 	}
 	raw := json.RawMessage(`{"goodsId":960102,"name":"库存未知测试","stockCount":-1,"status":1}`)
-	got, e := buildStoreDetail(gid, raw, true)
+	got, e := buildStoreDetail(gid, store.GetProduct(gid), raw, true)
 	if e != nil {
 		t.Fatalf("构建详情失败: %v", e)
 	}

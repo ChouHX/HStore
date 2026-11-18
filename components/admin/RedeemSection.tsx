@@ -206,7 +206,20 @@ export function RedeemSection() {
   const [selected, setSelected] = useState<number[]>([]);
   const [batchMode, setBatchMode] = useState(false);
   const [batches, setBatches] = useState<
-    { batchId: number; total: number; unused: number; used: number; voided: number; faceValue: number; goodsId: number | null; goodsName: string; goodsCount: number; createdAt: number }[]
+    {
+      batchId: number;
+      total: number;
+      unused: number;
+      /** 核销中：已占用但尚未出结果，后端 BatchSummary 会返回 */
+      redeeming: number;
+      used: number;
+      voided: number;
+      faceValue: number;
+      goodsId: number | null;
+      goodsName: string;
+      goodsCount: number;
+      createdAt: number;
+    }[]
   >([]);
   const [batchPage, setBatchPage] = useState(1);
   const [batchTotal, setBatchTotal] = useState(0);
