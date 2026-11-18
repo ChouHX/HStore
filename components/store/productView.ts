@@ -38,3 +38,22 @@ export function boardImg(id: number, img: string | undefined | null): string | n
   if (id === SELF_BOARD_ID) return SITE_LOGO;
   return catImg(img);
 }
+
+/**
+ * 按关键词挑出目标板块。
+ *
+ * 轮播图按钮里写的常是中文（谷歌 / 微软），而上游同步下来的板块名多为
+ * 英文（Google板块(Gmail/Google/YouTube)），直接 includes 会匹配不到、
+ * 点了没反应。这里统一做小写化 + 多关键词匹配。
+ */
+export function matchBoardByKeywords<T extends { name: string }>(
+  boards: T[],
+  keywords: string[],
+): T | null {
+  const words = keywords.map((w) => w.trim().toLowerCase()).filter(Boolean);
+  if (words.length === 0) return null;
+  return boards.find((b) => {
+    const name = b.name.toLowerCase();
+    return words.some((w) => name.includes(w));
+  }) ?? null;
+}

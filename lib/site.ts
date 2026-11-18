@@ -2,7 +2,9 @@
 export const SITE_NAME = "HShop";
 
 export type BannerAction =
-  | { type: "board"; keyword: string }
+  // keywords：命中板块名里任意一个词即视为匹配。
+  // 上游板块名常见英文（Google板块 / 微软板块），只写中文会匹配不到。
+  | { type: "board"; keyword: string; keywords?: string[] }
   | { type: "route"; href: string }
   | { type: "recharge" };
 
@@ -30,7 +32,7 @@ export const BANNERS: Banner[] = [
     image: "/banners/hero-microsoft.svg",
     highlights: ["OAuth2 双令牌", "网页秒收验证码", "当天售后质保"],
     ctaLabel: "浏览微软专区",
-    action: { type: "board", keyword: "微软" },
+    action: { type: "board", keyword: "微软", keywords: ["微软", "outlook", "hotmail", "microsoft"] },
   },
   {
     title: "谷歌 Gmail · 纯净稳定直登",
@@ -40,7 +42,7 @@ export const BANNERS: Banner[] = [
     image: "/banners/hero-google.svg",
     highlights: ["多地区纯净号源", "长期稳定可用", "支持批量阶梯价"],
     ctaLabel: "选购谷歌专区",
-    action: { type: "board", keyword: "谷歌" },
+    action: { type: "board", keyword: "谷歌", keywords: ["谷歌", "google", "gmail"] },
   },
   {
     title: "兑换中心 · 输码即刻出卡",

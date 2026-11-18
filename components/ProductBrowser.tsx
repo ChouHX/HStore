@@ -32,7 +32,14 @@ import { HeroSection } from "./store/HeroSection";
 import { StoreHeader } from "./store/StoreHeader";
 import { PopupAnnouncement, isPopupMutedToday } from "./store/PopupAnnouncement";
 import { isSoldOut } from "./store/selfStock";
-import { boardImg, catImg, cleanBoardName, productImg, productTitle } from "./store/productView";
+import {
+  boardImg,
+  catImg,
+  cleanBoardName,
+  matchBoardByKeywords,
+  productImg,
+  productTitle,
+} from "./store/productView";
 
 interface Props {
   boards: StoreBoard[];
@@ -452,9 +459,9 @@ export function ProductBrowser({ boards, configured, lastSync, user, discount, a
           hasPopup={!!popup}
           isLoggedIn={Boolean(user)}
           onOpenNotice={() => setNoticeOpen(true)}
-          onSelectBoardKeyword={(kw) => {
+          onSelectBoardKeywords={(words) => {
             if (query) applySearch("");
-            const target = boards.find((b) => b.name.includes(kw));
+            const target = matchBoardByKeywords(boards, words);
             if (target) pickBoard(target.id);
           }}
         />

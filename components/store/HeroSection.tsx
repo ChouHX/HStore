@@ -14,7 +14,8 @@ interface Props {
   hasPopup?: boolean;
   isLoggedIn?: boolean;
   onOpenNotice?: () => void;
-  onSelectBoardKeyword?: (keyword: string) => void;
+  /** 传关键词数组：命中任意一个词就切到该板块（板块名多为英文，单靠中文会匹配不到） */
+  onSelectBoardKeywords?: (keywords: string[]) => void;
 }
 
 export function HeroSection({
@@ -22,7 +23,7 @@ export function HeroSection({
   hasPopup = false,
   isLoggedIn = false,
   onOpenNotice,
-  onSelectBoardKeyword,
+  onSelectBoardKeywords,
 }: Props) {
   const navigate = useNavigate();
   const [current, setCurrent] = useState(0);
@@ -37,7 +38,8 @@ export function HeroSection({
       return;
     }
     if (b.action.type === "board") {
-      onSelectBoardKeyword?.(b.action.keyword);
+      const words = b.action.keywords?.length ? b.action.keywords : [b.action.keyword];
+      onSelectBoardKeywords?.(words);
       document.getElementById("store-products")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
