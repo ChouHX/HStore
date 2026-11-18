@@ -21,6 +21,8 @@ interface PoolNodeView {
   enabled: boolean;
   online: boolean;
   idle: number;
+  /** 最近一次探测到的家宽出口延迟（ms）；-1 表示探测失败，0/缺失表示还没测到 */
+  latencyMs?: number;
   lastSeen?: string;
   command?: string;
   createdAt: number;
@@ -179,6 +181,30 @@ export function PoolNodesPanel() {
           )}
         </Space>
       ),
+    },
+    {
+      title: "延迟",
+      dataIndex: "latencyMs",
+      width: 100,
+      render: (_: unknown, n: PoolNodeView) => {
+        if (!n.enabled || !n.online) {
+          return <span className="text-[11px] text-[#c9cdd4]">—</span>;
+        }
+        const ms = n.latencyMs ?? 0;
+        if (ms < 0) {
+          return <span className="text-[11px] text-[#f53f3f]">探测失败</span>;
+        }
+        if (ms === 0) {
+          return <span className="text-[11px] text-[#c9cdd4]">测量中…</span>;
+        }
+        // 按延迟分档着色：<80ms 绿、<200ms 蓝、其余橙
+        const color = ms < 80 ? "#00b42a" : ms < 200 ? "#165dff" : "#d25f00";
+        return (
+          <span className="font-mono text-[12px]" style={{ color }}>
+            {ms} ms
+          </span>
+        );
+      },
     },
     {
       title: "最后活动",

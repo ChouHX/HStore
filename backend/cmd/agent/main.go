@@ -21,6 +21,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -40,6 +41,10 @@ var (
 	dialTarget time.Duration
 )
 
+// errTokenRejected 表示服务器明确拒绝该 token（节点被禁用或删除）。
+// 这种情况重试再快也没用，转成长间隔等待，避免把日志刷爆。
+var errTokenRejected = errors.New("token 已失效")
+
 // debug 控制是否输出详细日志
 var debug bool
 
@@ -50,10 +55,13 @@ func debugf(format string, args ...any) {
 }
 
 // 统计，便于排查
+const tokenRejectedRetry = 5 * time.Minute
+
 var (
-	statServe  atomic.Int64 // 成功承载的隧道数
-	statErr    atomic.Int64 // 出错次数
-	statActive atomic.Int64 // 当前活跃隧道数
+	lastTokenWarn time.Time
+	statServe     atomic.Int64 // 成功承载的隧道数
+	statErr       atomic.Int64 // 出错次数
+	statActive    atomic.Int64 // 当前活跃隧道数
 )
 
 func main() {
@@ -105,6 +113,16 @@ func maintain() {
 	for {
 		if err := runOnce(); err != nil {
 			statErr.Add(1)
+			if errors.Is(err, errTokenRejected) {
+				// 节点已在后台禁用或删除：每分钟最多提示一次，避免刷日志
+				if time.Since(lastTokenWarn) > time.Minute {
+					lastTokenWarn = time.Now()
+					log.Printf("[agent] 节点已被移除或禁用（token 失效），改为每 5 分钟重试一次；" +
+						"如需恢复请在后台重新启用该节点")
+				}
+				time.Sleep(tokenRejectedRetry)
+				continue
+			}
 			log.Printf("[agent] 连接异常: %v（%s 后重试）", err, backoff)
 			time.Sleep(backoff)
 			if backoff < 30*time.Second {
@@ -136,7 +154,10 @@ func runOnce() error {
 	}
 	line = strings.TrimSpace(line)
 	if line != "OK" {
-		// token 无效等服务器拒绝的情形，重试无意义但要避免刷屏
+		// token 无效（节点被后台禁用/删除）时重试无意义，单独标记以便长间隔等待
+		if strings.Contains(line, "invalid token") {
+			return errTokenRejected
+		}
 		return fmt.Errorf("服务器拒绝: %s", line)
 	}
 
@@ -149,6 +170,17 @@ func runOnce() error {
 	}
 	debugf("收到指令: %s", strings.TrimSpace(cmd))
 	cmd = strings.TrimSpace(cmd)
+
+	// PING：探测用的空转指令。回 PONG + 本机拨号到对照目标的耗时，
+	// 让服务端能展示「这个家宽出口此刻有多快」，而不只是在线/离线。
+	if cmd == "PING" {
+		lat := probeLatency()
+		if _, err := fmt.Fprintf(conn, "PONG %d\n", lat); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	if !strings.HasPrefix(cmd, "CONNECT ") {
 		return fmt.Errorf("未知指令: %s", cmd)
 	}
@@ -202,4 +234,19 @@ func sanitize(s string) string {
 		s = s[:200]
 	}
 	return s
+}
+
+// probeTarget 是延迟探测的对照目标，取国内公共 DNS，跨运营商都比较稳。
+const probeTarget = "223.5.5.5:443"
+
+// probeLatency 测量本机（家宽出口）到对照目标的 TCP 建连耗时（毫秒）。
+// 失败返回 -1，服务端据此显示「-」而不是 0。
+func probeLatency() int64 {
+	start := time.Now()
+	c, err := net.DialTimeout("tcp", probeTarget, 3*time.Second)
+	if err != nil {
+		return -1
+	}
+	_ = c.Close()
+	return time.Since(start).Milliseconds()
 }

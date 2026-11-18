@@ -66,6 +66,7 @@ func (a *API) handleAdminPool(w http.ResponseWriter, r *http.Request) {
 			"createdAt": n.CreatedAt,
 			"online":    has && rt.Healthy,
 			"idle":      rt.Idle,
+			"latencyMs": rt.LatencyMs,
 			"lastSeen":  rt.LastSeen,
 		}
 		if n.Enabled {

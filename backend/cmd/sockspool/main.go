@@ -54,6 +54,8 @@ const (
 	dialTimeout = 10 * time.Second
 	// 空闲连接到多久没被取用就回收（agent 会补新的）
 	idleTTL = 90 * time.Second
+	// 延迟探测间隔
+	latencyProbeInterval = 30 * time.Second
 )
 
 // tokenStore 保存「token -> 节点信息」，由主程序从文件加载并在变更时刷新。
@@ -138,10 +140,23 @@ func (c *tunnelConn) isClaimed() bool {
 type tunnelNode struct {
 	meta nodeMeta
 
-	mu    sync.Mutex
-	idle  []*tunnelConn
-	last  time.Time // 最后一次有任何活动
-	conns atomic.Int64
+	mu      sync.Mutex
+	idle    []*tunnelConn
+	last    time.Time // 最后一次有任何活动
+	latency int64     // 最近一次探测到的家宽出口延迟（ms），-1 表示探测失败
+	conns   atomic.Int64
+}
+
+func (n *tunnelNode) setLatency(ms int64) {
+	n.mu.Lock()
+	n.latency = ms
+	n.mu.Unlock()
+}
+
+func (n *tunnelNode) getLatency() int64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.latency
 }
 
 // take 取走一条空闲连接；没有则返回 nil。
@@ -232,17 +247,74 @@ func (r *registry) snapshot() []nodeStat {
 	out := make([]nodeStat, 0, len(r.nodes))
 	for _, n := range r.nodes {
 		st := nodeStat{
-			Index:    n.meta.Index,
-			Label:    n.meta.Label,
-			Idle:     n.idleCount(),
-			Healthy:  false,
-			LastSeen: n.last.Format(time.RFC3339),
+			Index:     n.meta.Index,
+			Label:     n.meta.Label,
+			Idle:      n.idleCount(),
+			Healthy:   false,
+			LatencyMs: n.getLatency(),
+			LastSeen:  n.last.Format(time.RFC3339),
 		}
 		st.Healthy = st.Idle > 0
 		out = append(out, st)
 	}
 	sortStat(out)
 	return out
+}
+
+// probeLatency 通过节点的一条空闲连接测延迟：下发 PING，agent 回 PONG <ms>。
+//
+// 用专用指令而不是真连一个目标站，好处是不占额外流量、也能测出
+// 「家宽出口本身」的延迟；连接被这条指令用掉后 agent 会自动补新的。
+func (r *registry) probeLatency(ctx context.Context) {
+	nodes := r.ordered()
+	for _, n := range nodes {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		go func(n *tunnelNode) {
+			tc := n.take()
+			if tc == nil {
+				n.setLatency(-1)
+				return
+			}
+			_ = tc.conn.SetDeadline(time.Now().Add(5 * time.Second))
+			if _, err := fmt.Fprintf(tc.conn, "PING\n"); err != nil {
+				_ = tc.conn.Close()
+				n.setLatency(-1)
+				return
+			}
+			line, err := tc.br.ReadString('\n')
+			_ = tc.conn.SetDeadline(time.Time{})
+			_ = tc.conn.Close() // PING 用完即弃，agent 会补新的
+			if err != nil {
+				n.setLatency(-1)
+				return
+			}
+			var ms int64
+			if _, e := fmt.Sscanf(strings.TrimSpace(line), "PONG %d", &ms); e != nil {
+				n.setLatency(-1)
+				return
+			}
+			n.setLatency(ms)
+		}(n)
+	}
+}
+
+// probeLoop 定期采集各节点延迟。
+func (r *registry) probeLoop(ctx context.Context) {
+	ticker := time.NewTicker(latencyProbeInterval)
+	defer ticker.Stop()
+	r.probeLatency(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.probeLatency(ctx)
+		}
+	}
 }
 
 // handleTunnel 处理一条来自 agent 的连接。
@@ -482,6 +554,11 @@ func main() {
 
 	reg := newRegistry(toks)
 	log.Printf("[sockspool] SOCKS5 %s，隧道 %s，状态 %s", *listen, *tunnel, *statsAddr)
+
+	// 定期采集各节点延迟，供后台展示
+	probeCtx, probeCancel := context.WithCancel(context.Background())
+	defer probeCancel()
+	go reg.probeLoop(probeCtx)
 
 	// 状态接口
 	go func() {
