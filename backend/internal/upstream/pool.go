@@ -235,7 +235,8 @@ func BuildUpdateScript(serverHost string, node store.PoolNode) string {
 	b.WriteString("# HShop 家宽节点 agent 升级脚本（节点 " + fmt.Sprint(node.Index) + "）\n")
 	b.WriteString("# 只替换二进制并重启服务，不改 token、不动配置\n")
 	b.WriteString("set -euo pipefail\n\n")
-	b.WriteString("DOWNLOAD_URL=" + shellQuote(base+"/api/pool/agent") + "\n\n")
+	b.WriteString("DOWNLOAD_URL=" + shellQuote(base+"/api/pool/agent") + "\n")
+	b.WriteString("NODE_IDX=" + fmt.Sprint(node.Index) + "\n\n")
 	b.WriteString(`TMP=$(mktemp)
 echo "[1/3] 下载最新 agent"
 if command -v curl >/dev/null 2>&1; then
@@ -287,7 +288,7 @@ else
 fi
 
 echo
-echo "升级完成：节点 " + fmt.Sprint(node.Index) + " 已运行最新 agent"
+echo "升级完成：节点 ${NODE_IDX} 已运行最新 agent"
 echo "约 30 秒后后台的延迟列会显示真实数值"
 `)
 	return b.String()
