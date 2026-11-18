@@ -142,7 +142,7 @@ func TestGoodsDetailProjection(t *testing.T) {
 		`"imgUrl":"https://upstream.example/a.png","dirIds":[1,2],"multiple":3,` +
 		`"goodsTags":[{"n":"x"}],"serviceTags":[{"n":"y"}],"limitBalance":88.5}`)
 	if _, e := db.Must().Exec(
-		"UPDATE products SET detail_json = ?, detail_synced_at = ? WHERE goods_id = 960002",
+		"UPDATE products SET final_price = 3.2, detail_json = ?, detail_synced_at = ? WHERE goods_id = 960002",
 		string(raw), 1,
 	); e != nil {
 		t.Fatalf("写入详情缓存失败: %v", e)
@@ -161,13 +161,20 @@ func TestGoodsDetailProjection(t *testing.T) {
 		t.Errorf("自营详情购买数量区间异常: %d~%d", detail.MinQuantity, detail.MaxQuantity)
 	}
 
-	// 上游：白名单投影
-	got, e := buildStoreDetail(960002, raw, false)
+	// 上游：白名单投影，且售价统一使用本站 final_price（不暴露上游成本 salesPrice=1.5）
+	up := store.GetProduct(960002)
+	if up == nil {
+		t.Fatal("商品 960002 不存在")
+	}
+	got, e := buildStoreDetail(960002, up, raw, false)
 	if e != nil {
 		t.Fatalf("构建上游详情失败: %v", e)
 	}
 	if got.GoodsID != 960002 || got.Name != "上游商品" || got.MaxQuantity != 10 || got.WarrantyDays != 30 {
 		t.Errorf("上游详情字段缺失: %+v", got)
+	}
+	if got.SalesPrice != 3.2 || got.FinalPrice != 3.2 {
+		t.Errorf("上游详情售价应为本站售价 3.2，不应暴露上游成本价: %+v", got)
 	}
 	// 图片换成本地代理地址，不再暴露上游域名
 	if !strings.HasPrefix(got.ImgURL, "/api/img/") {
