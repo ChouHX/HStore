@@ -177,6 +177,80 @@ func FetchStockCounts(ids []int, max int) map[int]int {
 	return out
 }
 
+// UpstreamSnapshot 是一个商品从上游取到的最新状态。
+type UpstreamSnapshot struct {
+	Stock int     // 可用库存
+	Cost  float64 // 上游售价，即我们的成本价
+	// HasCost 为 false 表示上游没给价格（或为 0），此时不应覆盖本地成本价
+	HasCost bool
+}
+
+// FetchSnapshots 批量拉取商品的库存与成本价。
+//
+// 与 FetchStockCounts 走同一个详情接口，但把 salesPrice 也带回来——
+// 上游涨价后如果只同步库存不同步成本，售价会停留在旧价，
+// 出现「卖一单亏一单」（线上 2026-11-25 就出过一笔 -0.09 的订单）。
+func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
+	if max <= 0 {
+		max = 20
+	}
+	seen := map[int]bool{}
+	uniq := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] || len(uniq) >= max {
+			continue
+		}
+		seen[id] = true
+		uniq = append(uniq, id)
+	}
+	out := make(map[int]UpstreamSnapshot, len(uniq))
+	if len(uniq) == 0 {
+		return out
+	}
+	type result struct {
+		id   int
+		snap UpstreamSnapshot
+	}
+	jobs := make(chan int)
+	results := make(chan result, len(uniq))
+	workers := 4
+	if len(uniq) < workers {
+		workers = len(uniq)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for id := range jobs {
+				if detail, err := GetDetail(id); err == nil {
+					snap := UpstreamSnapshot{Stock: detail.StockCount}
+					if detail.SalesPrice > 0 {
+						snap.Cost = detail.SalesPrice
+						snap.HasCost = true
+					}
+					results <- result{id: id, snap: snap}
+				}
+				time.Sleep(80 * time.Millisecond)
+			}
+		}()
+	}
+	go func() {
+		for _, id := range uniq {
+			jobs <- id
+		}
+		close(jobs)
+	}()
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	for item := range results {
+		out[item.id] = item.snap
+	}
+	return out
+}
+
 // SyncResult 是全量同步结果。
 type SyncResult struct {
 	OK         bool   `json:"ok"`

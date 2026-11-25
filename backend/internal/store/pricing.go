@@ -419,6 +419,28 @@ func UpdateStock(goodsID, stock int) {
 	_, _ = db.Must().Exec("UPDATE products SET stock_count = ?, stock_synced_at = ? WHERE goods_id = ?", stock, now(), goodsID)
 }
 
+// UpdateCostPrice 更新上游商品成本价并同步库存。
+//
+// 只更新 fulfillment<>'self' 的上游商品：自营商品的成本由管理员自己维护。
+// 返回是否真的改了成本价（价格没变时返回 false，用于判断要不要重算售价）。
+func UpdateCostPrice(goodsID int, cost float64, stock int) bool {
+	if goodsID <= 0 || cost <= 0 {
+		return false
+	}
+	d := db.Must()
+	var old float64
+	e := d.QueryRow("SELECT COALESCE(cost_price,0) FROM products WHERE goods_id = ?", goodsID).Scan(&old)
+	if e != nil {
+		return false
+	}
+	// 成本价浮动小于 0.0001 视为没变，避免每轮同步都触发全量重算
+	changed := old < cost-0.00005 || old > cost+0.00005
+	_, _ = d.Exec(`UPDATE products SET cost_price = ?, stock_count = ?, stock_synced_at = ?
+		WHERE goods_id = ? AND COALESCE(fulfillment,'upstream') <> 'self'`,
+		cost, stock, now(), goodsID)
+	return changed
+}
+
 // StaleEnabledStockIDs 返回「在售的上游商品」里库存同步超过 maxAgeMS 的 ID。
 //
 // 只取 fulfillment <> 'self'：自营商品的库存来自本地卡密，不需要回源。

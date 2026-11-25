@@ -193,10 +193,26 @@ func syncStaleStock() int {
 	if len(ids) == 0 {
 		return 0
 	}
-	stocks := upstream.FetchStockCounts(ids, stockBatch)
-	for id, stock := range stocks {
-		store.UpdateStock(id, stock)
+	snaps := upstream.FetchSnapshots(ids, stockBatch)
+	priceChanged := 0
+	for id, snap := range snaps {
+		// 库存必更；成本价也一起更——只更库存会导致上游涨价后售价还是旧的，
+		// 卖一单亏一单（2026-11-25 出现过 -0.09 的订单）。
+		if snap.HasCost {
+			if store.UpdateCostPrice(id, snap.Cost, snap.Stock) {
+				priceChanged++
+			}
+		} else {
+			store.UpdateStock(id, snap.Stock)
+		}
 	}
+	// 有成本价变化就重算全站售价，让加价模板重新生效
+	if priceChanged > 0 {
+		n := store.RecomputeAllPrices()
+		upstream.SyncSelfFallbackPrices()
+		log.Printf("[hstore] 成本价变更 %d 个，已重算 %d 个商品售价", priceChanged, n)
+	}
+	stocks := snaps
 	if len(stocks) > 0 {
 		log.Printf("[hstore] 库存同步: %d/%d 个商品已更新", len(stocks), len(ids))
 	} else {
