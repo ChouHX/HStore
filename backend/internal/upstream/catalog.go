@@ -3,6 +3,7 @@ package upstream
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -211,6 +212,10 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 		id   int
 		snap UpstreamSnapshot
 	}
+	var (
+		failMu    sync.Mutex
+		failCount int
+	)
 	jobs := make(chan int)
 	results := make(chan result, len(uniq))
 	// 必须串行：上游限流对并发非常敏感。实测单请求连续 5 次全通，
@@ -239,6 +244,14 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 						snap.HasCost = true
 					}
 					results <- result{id: id, snap: snap}
+				} else {
+					// 记录前几个失败原因，便于判断是限流还是接口变更
+					failMu.Lock()
+					if failCount < 5 {
+						log.Printf("[upstream] 拉取商品 %d 失败: %v", id, err)
+						failCount++
+					}
+					failMu.Unlock()
 				}
 				time.Sleep(600 * time.Millisecond)
 			}
