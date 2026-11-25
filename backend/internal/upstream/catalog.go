@@ -213,10 +213,10 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 	}
 	jobs := make(chan int)
 	results := make(chan result, len(uniq))
-	// 并发与间隔要保守：上游有 WAF 限流，4 并发 + 80ms 时整轮会全部失败
-	// （2026-11-25 实测 41 个商品全挂）。现在半小时才一轮，时间充裕，
-	// 用 2 并发 + 250ms 间隔，并对失败做一次重试。
-	workers := 2
+	// 必须串行：上游限流对并发非常敏感。实测单请求连续 5 次全通，
+	// 但 4 并发 + 80ms 整轮全挂、2 并发 + 250ms 仍有 2/3 失败。
+	// 半小时一轮时间充裕，串行 230 个 × 600ms ≈ 2.3 分钟完全够用。
+	workers := 1
 	if len(uniq) < workers {
 		workers = len(uniq)
 	}
@@ -240,7 +240,7 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 					}
 					results <- result{id: id, snap: snap}
 				}
-				time.Sleep(250 * time.Millisecond)
+				time.Sleep(600 * time.Millisecond)
 			}
 		}()
 	}

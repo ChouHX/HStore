@@ -192,8 +192,10 @@ func stockLoop(ctx context.Context) {
 // 间隔可在后台「系统设置」调整（store.GetSyncIntervalMinutes），
 // 运行时每轮重新读取，改完无需重启。
 const (
-	// stockBatch 是单轮最多刷新的商品数
-	stockBatch = 200
+	// stockBatch 是单轮最多刷新的商品数。
+	// 上游限流要求串行拉取（约 600ms/个），一轮 80 个 ≈ 50 秒，
+	// 剩下的一分钟后补上，不会让单轮拖太久。
+	stockBatch = 80
 	// stockTickMin 是 ticker 的最小粒度；实际是否开跑由「距上次同步是否
 	// 超过配置间隔」决定，这样改配置能在一个 tick 内生效
 	stockTickMin = time.Minute
