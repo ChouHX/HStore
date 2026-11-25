@@ -1581,6 +1581,9 @@ func (a *API) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 		"hasCookie": cookie != "", "cookieAt": store.GetCookieAt(), "cookiePreview": preview,
 		"redeemPurchaseUrl": store.GetRedeemPurchaseURL(),
 		"adminNotifyEmail":  store.GetAdminNotifyEmail(),
+		"syncInterval":      store.GetSyncIntervalMinutes(),
+		"syncIntervalMin":   store.SyncIntervalMinMinutes,
+		"syncIntervalMax":   store.SyncIntervalMaxMinutes,
 	})
 }
 
@@ -1608,6 +1611,7 @@ func (a *API) handleAdminSettingsPost(w http.ResponseWriter, r *http.Request) {
 		AppSecret         string `json:"appSecret"`
 		RedeemPurchaseURL string `json:"redeemPurchaseUrl"`
 		AdminNotifyEmail  string `json:"adminNotifyEmail"`
+		SyncInterval      int    `json:"syncInterval"`
 	}
 	if e := readJSON(r, &body); e != nil {
 		fail(w, http.StatusBadRequest, "参数错误")
@@ -1631,6 +1635,12 @@ func (a *API) handleAdminSettingsPost(w http.ResponseWriter, r *http.Request) {
 		store.SaveRedeemPurchaseURL(u)
 		store.WriteAudit(&admin.UID, "settings_site_save", "", "", nil, map[string]any{"redeemPurchaseUrl": u}, "保存商城设置")
 		ok(w, map[string]any{"redeemPurchaseUrl": u})
+		return
+	case "saveSyncInterval":
+		saved := store.SaveSyncIntervalMinutes(body.SyncInterval)
+		store.WriteAudit(&admin.UID, "settings_sync_interval", "", "", nil,
+			map[string]any{"minutes": saved}, "保存同步间隔")
+		ok(w, map[string]any{"syncInterval": saved})
 		return
 	case "saveNotifyEmail":
 		// 库存预警收件邮箱；留空表示关闭邮件预警（仍会写日志）。

@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Card, Input, Message, Space, Tabs, Tag } from "@arco-design/web-react";
+import { Button, Card, Input, InputNumber, Message, Space, Tabs, Tag } from "@arco-design/web-react";
 import { useCallback, useEffect, useState } from "react";
 import { SmtpSection } from "@/components/admin/SmtpSection";
 import { PoolNodesPanel } from "@/components/admin/PoolNodesPanel";
@@ -15,6 +15,10 @@ interface SettingsData {
   cookiePreview: string;
   redeemPurchaseUrl?: string;
   adminNotifyEmail?: string;
+  /** 上游商品同步间隔（分钟），后台可调 */
+  syncInterval?: number;
+  syncIntervalMin?: number;
+  syncIntervalMax?: number;
 }
 
 export function SettingsSection() {
@@ -24,9 +28,11 @@ export function SettingsSection() {
   const [appSecret, setAppSecret] = useState("");
   const [redeemUrl, setRedeemUrl] = useState("");
   const [notifyEmail, setNotifyEmail] = useState("");
+  const [syncInterval, setSyncInterval] = useState(30);
   const [saving, setSaving] = useState(false);
   const [savingSite, setSavingSite] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [savingSync, setSavingSync] = useState(false);
   const [testing, setTesting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -38,6 +44,7 @@ export function SettingsSection() {
       setAppId(j.appId);
       setRedeemUrl(j.redeemPurchaseUrl ?? "");
       setNotifyEmail(j.adminNotifyEmail ?? "");
+      setSyncInterval(Number(j.syncInterval) || 30);
     } else {
       Message.error(j.message ?? "加载失败");
     }
@@ -114,6 +121,23 @@ export function SettingsSection() {
       else Message.error(j.message ?? "保存失败");
     } finally {
       setSavingSite(false);
+    }
+  }
+
+  async function saveSyncInterval() {
+    setSavingSync(true);
+    try {
+      const j = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "saveSyncInterval", syncInterval }),
+      }).then((r) => r.json());
+      if (j.ok) {
+        Message.success(`同步间隔已保存：每 ${j.syncInterval} 分钟一轮`);
+        await load();
+      } else Message.error(j.message ?? "保存失败");
+    } finally {
+      setSavingSync(false);
     }
   }
 
@@ -223,6 +247,33 @@ export function SettingsSection() {
           </Space>
           <p className="text-[11px] text-[#86909c]">
             配置后会显示在「充值 / 兑换」页面，引导用户跳转购买兑换码。
+          </p>
+        </div>
+      </Card>
+
+      <Card title="商品同步间隔" bordered={false}>
+        <div className="flex flex-col gap-3">
+          <div>
+            <div className="mb-1 text-[12px] text-[#4e5969]">同步间隔（分钟）</div>
+            <InputNumber
+              value={syncInterval}
+              min={data?.syncIntervalMin ?? 5}
+              max={data?.syncIntervalMax ?? 1440}
+              step={5}
+              precision={0}
+              style={{ width: "100%" }}
+              onChange={(v) => setSyncInterval(Number(v) || 30)}
+            />
+          </div>
+          <Space>
+            <Button type="primary" loading={savingSync} onClick={saveSyncInterval}>
+              保存间隔
+            </Button>
+          </Space>
+          <p className="text-[11px] leading-relaxed text-[#86909c]">
+            后台会按此间隔从上游拉取商品的<b>库存与成本价</b>，成本变化后自动重算售价。
+            间隔越短价格越准，但对上游请求越多（上游有 WAF 限流，建议 15~60 分钟）。
+            默认 30 分钟，改完约 1 分钟内生效，无需重启。
           </p>
         </div>
       </Card>

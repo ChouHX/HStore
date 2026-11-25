@@ -140,12 +140,15 @@ func alipayLoop(ctx context.Context) {
 	}
 }
 
-// stockLoop 后台定时同步上游商品库存。
+// stockLoop 后台定时同步上游商品的库存与成本价。
 //
 // 库存不再跟着「用户打开首页」刷新：那会让每个访客都替全站商品回源一次上游，
-// 首屏还得等它。改成后台每 stockTick 取一批最久没同步的在售上游商品，
-// 用 4 并发 + 80ms 间隔慢慢刷完（229 个商品约 18 秒），前端列表直接读本地
-// stock_count 即可；用户点「购买」时才用 fresh=1 单独回源拿实时库存。
+// 首屏还得等它。改成后台按配置的间隔（默认 30 分钟，后台可调）取一批最久
+// 没同步的在售上游商品，4 并发 + 80ms 间隔慢慢刷完，前端列表直接读本地
+// stock_count；用户点「购买」时才用 fresh=1 单独回源拿实时库存。
+//
+// 成本价必须和库存一起同步：只更库存会导致上游涨价后售价还是旧的，
+// 出现负毛利订单（2026-11-25 的 -0.09 就是这么来的）。
 func stockLoop(ctx context.Context) {
 	// 启动后先等一会儿，避免和首屏流量、其它启动任务抢上游配额。
 	select {
@@ -153,9 +156,21 @@ func stockLoop(ctx context.Context) {
 		return
 	case <-time.After(20 * time.Second):
 	}
-	ticker := time.NewTicker(stockTick)
+	ticker := time.NewTicker(stockTickMin)
 	defer ticker.Stop()
+	var lastRun time.Time
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		// 每 tick 重新读配置：后台改完间隔一个 tick 内就生效
+		interval := time.Duration(store.GetSyncIntervalMinutes()) * time.Minute
+		if !lastRun.IsZero() && time.Since(lastRun) < interval {
+			continue
+		}
+		lastRun = time.Now()
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -164,24 +179,24 @@ func stockLoop(ctx context.Context) {
 			}()
 			syncStaleStock()
 		}()
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
 	}
 }
 
-// stockTick 是库存同步周期；配合 stockBatch 决定单个商品的最长刷新间隔。
+// 同步节奏
 //
-// 当前在售上游商品约 230 个：每轮最多 120 个、每 2 分钟一轮，
-// 每个商品的库存大约每 6 分钟被刷新一次（stockAgeMS 即这个上限），
-// 单轮耗时 3~8 秒（4 并发 + 80ms 间隔，见 upstream.FetchStockCounts）。
-// 上游负载 ≈ 40 次/分钟，远低于以前「每个访客每次翻页都刷 20 个」的量。
+// 每轮把所有「超过一个间隔没同步」的商品刷一遍，因此：
+//   - 单个商品的实际刷新周期 ≈ 配置的间隔（默认 30 分钟）
+//   - 一轮里要刷完全部在售商品，所以 stockBatch 取 200 覆盖当前约 230 个
+//     中的绝大多数，剩下的下一轮补上
+//
+// 间隔可在后台「系统设置」调整（store.GetSyncIntervalMinutes），
+// 运行时每轮重新读取，改完无需重启。
 const (
-	stockTick  = 2 * time.Minute
-	stockAgeMS = 6 * 60 * 1000 // 超过 6 分钟未同步视为陈旧
-	stockBatch = 120           // 每轮最多刷新 120 个
+	// stockBatch 是单轮最多刷新的商品数
+	stockBatch = 200
+	// stockTickMin 是 ticker 的最小粒度；实际是否开跑由「距上次同步是否
+	// 超过配置间隔」决定，这样改配置能在一个 tick 内生效
+	stockTickMin = time.Minute
 )
 
 // syncStaleStock 刷新一批陈旧商品的库存，返回本轮实际更新的商品数。
@@ -189,7 +204,9 @@ func syncStaleStock() int {
 	if !upstream.IsConfigured() {
 		return 0
 	}
-	ids := store.StaleEnabledStockIDs(stockAgeMS, stockBatch)
+	// 陈旧阈值 = 配置的同步间隔：超过一个周期没同步的商品才需要刷新
+	ageMS := int64(store.GetSyncIntervalMinutes()) * 60 * 1000
+	ids := store.StaleEnabledStockIDs(ageMS, stockBatch)
 	if len(ids) == 0 {
 		return 0
 	}
