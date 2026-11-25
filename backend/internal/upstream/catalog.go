@@ -213,7 +213,10 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 	}
 	jobs := make(chan int)
 	results := make(chan result, len(uniq))
-	workers := 4
+	// 并发与间隔要保守：上游有 WAF 限流，4 并发 + 80ms 时整轮会全部失败
+	// （2026-11-25 实测 41 个商品全挂）。现在半小时才一轮，时间充裕，
+	// 用 2 并发 + 250ms 间隔，并对失败做一次重试。
+	workers := 2
 	if len(uniq) < workers {
 		workers = len(uniq)
 	}
@@ -223,7 +226,13 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 		go func() {
 			defer wg.Done()
 			for id := range jobs {
-				if detail, err := GetDetail(id); err == nil {
+				detail, err := GetDetail(id)
+				if err != nil {
+					// 失败重试一次：限流多半是瞬时的
+					time.Sleep(500 * time.Millisecond)
+					detail, err = GetDetail(id)
+				}
+				if err == nil {
 					snap := UpstreamSnapshot{Stock: detail.StockCount}
 					if detail.SalesPrice > 0 {
 						snap.Cost = detail.SalesPrice
@@ -231,7 +240,7 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 					}
 					results <- result{id: id, snap: snap}
 				}
-				time.Sleep(80 * time.Millisecond)
+				time.Sleep(250 * time.Millisecond)
 			}
 		}()
 	}
