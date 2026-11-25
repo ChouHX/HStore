@@ -236,10 +236,9 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 	)
 	jobs := make(chan int)
 	results := make(chan result, len(uniq))
-	// 必须串行且间隔足够大：上游限流对并发/频率都敏感。
-	// 实测 4 并发 + 80ms 整轮全挂、2 并发 + 250ms 仍有 2/3 失败、
-	// 1 并发 + 600ms 在配额已消耗时仍会命中「请求过于频繁」。
-	// 半小时一轮时间充裕，80 个 × 1.5s ≈ 2 分钟，完全够用。
+	// 必须串行且间隔足够大：上游限流按「分钟窗口内的请求数」统计，
+	// 实测 4 并发+80ms / 2 并发+250ms / 1 并发+600ms / 1 并发+1.5s
+	// 都会命中「请求过于频繁」。3 秒/个 ≈ 20 次/分钟是安全水位。
 	workers := 1
 	if len(uniq) < workers {
 		workers = len(uniq)
@@ -251,9 +250,9 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 			defer wg.Done()
 			for id := range jobs {
 				detail, err := GetDetail(id)
-				if err != nil {
-					// 失败重试一次：限流多半是瞬时的
-					time.Sleep(2 * time.Second)
+				if err != nil && !IsGoneError(err) {
+					// 限流退避：等久一点再重试一次，别把窗口配额继续打满
+					time.Sleep(5 * time.Second)
 					detail, err = GetDetail(id)
 				}
 				if err == nil {
@@ -278,7 +277,7 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 					}
 					failMu.Unlock()
 				}
-				time.Sleep(1500 * time.Millisecond)
+				time.Sleep(3 * time.Second)
 			}
 		}()
 	}
