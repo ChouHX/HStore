@@ -419,6 +419,17 @@ func UpdateStock(goodsID, stock int) {
 	_, _ = db.Must().Exec("UPDATE products SET stock_count = ?, stock_synced_at = ? WHERE goods_id = ?", stock, now(), goodsID)
 }
 
+// DisableProduct 把商品下架（上游已删除该商品时调用）。
+//
+// 只改 enabled=0，不删行：历史订单还要靠它反查商品名与价格。
+func DisableProduct(goodsID int) {
+	if goodsID <= 0 {
+		return
+	}
+	_, _ = db.Must().Exec(`UPDATE products SET enabled = 0, updated_at = ?
+		WHERE goods_id = ? AND COALESCE(fulfillment,'upstream') <> 'self'`, now(), goodsID)
+}
+
 // UpdateCostPrice 更新上游商品成本价并同步库存。
 //
 // 只更新 fulfillment<>'self' 的上游商品：自营商品的成本由管理员自己维护。

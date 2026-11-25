@@ -178,6 +178,23 @@ func FetchStockCounts(ids []int, max int) map[int]int {
 	return out
 }
 
+// IsGoneError 判断错误是否表示「商品在上游已不存在」。
+//
+// 这类商品每轮都拉一次纯属浪费配额（实测一轮 80 个里有 40+ 个是这种），
+// 应该直接下架，不再参与后续同步。
+func IsGoneError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range []string{"商品不存在", "404", "Not Found", "商品详情为空"} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // UpstreamSnapshot 是一个商品从上游取到的最新状态。
 type UpstreamSnapshot struct {
 	Stock int     // 可用库存
@@ -215,6 +232,7 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 	var (
 		failMu    sync.Mutex
 		failCount int
+		goneCount int
 	)
 	jobs := make(chan int)
 	results := make(chan result, len(uniq))
@@ -244,6 +262,12 @@ func FetchSnapshots(ids []int, max int) map[int]UpstreamSnapshot {
 						snap.HasCost = true
 					}
 					results <- result{id: id, snap: snap}
+				} else if IsGoneError(err) {
+					// 上游已下架：直接停用，避免每轮都白拉一次
+					store.DisableProduct(id)
+					failMu.Lock()
+					goneCount++
+					failMu.Unlock()
 				} else {
 					// 记录前几个失败原因，便于判断是限流还是接口变更
 					failMu.Lock()
